@@ -63,6 +63,17 @@ ${mentionClosing} Cierra con \`icon ✅\` o \`⚠️\` según tu veredicto.`
   : mode === 'created' ? `# Activación
 
 El card ACABA DE CREARSE en el board${i.creatorId ? ` (creador: user id \`${i.creatorId}\` — si tu rol asigna Owner, usa \`${i.ncardPath} setpeople ${i.pageId} Owner ${i.creatorId}\`; si falla porque el creador es un bot, déjalo y anótalo)` : ''}. Haz el triage según tu rol y responde con \`comment\`. NO muevas el card de columna.`
+  : !i.nextState ? `# Protocolo de cierre (obligatorio)
+
+Esta fase NO mueve el card: se queda en su columna y un humano decide el siguiente paso.
+Por eso acá el COMENTARIO es obligatorio — es la única señal de que terminaste.
+
+Al terminar tu trabajo de fase:
+1. Publica tu resultado en el card (\`append\`).
+2. **Éxito** → \`icon ✅\` + \`comment\` de 1-2 líneas: qué dejaste hecho y qué tiene que decidir el humano.
+3. **Éxito con preguntas abiertas** → \`icon ⚠️\` + \`comment\` con las preguntas.
+4. **Bloqueado** (no puedes completar la fase con lo que hay) → \`icon ⚠️\` + \`comment\` explicando el bloqueo concreto.
+5. NUNCA uses \`move\`: mover el card es decisión humana en este board.`
   : `# Protocolo de cierre (obligatorio)
 
 Al terminar tu trabajo de fase:

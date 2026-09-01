@@ -6,7 +6,7 @@
   "description": "Agents that work your board, in your tools \u2014 humans keep the gates. Notion/Slack \u2192 Claude Code, self-hosted.",
   "scripts": {
     "start": "node src/server.ts",
-    "test": "node test/bridge-config.test.mjs && node test/board-detect.test.mjs && node test/router.test.mjs && node test/webhook.test.mjs",
+    "test": "node test/bridge-config.test.mjs && node test/board-detect.test.mjs && node test/stay-phase.test.mjs && node test/router.test.mjs && node test/webhook.test.mjs",
     "validate": "node src/validate.ts",
     "dev": "node --watch-path=src --watch-path=agents --watch-path=config --watch-path=.env --watch-preserve-output src/server.ts",
     "setup": "node src/setup.ts",

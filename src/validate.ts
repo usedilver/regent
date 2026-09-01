@@ -14,7 +14,7 @@ loadEnv()
 try {
   const b = loadBridge(process.argv[2])
   console.log(`✓ config: ${b.configDir}`)
-  console.log(`  estados: ${b.config.states.map(s => s.name + (s.trigger ? `→${s.trigger}` : '')).join(' · ')}`)
+  console.log(`  estados: ${b.config.states.map(s => s.name + (s.trigger ? `→${s.trigger}${s.agent_stays ? ' (se queda)' : ''}` : '')).join(' · ')}`)
   for (const [name, a] of Object.entries(b.config.agents)) {
     const native = b.agents.get(name)!
     const trig = [

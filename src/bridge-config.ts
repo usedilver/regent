@@ -24,6 +24,13 @@ const StateSchema = z.object({
   trigger: z.string().min(1).optional(),
   /** a dónde mueve el agente el card al terminar */
   agent_moves_to: z.string().min(1).optional(),
+  /**
+   * El agente trabaja y NO mueve el card: un humano decide el siguiente paso.
+   * Para boards sin compuerta después de la fase. Explícito a propósito —
+   * omitir `agent_moves_to` por olvido sigue siendo un error de config.
+   * Con esto el comentario del agente pasa a ser obligatorio: es la única señal.
+   */
+  agent_stays: z.boolean().optional(),
   /** la fase corre en un git worktree aislado (rama agent/<id>) */
   use_worktree: z.boolean().optional(),
   gate: z.enum(['human']).optional(),
@@ -222,8 +229,14 @@ export function loadBridge(configDir: string = process.env.BRIDGE_CONFIG_DIR ?? 
     if (s.agent_moves_to && !stateByName[s.agent_moves_to]) {
       errors.push(`estado "${s.name}": agent_moves_to apunta a "${s.agent_moves_to}" que no es un estado`)
     }
-    if (s.trigger && !s.agent_moves_to) {
-      errors.push(`estado "${s.name}": tiene trigger pero no agent_moves_to`)
+    if (s.agent_stays && s.agent_moves_to) {
+      errors.push(`estado "${s.name}": agent_stays y agent_moves_to son excluyentes — o se queda, o se mueve`)
+    }
+    if (s.agent_stays && !s.trigger) {
+      errors.push(`estado "${s.name}": agent_stays sin trigger no significa nada (ningún agente corre acá)`)
+    }
+    if (s.trigger && !s.agent_moves_to && !s.agent_stays) {
+      errors.push(`estado "${s.name}": tiene trigger pero no agent_moves_to (si el card debe quedarse, pon "agent_stays": true)`)
     }
   }
   if (config.pr_merged_moves_to && !stateByName[config.pr_merged_moves_to]) {

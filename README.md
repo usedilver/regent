@@ -88,6 +88,10 @@ Ningún nombre de propiedad está hardcodeado: si tu board está en inglés o le
 ```
 
 - `trigger` = nombre del agent en `.claude/agents/` que corre al ENTRAR a la columna.
+- `agent_moves_to` / `agent_stays` = qué pasa al terminar. Con `"agent_stays": true` el card
+  **no se mueve** (para boards sin compuerta después de la fase) y el agente avisa por
+  comentario — que ahí pasa a ser obligatorio, porque es la única señal. Son excluyentes, y
+  un `trigger` sin ninguno de los dos sigue siendo un error de config, no un "se queda".
 - `agents.<n>.triggers.mentions` = textos que activan al agent desde un comentario (`@qa`); `triggers.page_created` = corre al crearse un card (rol triage). Requieren los eventos `comment.created` / `page.created` en la suscripción del webhook.
 - `allowed_tools` = permisos de launch (sintaxis del CLI); el bridge agrega siempre `Bash(ncard)`.
 - Modelo: `model_property` del card > frontmatter del agent > default del CLI.

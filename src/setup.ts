@@ -135,15 +135,19 @@ async function adoptBoard(ref: string): Promise<void> {
     const a = await ask(`  ${q}${allowNone ? ' (0 = ninguna)' : ''}`, def)
     return Number(a) - 1
   }
+  // 0 = el card se queda donde está y el agente avisa por comentario: hay boards
+  // sin compuerta después de una fase, y forzar un destino inventa una columna.
+  const moveTo = async (label: string, re: RegExp): Promise<number> =>
+    pick(`  → ¿a qué columna mueve el card al terminar? (0 = se queda donde está, avisa por comentario)${label}`, re, true)
   const iPlan = await pick('¿Qué columna dispara al PM (planificar)?', /plan/i, true)
-  const iPlanTo = iPlan >= 0 ? await pick('  → ¿a qué columna mueve el card al terminar?', /review|revis/i) : -1
+  const iPlanTo = iPlan >= 0 ? await moveTo('', /review|revis/i) : -1
   const iImpl = await pick('¿Qué columna dispara al DEV (codear)?', /progress|desarrollo|develop|doing|impl|curso/i, true)
-  const iImplTo = iImpl >= 0 ? await pick('  → ¿a qué columna mueve al terminar?', /test|qa|review/i) : -1
+  const iImplTo = iImpl >= 0 ? await moveTo('', /test|qa|review/i) : -1
 
   const states = options.map((o, i) => {
     const s: Record<string, unknown> = { name: o.name, color: o.color, group: normalizeGroup(groupOf[o.id]) }
-    if (i === iPlan) { s.trigger = 'pm'; s.agent_moves_to = options[iPlanTo]?.name }
-    if (i === iImpl) { s.trigger = 'dev'; s.agent_moves_to = options[iImplTo]?.name; s.use_worktree = true }
+    if (i === iPlan) { s.trigger = 'pm'; if (iPlanTo >= 0) s.agent_moves_to = options[iPlanTo]?.name; else s.agent_stays = true }
+    if (i === iImpl) { s.trigger = 'dev'; if (iImplTo >= 0) s.agent_moves_to = options[iImplTo]?.name; else s.agent_stays = true; s.use_worktree = true }
     if (normalizeGroup(groupOf[o.id]) === 'Complete') s.terminal = true
     return s
   })
@@ -418,8 +422,9 @@ function writeDefaultWorkflow(): void {
 // ---- 4. process.md: la narrativa del proceso, editable, se inyecta a todos los agentes ----
 const processPath = path.join(BRIDGE_DIR, 'config', 'process.md')
 if (!fs.existsSync(processPath) && fs.existsSync(wfPath)) {
-  const wf = JSON.parse(fs.readFileSync(wfPath, 'utf8')) as { states: Array<{ name: string; trigger?: string; gate?: string; terminal?: boolean; agent_moves_to?: string }> }
+  const wf = JSON.parse(fs.readFileSync(wfPath, 'utf8')) as { states: Array<{ name: string; trigger?: string; gate?: string; terminal?: boolean; agent_moves_to?: string; agent_stays?: boolean }> }
   const lines = wf.states.map(s => {
+    if (s.trigger && s.agent_stays) return `- **${s.name}**: la trabaja el agente \`${s.trigger}\`; el card NO se mueve — el agente avisa por comentario y un humano decide el siguiente paso.`
     if (s.trigger) return `- **${s.name}**: la trabaja el agente \`${s.trigger}\`; al terminar mueve el card a "${s.agent_moves_to}".`
     if (s.gate) return `- **${s.name}**: compuerta humana — un humano revisa y decide (drag o mención para continuar).`
     if (s.terminal) return `- **${s.name}**: estado final.`

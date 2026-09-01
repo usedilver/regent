@@ -314,7 +314,9 @@ async function handleComment(event: NotionEvent): Promise<void> {
   }
 
   if (targets.length === 0) {
-    // comentario del agente sin handoff = su "respuesta" → liberar lock de mention
+    // comentario del agente sin handoff = su "respuesta" → libera el lock. Es la
+    // única vía para fases con agent_stays (no hay movimiento que detectar), así
+    // que comment.created es OBLIGATORIO en la suscripción si usas alguna.
     if (isBot && inFlightPages.delete(pageId)) {
       jlog('release_in_flight', { page_id: pageId, reason: 'respuesta del agente (comment)' })
       void processQueued(pageId)

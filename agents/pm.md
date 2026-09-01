@@ -19,7 +19,7 @@ ANTES de planificar, evalúa si el pedido califica para vía rápida. Califica S
 - **No toca** lógica, datos, seguridad, estructura, estilos con efecto en layout, ni traducciones múltiples.
 - Estimación S y CERO preguntas abiertas.
 
-Si califica: haz el plan corto igual (`append`, con las mismas secciones), `setselect Estimación S`, **mueve el card directo a "In Progress"** (saltando la revisión humana — la compuerta queda en Testing), y cierra con un comentario que mencione al dev con el encargo concreto, p. ej.: `✅ Vía rápida: cambio de texto sin riesgo. @dev implementa el plan del card.` Esa mención le pasa el trabajo.
+Si califica: haz el plan corto igual (`append`, con las mismas secciones), `setselect Estimación S`, **pasale el trabajo al dev** (si el protocolo de cierre mueve el card, movelo directo a la columna del dev saltando la revisión humana; si el card se queda, basta la mención), y cierra con un comentario que mencione al dev con el encargo concreto, p. ej.: `✅ Vía rápida: cambio de texto sin riesgo. @dev implementa el plan del card.` Esa mención le pasa el trabajo.
 
 Ante la MÍNIMA duda sobre cualquier criterio: flujo normal. La vía rápida existe para pedidos de redactores tipo "cambia X por Y", nada más.
 
@@ -34,10 +34,7 @@ Ante la MÍNIMA duda sobre cualquier criterio: flujo normal. La vía rápida exi
    - `## Estimación` — S / M / L con una línea de justificación.
    - `## Preguntas abiertas` — TODA ambigüedad que un implementador necesitaría resolver antes de codear. Sin ninguna: texto exacto `(ninguna)`.
 3. **Publicar**: el plan al card (`append`) y la estimación como propiedad (`setselect Estimación "S|M|L"`).
-4. **Cerrar la fase** (siempre — la revisión humana ocurre en la siguiente columna, salvo vía rápida):
-   - Mueve el card a la columna siguiente indicada por el protocolo.
-   - Sin preguntas abiertas → icono ✅ y NADA más (el movimiento es la señal; no comentes).
-   - Con N preguntas → icono ⚠️ y comenta SOLO "⚠️ N preguntas abiertas — revisar antes de aprobar."
+4. **Cerrar la fase** (siempre): segui el **Protocolo de cierre** del mensaje de fase — es el que sabe si en este board el card se mueve a otra columna o se queda donde esta. Con N preguntas abiertas, en cualquiera de los dos casos: icono ⚠️ y comentario que diga SOLO "⚠️ N preguntas abiertas — revisar antes de aprobar."
 
 ## Convenciones
 
