@@ -12,6 +12,7 @@ import os from 'node:os'
 import { execFileSync } from 'node:child_process'
 import readline from 'node:readline/promises'
 import { BRIDGE_DIR } from './env.ts'
+import { detectProps, missingRequired, checkMappings, requiredRoleKeys, ROLE_TYPES, type BoardProps } from './board-detect.ts'
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
 const ask = async (q: string, def?: string): Promise<string> => {
@@ -62,7 +63,8 @@ const wfPath = path.join(BRIDGE_DIR, 'config', 'workflow.json')
 const wfExists = fs.existsSync(wfPath)
 console.log('\nBoard y workflow:')
 if (wfExists && env.DATABASE_ID) {
-  ok('workflow.json y board configurados — no los toco (borra workflow.json para re-derivar)')
+  ok('workflow.json y board ya configurados — verifico que sigan en sync (borra workflow.json para re-derivar de cero)')
+  await reconcileBoard()
 } else {
   const boardRef = await ask('  ¿Ya tienes un board? Pega su URL o ID (vacío = crear uno default)')
   if (boardRef && env.NOTION_TOKEN) {
@@ -102,7 +104,7 @@ async function adoptBoard(ref: string): Promise<void> {
   }
   const iPlan = await pick('¿Qué columna dispara al PM (planificar)?', /plan/i, true)
   const iPlanTo = iPlan >= 0 ? await pick('  → ¿a qué columna mueve el card al terminar?', /review|revis/i) : -1
-  const iImpl = await pick('¿Qué columna dispara al DEV (codear)?', /progress|desarrollo|doing|impl|curso/i, true)
+  const iImpl = await pick('¿Qué columna dispara al DEV (codear)?', /progress|desarrollo|develop|doing|impl|curso/i, true)
   const iImplTo = iImpl >= 0 ? await pick('  → ¿a qué columna mueve al terminar?', /test|qa|review/i) : -1
 
   const states = options.map((o, i) => {
@@ -118,65 +120,208 @@ async function adoptBoard(ref: string): Promise<void> {
   const docProp = await ask('  ¿Propiedad que enlaza al doc de proyecto? (vacío = sin doc)', 'Proyecto Doc')
 
   const appName = await ask('  ¿Cómo se llama tu app? (así firma en el chat y así la mencionas)', 'Regent')
+  const agents = defaultAgents()
   const detected = detectProps(ds.properties as BoardProps)
+
+  // Roles imprescindibles sin equivalente en el board: reciben el nombre default
+  // y se OFRECE crearlos. Lo existente jamás se toca.
+  const used = new Set<string>()
+  for (const v of Object.values(detected)) {
+    if (typeof v === 'string' && v) used.add(v)
+    else if (v && typeof v === 'object') used.add(v.property)
+  }
+  const boardProps = ds.properties as BoardProps
+  const resolved = { ...detected }
+  resolved.repo_property = detected.repo_property ?? await pickProp(boardProps, used, 'repo_property (URL del repo del card)', 'url', 'Repo')
+  resolved.pr_property = detected.pr_property ?? await pickProp(boardProps, used, 'pr_property (URL del PR)', 'url', 'PR')
+  resolved.agent_property = detected.agent_property ?? await pickProp(boardProps, used, 'agent_property (qué agent corre el card)', 'select', 'Agente')
+  resolved.hop_property = detected.hop_property ?? await pickProp(boardProps, used, 'hop_property (contador de handoffs)', 'number', 'Hop')
+  resolved.agent_filter = detected.agent_filter ?? await pickFilter(boardProps, used)
+  for (const [role, name] of Object.entries(resolved)) {
+    if (typeof name === 'string' && name) ok(`${role} → "${name}"${boardProps[name] ? ' (del board)' : ' (a crear)'}`)
+    else if (name && typeof name === 'object') ok(`agent_filter → "${name.property}" (skip: ${name.skip_value})${boardProps[name.property] ? ' (del board)' : ' (a crear)'}`)
+  }
+  const holes = missingRequired({ ...resolved, agents }, ds.properties as BoardProps)
+  if (holes.length) {
+    console.log(`  Sin equivalente en el board (imprescindibles para este workflow): ${holes.map(h => h.name).join(', ')}`)
+    const go = await ask('  ¿Las agrego al board? (solo agrega — lo existente no se toca) S/n', 'S')
+    if (/^\s*[sy]/i.test(go) || go === '') {
+      await notion.dataSources.update({
+        data_source_id: dsId,
+        properties: Object.fromEntries(holes.map(h => [h.name, h.shape])) as never,
+      })
+      ok(`agregadas: ${holes.map(h => h.name).join(', ')}`)
+    } else {
+      for (const h of holes) {
+        if (h.role === 'agent_property') resolved.agent_property = null
+        if (h.role === 'hop_property') resolved.hop_property = null
+        if (h.role === 'agent_filter') resolved.agent_filter = null
+      }
+      warn('sin agente+hop los handoffs declarados quedan desactivados; sin filtro ejecutor, TODO card en columna con trigger dispara agente')
+    }
+  }
+
+  const { participants_property, ...roleProps } = resolved
   const wf = {
     name: appName,
     status_property: statusProp,
-    ...detected,
+    ...roleProps,
+    ...(participants_property ? { participants_property } : {}),
     max_hops: 3,
     ...(mergedTo ? { pr_merged_moves_to: mergedTo } : {}),
     ...(docProp ? { project_doc_property: docProp } : {}),
     ...defaultBehavior(),
     states,
-    agents: defaultAgents(),
+    agents,
   }
   fs.mkdirSync(path.dirname(wfPath), { recursive: true })
   fs.writeFileSync(wfPath, JSON.stringify(wf, null, 2) + '\n')
   env.DATABASE_ID = db.id.replace(/-/g, '')
   env.DATA_SOURCE_ID = dsId
   ok('workflow.json derivado de TU board (edítalo cuando quieras) + IDs al .env')
-  const missing = Object.entries(detected)
-    .filter(([k, v]) => v === null && k.endsWith('_property'))
-    .map(([k]) => k.replace('_property', ''))
-  if (missing.length) {
-    console.log(`  ℹ tu board no tiene: ${missing.join(', ')} — el pipeline funciona sin ellas,`)
-    console.log('    pero handoffs entre agentes necesitan agent+hop (créalas o corre setup-board --apply)')
+}
+
+/**
+ * Modo update/doctor: el board del cliente manda. Verifica que los mapeos y los
+ * estados de workflow.json sigan reflejando el board real; adopta columnas nuevas,
+ * marca las eliminadas y re-matchea propiedades rotas. Del board solo puede
+ * AGREGAR huecos imprescindibles (preguntando) — jamás modifica lo existente.
+ */
+async function reconcileBoard(): Promise<void> {
+  if (!env.NOTION_TOKEN) return warn('sin NOTION_TOKEN no puedo verificar el board')
+  const { Client } = await import('@notionhq/client')
+  const notion = new Client({ auth: env.NOTION_TOKEN })
+
+  let dsId = env.DATA_SOURCE_ID
+  if (!dsId) {
+    const db = await notion.databases.retrieve({ database_id: env.DATABASE_ID }) as { data_sources?: Array<{ id: string }> }
+    dsId = db.data_sources?.[0]?.id ?? ''
+    if (dsId) env.DATA_SOURCE_ID = dsId
+  }
+  if (!dsId) return warn('no encontré el data source del board')
+  const ds = await notion.dataSources.retrieve({ data_source_id: dsId }) as { properties: BoardProps }
+  const props = ds.properties
+
+  const wf = JSON.parse(fs.readFileSync(wfPath, 'utf8')) as Record<string, unknown> & {
+    status_property: string
+    agent_filter?: { property: string; skip_value: string } | null
+    pr_merged_moves_to?: string
+    states: Array<Record<string, unknown> & { name: string; trigger?: string; gate?: string; agent_moves_to?: string }>
+    agents?: Record<string, { can_trigger?: string[] }>
+  }
+  let dirty = false
+
+  // 1. mapeos: cada propiedad configurada debe seguir en el board, escribible y del tipo esperado.
+  //    Un mapeo sano nunca se re-matchea (estabilidad); uno roto intenta re-match por tipo+propósito.
+  const issues = checkMappings(wf, props)
+  if (issues.length) {
+    const fresh = detectProps(props)
+    const inUse = new Set(Object.values(wf).filter((v): v is string => typeof v === 'string'))
+    for (const issue of issues) {
+      const detail = issue.problem === 'ausente' ? 'ya no está en el board' : `es ${issue.found} (${issue.problem})`
+      warn(`${issue.key} → "${issue.name}" ${detail}`)
+      if (issue.key === 'status_property') { warn('  sin propiedad Status no hay pipeline — eso se resuelve en Notion, no acá'); continue }
+      const roleKey = issue.key === 'agent_filter.property' ? 'agent_filter' : issue.key as keyof typeof fresh
+      const alt = roleKey === 'agent_filter' ? fresh.agent_filter?.property : fresh[roleKey as Exclude<keyof typeof fresh, 'agent_filter'>]
+      if (alt && !inUse.has(alt)) {
+        console.log(`    → re-mapeado a "${alt}" (match por tipo+propósito)`)
+        if (roleKey === 'agent_filter') wf.agent_filter = fresh.agent_filter
+        else (wf as Record<string, unknown>)[roleKey] = alt
+      } else {
+        const req = requiredRoleKeys(wf)
+        const isReq = roleKey === 'agent_filter' ? Boolean(wf.agent_filter) : req.has(roleKey as never)
+        if (isReq) {
+          // requerido: elegir de candidatos o re-crear con el nombre viejo (el paso de huecos la ofrece)
+          if (roleKey === 'agent_filter') wf.agent_filter = await pickFilter(props, inUse)
+          else (wf as Record<string, unknown>)[roleKey] = await pickProp(props, inUse, roleKey as string, ROLE_TYPES[roleKey as keyof typeof ROLE_TYPES], issue.name)
+        } else {
+          console.log('    → queda sin propiedad (null); el pipeline sigue sin esa capacidad')
+          if (roleKey === 'agent_filter') wf.agent_filter = null
+          else (wf as Record<string, unknown>)[roleKey] = null
+        }
+      }
+      dirty = true
+    }
+  } else ok('mapeos de propiedades en orden')
+
+  // 2. estados: el SET viene del board; el comportamiento (trigger/gate/moves) viaja por nombre
+  const statusDef = props[wf.status_property]?.status
+  if (statusDef) {
+    const groupOf: Record<string, string> = {}
+    for (const g of statusDef.groups) for (const oid of g.option_ids) groupOf[oid] = g.name
+    const byName = Object.fromEntries(wf.states.map(st => [st.name, st]))
+    const newStates = statusDef.options.map(o => {
+      const grp = normalizeGroup(groupOf[o.id])
+      const prev = byName[o.name]
+      if (prev) return { ...prev, color: o.color, ...(grp ? { group: grp } : {}) }
+      return { name: o.name, color: o.color, ...(grp ? { group: grp } : {}), ...(grp === 'Complete' ? { terminal: true } : {}) }
+    })
+    const removed = wf.states.filter(st => !statusDef.options.some(o => o.name === st.name))
+    const added = newStates.filter(st => !byName[st.name])
+    for (const st of removed) {
+      const lost = st.trigger ? ` — ¡tenía trigger ${st.trigger}!` : st.gate ? ' — era compuerta humana' : ''
+      warn(`columna eliminada del board: "${st.name}"${lost}`)
+    }
+    for (const st of added) console.log(`  + columna nueva adoptada: "${st.name}" (humana; asigna trigger/gate en workflow.json si corresponde)`)
+    if (JSON.stringify(newStates) !== JSON.stringify(wf.states)) { wf.states = newStates; dirty = true }
+    else ok('estados en sync con el board')
+
+    const names = new Set(newStates.map(st => st.name))
+    for (const st of newStates) {
+      if (st.agent_moves_to && !names.has(st.agent_moves_to as string)) warn(`"${st.name}".agent_moves_to apunta a "${st.agent_moves_to}" que ya no existe — corrígelo en workflow.json`)
+    }
+    if (wf.pr_merged_moves_to && !names.has(wf.pr_merged_moves_to)) warn(`pr_merged_moves_to apunta a "${wf.pr_merged_moves_to}" que ya no existe`)
+  }
+
+  // 3. huecos imprescindibles (p. ej. alguien borró Repo, o el workflow ganó handoffs)
+  const holes = missingRequired(wf as Parameters<typeof missingRequired>[0], props)
+  if (holes.length) {
+    console.log(`  Sin equivalente en el board (imprescindibles): ${holes.map(h => h.name).join(', ')}`)
+    const go = await ask('  ¿Las agrego al board? (solo agrega — lo existente no se toca) S/n', 'S')
+    if (/^\s*[sy]/i.test(go) || go === '') {
+      await notion.dataSources.update({
+        data_source_id: dsId,
+        properties: Object.fromEntries(holes.map(h => [h.name, h.shape])) as never,
+      })
+      ok(`agregadas: ${holes.map(h => h.name).join(', ')}`)
+    } else warn('quedan huecos: los roles imprescindibles sin propiedad no funcionan hasta crearla')
+  }
+
+  if (dirty) {
+    const go = await ask('  workflow.json quedó desactualizado respecto al board — ¿lo actualizo? S/n', 'S')
+    if (/^\s*[sy]/i.test(go) || go === '') {
+      fs.writeFileSync(wfPath, JSON.stringify(wf, null, 2) + '\n')
+      ok('workflow.json actualizado (comportamiento preservado por nombre de columna)')
+    } else warn('workflow.json quedó como estaba; validate puede reportar drift')
   }
 }
 
-type BoardProps = Record<string, { type?: string; select?: { options: Array<{ name: string }> } }>
-
 /**
- * Deriva los nombres de propiedad del board REAL en vez de asumirlos en español.
- * Cada rol se busca por tipo + nombre; lo que no está queda en null y el pipeline
- * simplemente no usa esa propiedad (el esquema las declara nullable).
+ * Selector para un rol sin match: lista las columnas del board del tipo correcto
+ * y el operador elige por número (0 = crear una nueva con el nombre default).
+ * Determinista y confirmado por humano — acá no decide ninguna heurística.
  */
-function detectProps(props: BoardProps) {
-  const find = (type: string, re: RegExp): string | null =>
-    Object.entries(props).find(([n, p]) => p.type === type && re.test(n))?.[0] ?? null
+async function pickProp(props: BoardProps, used: Set<string>, label: string, type: string, defName: string): Promise<string> {
+  const candidates = Object.keys(props).filter(n => props[n].type === type && !used.has(n))
+  if (!candidates.length) { used.add(defName); return defName }
+  console.log(`  ${label}: sin match automático. Columnas de tipo ${type} en tu board:`)
+  candidates.forEach((n, i) => console.log(`    ${i + 1}. ${n}`))
+  const a = await ask(`  ¿Cuál es? (0 = crear "${defName}")`, '0')
+  const i = Number(a)
+  const chosen = Number.isInteger(i) && i >= 1 && i <= candidates.length ? candidates[i - 1] : defName
+  used.add(chosen)
+  return chosen
+}
 
-  // "Ejecutor: Humano" — un select con una opción que significa humano marca las tareas que el bridge ignora
-  let agentFilter: { property: string; skip_value: string } | null = null
-  for (const [name, p] of Object.entries(props)) {
-    if (p.type !== 'select') continue
-    const human = p.select?.options.find(o => /humano|human|persona|manual/i.test(o.name))
-    if (human && /ejecutor|assignee|ejecuta|owner type|tipo/i.test(name)) {
-      agentFilter = { property: name, skip_value: human.name }
-      break
-    }
-  }
-
-  return {
-    repo_property: find('url', /repo|repositor/i) ?? 'Repo',
-    pr_property: find('url', /^pr$|pull|merge request/i) ?? 'PR',
-    agent_property: find('select', /agente|agent\b/i),
-    hop_property: find('number', /hop|salto/i),
-    model_property: find('select', /modelo|model/i),
-    progress_property: find('number', /progreso|progress|avance/i),
-    owner_property: find('people', /owner|dueñ|responsab/i),
-    participants_property: find('people', /involucrad|particip|watcher|equipo/i) ?? undefined,
-    agent_filter: agentFilter,
-  }
+/** Igual que pickProp pero para el filtro ejecutor: además elige qué opción significa "humano". */
+async function pickFilter(props: BoardProps, used: Set<string>): Promise<{ property: string; skip_value: string }> {
+  const property = await pickProp(props, used, 'agent_filter (quién ejecuta el card; marca las tareas humanas que el bridge ignora)', 'select', 'Ejecutor')
+  const options = props[property]?.select?.options ?? []
+  if (!options.length) return { property, skip_value: 'Humano' }
+  options.forEach((o, i) => console.log(`    ${i + 1}. ${o.name}`))
+  const guess = options.findIndex(o => /humano|human|manual|persona/i.test(o.name))
+  const a = await ask('  ¿Qué opción significa "lo hace un humano"?', String(guess >= 0 ? guess + 1 : 1))
+  return { property, skip_value: options[Number(a) - 1]?.name ?? options[0].name }
 }
 
 /** bloques de comportamiento comunes a todo workflow.json nuevo */
