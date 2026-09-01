@@ -529,6 +529,8 @@ async function setupSlackApp(): Promise<void> {
   const cfg = await ask('  App Configuration Token (xoxe.xoxp-…, vacío = sin Slack)\n' +
     '    api.slack.com/apps → "Your App Configuration Tokens" → Generate (expira en 12h)\n  →')
   if (!cfg) return void console.log('  ℹ sin Slack: el pipeline funciona igual (salas y menciones quedan off)')
+  // vive 12 h; guardarlo evita que `pnpm slack:roles` te haga generar otro acto seguido
+  if (!process.env.SLACK_CONFIG_TOKEN) persistEnv('SLACK_CONFIG_TOKEN', cfg)
 
   let appName = 'Regent'
   try { appName = (JSON.parse(fs.readFileSync(wfPath, 'utf8')) as { name?: string }).name ?? appName } catch { /* default */ }
@@ -595,7 +597,11 @@ try {
   execFileSync(process.execPath, [path.join(BRIDGE_DIR, 'src', 'validate.ts')], { stdio: 'inherit', env: { ...process.env, ...env } })
 } catch { warn('validate reportó problemas — corrige y re-corre pnpm setup') }
 
+const rolesPending = env.SLACK_BOT_TOKEN && Object.keys(JSON.parse(fs.existsSync(wfPath) ? fs.readFileSync(wfPath, 'utf8') : '{"agents":{}}').agents ?? {})
+  .some(r => !env[`SLACK_BOT_TOKEN_${r.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`])
+
 console.log(`\nSiguientes pasos:
+  0. ${rolesPending ? 'pnpm slack:roles  ← caras reales por rol (@PM, @Dev, @QA como menciones de verdad).\n     Es un paso aparte; usa el mismo config token que acabás de dar (vive 12 h).' : 'caras por rol ya configuradas ✓'}
   1. pnpm start  (o pnpm dev en desarrollo)
   2. Túnel con URL estable → suscripción del webhook de Notion en la UI de la conexión
      (eventos: page.properties_updated, comment.created, page.created)

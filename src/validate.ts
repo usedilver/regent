@@ -31,7 +31,18 @@ try {
   if (!reposRoot || !fs.existsSync(reposRoot)) {
     console.log(`  ✗ REPO_PATH no existe: "${reposRoot}"`)
   } else {
-    const repos = fs.readdirSync(reposRoot).filter(d => fs.existsSync(path.join(reposRoot, d, '.git')))
+    // mismo alcance que resolveCardRepo: los submódulos de un monorepo viven a
+    // dos niveles, y contar solo el primero reportaba "1 repo" con 19 clonados
+    const repos: string[] = []
+    const scan = (dir: string, depth: number): void => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (!e.isDirectory() || e.name.startsWith('.') || e.name === 'node_modules') continue
+        const full = path.join(dir, e.name)
+        if (fs.existsSync(path.join(full, '.git'))) repos.push(full)
+        if (depth < 3) scan(full, depth + 1)
+      }
+    }
+    scan(reposRoot, 1)
     console.log(`  repos en ${reposRoot}: ${repos.length} (el card elige con su propiedad Repo; sin Repo no se ejecuta)`)
   }
 } catch (err) {
