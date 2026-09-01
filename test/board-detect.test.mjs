@@ -108,4 +108,23 @@ check('propShape: las opciones de agente salen de los agents del workflow', () =
   assert.deepEqual(shape.select.options.map(o => o.name), ['pm', 'dev', 'qa'])
 })
 
+check('checkMappings: detecta project_doc_property inexistente', () => {
+  const issues = checkMappings({ status_property: 'Status', project_doc_property: 'Proyecto Doc' }, board)
+  const doc = issues.find(i => i.key === 'project_doc_property')
+  assert.equal(doc?.problem, 'ausente')
+})
+
+check('checkMappings: acepta el doc de proyecto como relation o url', () => {
+  const b = { ...board, 'Doc': { type: 'relation' }, 'Link': { type: 'url' } }
+  for (const n of ['Doc', 'Link']) {
+    const issues = checkMappings({ status_property: 'Status', project_doc_property: n }, b)
+    assert.equal(issues.find(i => i.key === 'project_doc_property'), undefined, n)
+  }
+})
+
+check('checkMappings: rechaza un doc de proyecto de tipo incompatible', () => {
+  const issues = checkMappings({ status_property: 'Status', project_doc_property: 'Description' }, { ...board, Description: { type: 'rich_text' } })
+  assert.equal(issues.find(i => i.key === 'project_doc_property')?.problem, 'tipo')
+})
+
 if (failed) { console.error(`\n${failed} fallaron`); process.exit(1) }

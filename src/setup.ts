@@ -152,10 +152,10 @@ async function adoptBoard(ref: string): Promise<void> {
     if (normalizeGroup(groupOf[o.id]) === 'Complete') s.terminal = true
     return s
   })
-  const terminals = states.filter(s => s.terminal).map(s => s.name as string)
-  const mergedDef = terminals.find(t => /done|complet|listo|termin/i.test(t)) ?? terminals[0] ?? ''
-  const mergedTo = await ask('  ¿A qué columna va un card cuando su PR se mergea? (vacío = off)', mergedDef)
-  const docProp = await ask('  ¿Propiedad que enlaza al doc de proyecto? (vacío = sin doc)', 'Proyecto Doc')
+  // Por número, igual que las otras preguntas de columna: pedir un NOMBRE acá
+  // invitaba a escribir el índice y dejaba un destino inexistente en el workflow.
+  const iMerged = await pick('¿A qué columna va un card cuando su PR se mergea? (0 = off)', /done|complet|listo|termin|final/i, true)
+  const mergedTo = iMerged >= 0 ? options[iMerged].name : ''
 
   const appName = await ask('  ¿Cómo se llama tu app? (así firma en el chat y así la mencionas)', 'Regent')
   const agents = defaultAgents()
@@ -163,6 +163,17 @@ async function adoptBoard(ref: string): Promise<void> {
 
   // Roles imprescindibles sin equivalente en el board: reciben el nombre default
   // y se OFRECE crearlos. Lo existente jamás se toca.
+  const docCandidates = Object.keys(ds.properties as BoardProps)
+    .filter(n => ['relation', 'url'].includes(((ds.properties as BoardProps)[n].type) ?? ''))
+  let docProp = ''
+  if (docCandidates.length) {
+    console.log('  ¿Qué propiedad enlaza al doc de proyecto? (su contenido se inyecta al prompt)')
+    docCandidates.forEach((n, i) => console.log(`    ${i + 1}. ${n}`))
+    const a = await ask('  → (0 = sin doc de proyecto)', '0')
+    const i = Number(a)
+    if (Number.isInteger(i) && i >= 1 && i <= docCandidates.length) docProp = docCandidates[i - 1]
+  }
+
   const used = new Set<string>()
   for (const v of Object.values(detected)) {
     if (typeof v === 'string' && v) used.add(v)
@@ -339,10 +350,11 @@ async function reconcileBoard(): Promise<void> {
  * y el operador elige por número (0 = crear una nueva con el nombre default).
  * Determinista y confirmado por humano — acá no decide ninguna heurística.
  */
-async function pickProp(props: BoardProps, used: Set<string>, label: string, type: string, defName: string): Promise<string> {
-  const candidates = Object.keys(props).filter(n => props[n].type === type && !used.has(n))
+async function pickProp(props: BoardProps, used: Set<string>, label: string, type: string | string[], defName: string): Promise<string> {
+  const types = Array.isArray(type) ? type : [type]
+  const candidates = Object.keys(props).filter(n => types.includes(props[n].type ?? '') && !used.has(n))
   if (!candidates.length) { used.add(defName); return defName }
-  console.log(`  ${label}: sin match automático. Columnas de tipo ${type} en tu board:`)
+  console.log(`  ${label}: sin match automático. Columnas de tipo ${types.join('/')} en tu board:`)
   candidates.forEach((n, i) => console.log(`    ${i + 1}. ${n}`))
   const a = await ask(`  ¿Cuál es? (0 = crear "${defName}")`, '0')
   const i = Number(a)

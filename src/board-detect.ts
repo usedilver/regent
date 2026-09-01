@@ -180,6 +180,15 @@ export function checkMappings(
     ['status_property', cfg.status_property as string, 'status'],
   ]
   const issues: MappingIssue[] = []
+  // el doc de proyecto admite dos tipos, así que no entra en la tabla de arriba
+  const docName = cfg.project_doc_property as string | undefined
+  if (docName) {
+    const dp = props[docName]
+    if (!dp) issues.push({ key: 'project_doc_property', name: docName, problem: 'ausente' })
+    else if (!['relation', 'url'].includes(dp.type ?? '')) {
+      issues.push({ key: 'project_doc_property', name: docName, problem: 'tipo', found: dp.type })
+    }
+  }
   for (const [key, name, type] of expect) {
     if (!name) continue
     const p = props[name]
