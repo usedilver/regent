@@ -1,0 +1,26 @@
+# secretos — NUNCA al repo
+.env
+.env.*
+!.env.example
+
+# config/ es TU instancia (la genera `pnpm setup`): workflow, process.md
+config/*
+!config/README.md
+
+# TEMPORAL — docs internos pendientes de revisión antes de publicar:
+# plan.md e investigacion-*.md nombran clientes y estrategia. Al depurarlos,
+# borra esta regla y commitea al menos docs/despliegue.md (es del producto).
+docs/
+
+# estado de instancia (runtime local: logs, salas, colas, worktrees de cards)
+log/
+tmp/
+worktrees/
+projects/
+
+# dependencias y sistema
+node_modules/
+.DS_Store
+
+# settings locales de claude code (permisos de esta máquina)
+.claude/settings.local.json
