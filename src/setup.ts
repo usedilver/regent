@@ -13,6 +13,7 @@ import { execFileSync } from 'node:child_process'
 import readline from 'node:readline/promises'
 import { BRIDGE_DIR } from './env.ts'
 import { detectProps, missingRequired, checkMappings, requiredRoleKeys, ROLE_TYPES, type BoardProps } from './board-detect.ts'
+import { slackApi, createAppFromManifest, brandManifest, installUrl, appTokenUrl } from './slack-admin.ts'
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
 const ask = async (q: string, def?: string): Promise<string> => {
@@ -450,12 +451,55 @@ ${lines.join('\n')}
 // ---- 5. Slack (opcional) ----
 console.log('\nSlack (opcional):')
 if (env.SLACK_BOT_TOKEN) ok('tokens de Slack presentes')
-else {
-  console.log('  https://api.slack.com/apps → "From an app manifest" → pega slack-manifest.json → Install')
-  const bot = await ask('  SLACK_BOT_TOKEN (xoxb-…, vacío = sin Slack)')
+else await setupSlackApp()
+
+/**
+ * Crea la app por API en vez de pedirte que pegues el manifest a mano: con un
+ * App Configuration Token, `apps.manifest.create` la deja hecha con el nombre de
+ * TU instancia. Slack no deja automatizar dos cosas, y solo esas quedan como
+ * clic: instalar en el workspace, y generar el token app-level de Socket Mode.
+ */
+async function setupSlackApp(): Promise<void> {
+  const manifestPath = path.join(BRIDGE_DIR, 'slack-manifest.json')
+  if (!fs.existsSync(manifestPath)) return warn('no encontré slack-manifest.json — salteo Slack')
+
+  const cfg = await ask('  App Configuration Token (xoxe.xoxp-…, vacío = sin Slack)\n' +
+    '    api.slack.com/apps → "Your App Configuration Tokens" → Generate (expira en 12h)\n  →')
+  if (!cfg) return void console.log('  ℹ sin Slack: el pipeline funciona igual (salas y menciones quedan off)')
+
+  let appName = 'Regent'
+  try { appName = (JSON.parse(fs.readFileSync(wfPath, 'utf8')) as { name?: string }).name ?? appName } catch { /* default */ }
+
+  let appId: string
+  try {
+    appId = await createAppFromManifest(cfg, brandManifest(manifestPath, appName),
+      seg => console.log(`    ratelimited — espero ${seg}s y reintento…`))
+    ok(`app "${appName}" creada (${appId})`)
+  } catch (err) {
+    const m = (err as Error).message
+    warn(`no pude crear la app: ${m}${/token_expired|invalid_auth/.test(m) ? ' → el token de configuración expira a las 12h, genera otro' : ''}`)
+    return
+  }
+
+  console.log(`  1. Instálala (Allow): ${installUrl(appId)}`)
+  const bot = await ask('  → Bot User OAuth Token (xoxb-…)')
   if (bot) {
-    env.SLACK_BOT_TOKEN = bot
-    env.SLACK_APP_TOKEN = await ask('  SLACK_APP_TOKEN (xapp-…)')
+    try {
+      const who = await slackApi('auth.test', bot)
+      env.SLACK_BOT_TOKEN = bot
+      ok(`bot @${who.user} (${who.user_id})`)
+    } catch (err) { warn(`token de bot inválido: ${(err as Error).message}`) }
+  }
+
+  console.log(`  2. Genera el token app-level con scope connections:write (Socket Mode lo exige;`)
+  console.log(`     no hay API para esto): ${appTokenUrl(appId)}`)
+  const app = await ask('  → App-Level Token (xapp-…)')
+  if (app) {
+    try {
+      await slackApi('apps.connections.open', app)
+      env.SLACK_APP_TOKEN = app
+      ok('token app-level válido (Socket Mode listo)')
+    } catch (err) { warn(`token app-level inválido: ${(err as Error).message}`) }
   }
 }
 

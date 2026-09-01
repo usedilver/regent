@@ -21,6 +21,7 @@ import path from 'node:path'
 import readline from 'node:readline/promises'
 import { BRIDGE_DIR, loadEnv } from './env.ts'
 import { loadBridge } from './bridge-config.ts'
+import { slackApi, createAppFromManifest, installUrl } from './slack-admin.ts'
 
 loadEnv()
 const bridge = loadBridge()
@@ -29,17 +30,6 @@ const REGISTRY = path.join(BRIDGE_DIR, 'log', 'slack-role-apps.json')
 const ENV_PATH = path.join(BRIDGE_DIR, '.env')
 
 export const envKeyForRole = (role: string): string => `SLACK_BOT_TOKEN_${role.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`
-
-async function slackApi(method: string, token: string, body: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
-  const res = await fetch(`https://slack.com/api/${method}`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  const json = await res.json() as { ok: boolean; error?: string } & Record<string, unknown>
-  if (!json.ok) throw new Error(`${method} → ${json.error}`)
-  return json
-}
 
 /** manifest mínimo de una cara: identidad + chat:write. Nada más. */
 function roleManifest(displayName: string, description?: string): Record<string, unknown> {
@@ -84,17 +74,8 @@ for (const [role, a] of roles) {
   if (!appId) {
     const description = bridge.agents.get(role)?.description
     try {
-      // apps.manifest.create tiene rate limit agresivo (~1/min): backoff y reintento
-      let created: Record<string, unknown> | undefined
-      for (let intento = 1; ; intento++) {
-        try { created = await slackApi('apps.manifest.create', cfgToken, { manifest: JSON.stringify(roleManifest(displayName, description)) }); break }
-        catch (err) {
-          if (!/ratelimited/.test((err as Error).message) || intento >= 4) throw err
-          console.log('   ratelimited — espero 65s y reintento…')
-          await new Promise(r => setTimeout(r, 65000))
-        }
-      }
-      appId = created.app_id as string
+      appId = await createAppFromManifest(cfgToken, roleManifest(displayName, description),
+        seg => console.log(`   ratelimited — espero ${seg}s y reintento…`))
       registry[role] = { app_id: appId, name: displayName }
       fs.mkdirSync(path.dirname(REGISTRY), { recursive: true })
       fs.writeFileSync(REGISTRY, JSON.stringify(registry, null, 2))
@@ -108,7 +89,7 @@ for (const [role, a] of roles) {
   }
 
   console.log(`   1. Instálala (clic en "Install to Workspace" → Allow):`)
-  console.log(`      https://api.slack.com/apps/${appId}/install-on-team`)
+  console.log(`      ${installUrl(appId)}`)
   console.log(`   2. Copia el "Bot User OAuth Token" (xoxb-…) que aparece tras instalar`)
   const token = (await rl.question(`   → token de ${displayName} (enter para dejar pendiente): `)).trim()
   if (!token) { console.log(`   ⏭ ${role} pendiente — re-ejecuta este script cuando lo tengas\n`); continue }
