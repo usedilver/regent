@@ -12,7 +12,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { BRIDGE_DIR, loadEnv } from './env.ts'
-import { loadBridge, parseAgentFile, type LoadedBridge } from './bridge-config.ts'
+import { loadBridge, parseAgentFile, type LoadedBridge, type BridgeConfig } from './bridge-config.ts'
 import { buildPhasePrompt } from './phase-prompt.ts'
 import { launchAgent, closeFinishedTabs } from './terminal.ts'
 import { roomOf, saveRoom } from './chat.ts'
@@ -130,17 +130,36 @@ function resolveAgent(b: LoadedBridge, agentName: string, repoDir: string) {
   return def
 }
 
-function ensureWorktree(repoPath: string, shortId: string): { dir: string; branch: string; baseBranch: string } {
-  let base = ''
+/**
+ * Rama base del trabajo, en orden y sin heurística:
+ *   1. `repo_base_branches[<repo>]` — override explícito del equipo
+ *   2. `default_base_branch` (por defecto `develop`) SI existe en el remoto
+ *   3. `origin/HEAD` — el default del repo, para los chicos que solo tienen main
+ *   4. la rama actual (repo sin remoto)
+ * El PR se abre contra esta misma rama: el agente recibe la base en su prompt.
+ */
+function resolveBaseBranch(repoPath: string, cfg: BridgeConfig): string {
+  const exists = (ref: string): boolean => {
+    try { sh('git', ['-C', repoPath, 'rev-parse', '--verify', '--quiet', `origin/${ref}`]); return true } catch { return false }
+  }
+  const override = cfg.repo_base_branches?.[path.basename(repoPath)]
+  if (override) return override
+  const preferred = cfg.default_base_branch
+  if (preferred && exists(preferred)) return preferred
   try {
-    base = sh('git', ['-C', repoPath, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).trim().replace(/^origin\//, '')
+    const head = sh('git', ['-C', repoPath, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).trim().replace(/^origin\//, '')
+    if (head) return head
   } catch { /* sin origin/HEAD */ }
-  if (!base) base = sh('git', ['-C', repoPath, 'rev-parse', '--abbrev-ref', 'HEAD']).trim()
+  return sh('git', ['-C', repoPath, 'rev-parse', '--abbrev-ref', 'HEAD']).trim()
+}
+
+function ensureWorktree(repoPath: string, shortId: string, cfg: BridgeConfig): { dir: string; branch: string; baseBranch: string } {
+  try { sh('git', ['-C', repoPath, 'fetch', 'origin', '--quiet']) } catch { /* offline ok */ }
+  const base = resolveBaseBranch(repoPath, cfg)
 
   const branch = `agent/${shortId}`
   const dir = path.join(BRIDGE_DIR, 'worktrees', `${path.basename(repoPath)}-${shortId}`)
   fs.mkdirSync(path.join(BRIDGE_DIR, 'worktrees'), { recursive: true })
-  try { sh('git', ['-C', repoPath, 'fetch', 'origin', '--quiet']) } catch { /* offline ok */ }
 
   if (!fs.existsSync(dir)) {
     const hasBranch = (() => {
@@ -193,7 +212,7 @@ export function runPhase(pageId: string, agentName: string, opts: RunPhaseOption
   let cwd = cardRepo
   let worktree: { branch: string; baseBranch: string } | undefined
   if (state?.use_worktree) {
-    const wt = ensureWorktree(cardRepo, shortId)
+    const wt = ensureWorktree(cardRepo, shortId, b.config)
     cwd = wt.dir
     worktree = { branch: wt.branch, baseBranch: wt.baseBranch }
     console.log(`[launcher] worktree=${wt.dir} branch=${wt.branch} base=${wt.baseBranch}`)

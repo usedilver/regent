@@ -50,7 +50,7 @@ export type Detected = {
   progress_property: string | null
   owner_property: string | null
   participants_property: string | null
-  agent_filter: { property: string; skip_value: string } | null
+  agent_filter: { property: string; run_value?: string; skip_value?: string } | null
 }
 
 /**
@@ -73,12 +73,13 @@ export function detectProps(props: BoardProps): Detected {
   let agent_filter: Detected['agent_filter'] = null
   for (const [name, p] of Object.entries(props)) {
     if (p.type !== 'select') continue
+    if (!/ejecutor|executor|ejecuta|owner type|agent type|tipo de tarea/i.test(name)) continue
+    // Opt-in primero: con una opción "Agente" el gate correcto es "corre SOLO si
+    // dice esto". El opt-out queda para boards que no tienen esa opción.
+    const agente = p.select?.options.find(o => /agente|agent\b|bot\b|\bia\b|\bai\b/i.test(o.name))
     const human = p.select?.options.find(o => /humano|human|persona|manual/i.test(o.name))
-    if (human && /ejecutor|executor|ejecuta|owner type|agent type|tipo de tarea/i.test(name)) {
-      agent_filter = { property: name, skip_value: human.name }
-      claimed.add(name)
-      break
-    }
+    if (agente) { agent_filter = { property: name, run_value: agente.name }; claimed.add(name); break }
+    if (human) { agent_filter = { property: name, skip_value: human.name }; claimed.add(name); break }
   }
 
   const out = Object.fromEntries(ROLES.map(r => [r.key, find(r.type, r.re)])) as Omit<Detected, 'agent_filter'>
@@ -104,12 +105,12 @@ type PropShape = Record<string, unknown>
 
 /** Forma de creación de cada rol, con el nombre que la config le da. */
 export function propShape(key: RoleKey | 'agent_filter', cfg: {
-  agent_filter?: { property: string; skip_value: string } | null
+  agent_filter?: { property: string; run_value?: string; skip_value?: string } | null
   agents?: Record<string, unknown>
 }): PropShape {
   if (key === 'agent_filter') {
     return { type: 'select', select: { options: [
-      { name: 'Agente', color: 'purple' },
+      { name: cfg.agent_filter?.run_value ?? 'Agente', color: 'purple' },
       { name: cfg.agent_filter?.skip_value ?? 'Humano', color: 'blue' },
     ] } }
   }
@@ -140,7 +141,7 @@ export function missingRequired(
   cfg: {
     repo_property?: string; pr_property?: string
     agent_property?: string | null; hop_property?: string | null
-    agent_filter?: { property: string; skip_value: string } | null
+    agent_filter?: { property: string; run_value?: string; skip_value?: string } | null
     agents?: Record<string, { can_trigger?: string[] }>
   },
   props: BoardProps,

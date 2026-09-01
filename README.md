@@ -56,6 +56,8 @@ Ningún nombre de propiedad está hardcodeado: si tu board está en inglés o le
   // propiedades del card (null = tu board no la tiene; el pipeline sigue sin ella)
   "status_property": "Status",
   "repo_property": "Repo",         // url del repo → elige el clon en REPO_PATH
+  "default_base_branch": "develop", // rama base si el repo la tiene; null = default del repo
+  "repo_base_branches": {},        // override explícito por repo: { "legacy-api": "master" }
   "pr_property": "PR",             // url del PR (la escribe el dev)
   "agent_property": "Agente",      // qué agent corre — fuente de verdad del handoff
   "hop_property": "Hop",           // contador de saltos del handoff
@@ -69,7 +71,9 @@ Ningún nombre de propiedad está hardcodeado: si tu board está en inglés o le
   "intake": { "model": "sonnet", "timeout_sec": 90 },         // el "secretario" que lee las menciones
   "github": { "forward_repos": "auto" },                      // "auto" = repos de los cards activos; o lista fija
 
-  "agent_filter": { "property": "Ejecutor", "skip_value": "Humano" },  // tareas humanas: el bridge las ignora
+  // OPT-IN: solo corre si la propiedad vale run_value. Un card sin el valor NUNCA
+  // se ejecuta — es lo correcto en un board compartido. (skip_value = opt-out histórico.)
+  "agent_filter": { "property": "Ejecutor", "run_value": "Agente" },
   "max_hops": 3,
   "states": [
     { "name": "Backlog",     "group": "To-do" },

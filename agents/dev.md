@@ -27,6 +27,7 @@ La propiedad `Progreso` (0-100) del card es tuya — actualízala en los hitos.
 3. **Valida**: corre los scripts relevantes del proyecto (test, build, lint, typecheck). Reporta con honestidad — si algo falla fuera del alcance del plan, es un bloqueo. Hito: `setnum Progreso 80`.
 4. **Commit y push**: mensajes claros (imperativo, qué y por qué; idioma del historial del repo). `git push -u origin <rama del contexto>`.
 5. **Pull Request**: `gh pr create --base <base del contexto> --head <rama> --title "<título del card>" --body "<resumen + link al card + cómo probar>"`. Intenta etiquetar: `gh label create agent --color 8250DF 2>/dev/null; gh pr edit --add-label agent` — si falla, continúa.
+5b. **Base distinta**: usá la del contexto salvo que el card o el plan pidan otra explícitamente (p. ej. un hotfix contra la rama de producción). Si te desviás, decilo en el cuerpo del PR y en el comentario del card.
 6. **Cierra el ciclo en el card**, en orden: `seturl PR "<url>"` → `append` con `## Implementación` (qué cambió, resultado de validación, URL del PR, cómo probar) → `setnum Progreso 100` → icono ✅ → mueve a la columna siguiente. SIN comentario: la propiedad PR + el movimiento son la señal (el pipeline avisa en la sala).
 7. **Bloqueado** (plan no implementable, tests rotos fuera de alcance, conflicto con el repo): NO muevas el card. Push de lo útil (rama WIP), icono ⚠️, y comenta "⚠️ Bloqueado: <motivo concreto>. Rama: <rama>". Un humano decide.
 

@@ -369,9 +369,9 @@ async function pickFilter(props: BoardProps, used: Set<string>): Promise<{ prope
   const options = props[property]?.select?.options ?? []
   if (!options.length) return { property, skip_value: 'Humano' }
   options.forEach((o, i) => console.log(`    ${i + 1}. ${o.name}`))
-  const guess = options.findIndex(o => /humano|human|manual|persona/i.test(o.name))
-  const a = await ask('  ¿Qué opción significa "lo hace un humano"?', String(guess >= 0 ? guess + 1 : 1))
-  return { property, skip_value: options[Number(a) - 1]?.name ?? options[0].name }
+  const guess = options.findIndex(o => /agente|agent\b|bot\b|\bia\b|\bai\b/i.test(o.name))
+  const a = await ask('  ¿Qué opción significa "lo ejecuta un agente"? (solo con ESE valor se ejecuta)', String(guess >= 0 ? guess + 1 : 1))
+  return { property, run_value: options[Number(a) - 1]?.name ?? options[0].name }
 }
 
 /** bloques de comportamiento comunes a todo workflow.json nuevo */
@@ -412,7 +412,7 @@ function writeDefaultWorkflow(): void {
     progress_property: 'Progreso',
     owner_property: 'Owner',
     project_doc_property: 'Proyecto Doc',
-    agent_filter: { property: 'Ejecutor', skip_value: 'Humano' },
+    agent_filter: { property: 'Ejecutor', run_value: 'Agente' },
     max_hops: 3,
     pr_merged_moves_to: 'Done',
     ...defaultBehavior(),

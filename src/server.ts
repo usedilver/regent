@@ -276,6 +276,27 @@ function launch(pageId: string, agentName: string, extraArgs: string[], lockReas
   child.unref()
 }
 
+/**
+ * ¿Este card puede ejecutarlo un agente? Con `run_value` (opt-in) la respuesta
+ * es NO salvo que la propiedad diga exactamente ese valor: en un board del
+ * equipo la mayoría de los cards no la tienen puesta y no deben disparar nada.
+ * Sin props confirmadas también es NO: ante la duda, no ejecutar.
+ */
+function agentFilterGate(props?: PageProps): { ok: boolean; reason?: string } {
+  const filter = bridge.config.agent_filter
+  if (!filter) return { ok: true }
+  const fp = props?.[filter.property]
+  const fv = fp?.select?.name ?? fp?.status?.name ?? (typeof fp?.checkbox === 'boolean' ? String(fp.checkbox) : null)
+  if (filter.run_value) {
+    return fv === filter.run_value
+      ? { ok: true }
+      : { ok: false, reason: `${filter.property}=${fv ?? '(vacío)'} — solo ejecuto con "${filter.run_value}"` }
+  }
+  return fv === filter.skip_value
+    ? { ok: false, reason: `${filter.property}=${fv}` }
+    : { ok: true }
+}
+
 /** comment.created — menciones humanas (hop 0) y handoffs bot→agent (hop+1, can_trigger). */
 async function handleComment(event: NotionEvent): Promise<void> {
   const eventId = event.id
@@ -335,6 +356,22 @@ async function handleComment(event: NotionEvent): Promise<void> {
   }
   if (!belongsToBoard(parentDb)) return void jlog('skip_other_parent', { event_id: eventId, parent: parentDb })
 
+  // El filtro también vale para menciones: si no, mencionar al bot esquivaba el
+  // gate del board. A un humano se le contesta el motivo — quedarse mudo parece
+  // una falla del sistema, no una decisión.
+  const gate = agentFilterGate(props)
+  if (!gate.ok) {
+    jlog('skip_human_task', { event_id: eventId, page_id: pageId, via: 'mention', reason: gate.reason })
+    if (!isBot && commentId && !processedComments.has(commentId)) {
+      processedComments.add(commentId)
+      void notion.comments.create({
+        parent: { page_id: pageId },
+        rich_text: [{ text: { content: `🚫 No ejecuto este card: ${gate.reason}.` } }],
+      } as never).catch(() => { /* best-effort */ })
+    }
+    return
+  }
+
   const commentB64 = Buffer.from(text).toString('base64')
   if (commentId) processedComments.add(commentId)
 
@@ -389,6 +426,15 @@ async function handleCreated(event: NotionEvent): Promise<void> {
 
   const agentName = pageCreatedAgent(bridge.config)
   if (!agentName) return void jlog('skip_created_no_agent', { event_id: eventId })
+
+  // un card recién creado casi nunca trae la propiedad puesta: con opt-in, no corre
+  try {
+    const { props } = await currentStatus(pageId)
+    const gate = agentFilterGate(props)
+    if (!gate.ok) return void jlog('skip_human_task', { event_id: eventId, page_id: pageId, via: 'created', reason: gate.reason })
+  } catch (err) {
+    return void jlog('error_confirm', { event_id: eventId, page_id: pageId, error: (err as Error).message })
+  }
 
   const args = ['--mode', 'created', '--hop', '0']
   if (authors[0]?.id) args.push('--creator', authors[0].id)
@@ -454,15 +500,9 @@ async function processEvent(event: NotionEvent): Promise<void> {
     return void jlog('error_confirm', { event_id: eventId, page_id: pageId, error: (err as Error).message })
   }
 
-  // tareas humanas: card marcado para NO ejecutarse por agente
-  const filter = bridge.config.agent_filter
-  if (filter && props) {
-    const fp = props[filter.property]
-    const fv = fp?.select?.name ?? fp?.status?.name ?? (typeof fp?.checkbox === 'boolean' ? String(fp.checkbox) : null)
-    if (fv === filter.skip_value) {
-      return void jlog('skip_human_task', { event_id: eventId, page_id: pageId, [filter.property]: fv })
-    }
-  }
+  // tareas humanas: card que NO debe ejecutar un agente
+  const gate = agentFilterGate(props)
+  if (!gate.ok) return void jlog('skip_human_task', { event_id: eventId, page_id: pageId, reason: gate.reason })
 
   const state = statusName ? bridge.stateByName[statusName] : undefined
   if (state?.terminal) handleTerminal(pageId, statusName)

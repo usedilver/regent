@@ -33,7 +33,7 @@ check('matchea por tipo+propósito con los nombres del cliente', () => {
   assert.equal(d.pr_property, 'PR')
   assert.equal(d.agent_property, 'Agente')
   assert.equal(d.hop_property, 'Hop')
-  assert.deepEqual(d.agent_filter, { property: 'Ejecutor', skip_value: 'Humano' })
+  assert.deepEqual(d.agent_filter, { property: 'Ejecutor', run_value: 'Agente' })
 })
 
 check('owner: prefiere "Asignado a" entre varias people; nunca inventa', () => {
@@ -56,8 +56,20 @@ check('claim-once: el filtro reclama "Agent Type" y agent_property no lo roba', 
   const d = detectProps({
     'Agent Type': { type: 'select', select: { options: [{ name: 'Humano' }, { name: 'Agente' }] } },
   })
-  assert.deepEqual(d.agent_filter, { property: 'Agent Type', skip_value: 'Humano' })
+  assert.deepEqual(d.agent_filter, { property: 'Agent Type', run_value: 'Agente' })
   assert.equal(d.agent_property, null)
+})
+
+check('opt-in por defecto: con opción "Agente" se elige run_value, no skip_value', () => {
+  const d = detectProps({ 'Ejecutor': { type: 'select', select: { options: [{ name: 'Agente' }, { name: 'Humano' }] } } })
+  assert.equal(d.agent_filter.run_value, 'Agente')
+  assert.equal(d.agent_filter.skip_value, undefined)
+})
+
+check('sin opción de agente cae a opt-out (skip_value) en vez de quedarse sin filtro', () => {
+  const d = detectProps({ 'Ejecutor': { type: 'select', select: { options: [{ name: 'Humano' }, { name: 'Externo' }] } } })
+  assert.equal(d.agent_filter.skip_value, 'Humano')
+  assert.equal(d.agent_filter.run_value, undefined)
 })
 
 check('necesidad derivada del workflow: sin handoffs, agente+hop no son requeridas', () => {

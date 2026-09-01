@@ -64,9 +64,20 @@ const BridgeConfigSchema = z.object({
    */
   name: z.string().min(1).default('Regent'),
   status_property: z.string().default('Status'),
+  /**
+   * Quién ejecuta el card. `run_value` es OPT-IN: solo corre el agente si la
+   * propiedad vale exactamente eso — un card sin el valor NUNCA se ejecuta.
+   * Es lo correcto en un board compartido, donde la mayoría de los cards son
+   * trabajo humano y no tienen la propiedad puesta. `skip_value` es el opt-out
+   * histórico (corre salvo que diga eso); sirve en boards que existen solo para
+   * agentes. Si están los dos, manda run_value.
+   */
   agent_filter: z.object({
     property: z.string().min(1),
-    skip_value: z.string().min(1),
+    run_value: z.string().min(1).optional(),
+    skip_value: z.string().min(1).optional(),
+  }).refine(f => f.run_value || f.skip_value, {
+    message: 'agent_filter necesita run_value (opt-in, recomendado) o skip_value (opt-out)',
   }).nullish(),
   max_hops: z.number().int().min(1).max(10).default(3),
   /** si está definido: al detectar el PR del card mergeado (polling con gh), mover el card aquí */
@@ -75,6 +86,14 @@ const BridgeConfigSchema = z.object({
   pr_property: z.string().default('PR'),
   /** propiedad url del card que apunta al repo de GitHub (elige el clon en REPO_PATH) */
   repo_property: z.string().default('Repo'),
+  /**
+   * Rama base por repo (nombre del repo → rama). Gana sobre todo lo demás.
+   * Sin entrada acá: `develop` si existe en el remoto, si no el default del repo.
+   * Explícito para el repo que se salga de la convención del equipo.
+   */
+  repo_base_branches: z.record(z.string(), z.string().min(1)).default({}),
+  /** rama a preferir como base cuando el repo la tiene; null = usar siempre el default del repo */
+  default_base_branch: z.string().min(1).nullable().default('develop'),
   /** propiedad select donde el launcher deja qué agent corre (fuente de verdad del handoff); null = board sin ella */
   agent_property: z.string().min(1).nullable().default('Agente'),
   /** propiedad number con el contador de saltos del handoff; null = board sin ella (hops siempre 0) */
