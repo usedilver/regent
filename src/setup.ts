@@ -13,7 +13,7 @@ import { execFileSync } from 'node:child_process'
 import readline from 'node:readline/promises'
 import { BRIDGE_DIR } from './env.ts'
 import { detectProps, missingRequired, checkMappings, requiredRoleKeys, ROLE_TYPES, type BoardProps } from './board-detect.ts'
-import { slackApi, createAppFromManifest, brandManifest, installUrl, appTokenUrl } from './slack-admin.ts'
+import { slackApi, createAppFromManifest, brandManifest, installUrl, appTokenUrl, exportManifest, updateManifest, manifestChanges, needsReinstall } from './slack-admin.ts'
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
 const ask = async (q: string, def?: string): Promise<string> => {
@@ -450,8 +450,44 @@ ${lines.join('\n')}
 
 // ---- 5. Slack (opcional) ----
 console.log('\nSlack (opcional):')
-if (env.SLACK_BOT_TOKEN) ok('tokens de Slack presentes')
+if (env.SLACK_BOT_TOKEN) { ok('tokens de Slack presentes'); await syncSlackManifest() }
 else await setupSlackApp()
+
+/**
+ * Modo update: el manifest del repo es la fuente de verdad, así que al re-correr
+ * el setup se empuja a Slack lo que haya cambiado (scopes, eventos, nombre).
+ * Requiere el config token de 12 h; sin él se saltea sin romper nada.
+ */
+async function syncSlackManifest(): Promise<void> {
+  const manifestPath = path.join(BRIDGE_DIR, 'slack-manifest.json')
+  if (!fs.existsSync(manifestPath) || !env.SLACK_APP_ID) return
+  const cfg = process.env.SLACK_CONFIG_TOKEN
+    ?? await ask('  ¿Verificar que el manifest de la app esté al día? App Configuration Token (Enter = saltar)')
+  if (!cfg) return
+
+  let appName = 'Regent'
+  try { appName = (JSON.parse(fs.readFileSync(wfPath, 'utf8')) as { name?: string }).name ?? appName } catch { /* default */ }
+  const desired = brandManifest(manifestPath, appName)
+
+  try {
+    const changes = manifestChanges(await exportManifest(cfg, env.SLACK_APP_ID), desired)
+    if (!changes.length) return ok('manifest de Slack al día')
+    console.log(`  Cambios respecto a la app en Slack: ${changes.join(', ')}`)
+    const go = await ask('  ¿Los aplico? S/n', 'S')
+    if (!/^\s*[sy]/i.test(go) && go !== '') return void warn('manifest sin aplicar')
+    await updateManifest(cfg, env.SLACK_APP_ID, desired)
+    ok('manifest actualizado en Slack')
+    if (needsReinstall(changes)) {
+      warn('cambiaron los scopes: Slack exige REINSTALAR para que el token nuevo los tenga')
+      console.log(`    ${installUrl(env.SLACK_APP_ID)} → luego actualiza SLACK_BOT_TOKEN en .env`)
+    } else {
+      console.log('    (sin cambios de scopes: aplica al instante, no hace falta reinstalar)')
+    }
+  } catch (err) {
+    const m = (err as Error).message
+    warn(`no pude sincronizar el manifest: ${m}${/token_expired|invalid_auth/.test(m) ? ' → el config token expira a las 12h' : ''}`)
+  }
+}
 
 /**
  * Crea la app por API en vez de pedirte que pegues el manifest a mano: con un
@@ -474,6 +510,7 @@ async function setupSlackApp(): Promise<void> {
   try {
     appId = await createAppFromManifest(cfg, brandManifest(manifestPath, appName),
       seg => console.log(`    ratelimited — espero ${seg}s y reintento…`))
+    env.SLACK_APP_ID = appId
     ok(`app "${appName}" creada (${appId})`)
   } catch (err) {
     const m = (err as Error).message

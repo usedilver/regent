@@ -56,5 +56,41 @@ export function brandManifest(manifestPath: string, appName: string): Record<str
   return m as unknown as Record<string, unknown>
 }
 
+/** Manifest vigente en Slack (incluye defaults que la app nunca declaró). */
+export async function exportManifest(cfgToken: string, appId: string): Promise<Record<string, unknown>> {
+  const res = await slackApi('apps.manifest.export', cfgToken, { app_id: appId })
+  return res.manifest as Record<string, unknown>
+}
+
+export async function updateManifest(cfgToken: string, appId: string, manifest: Record<string, unknown>): Promise<void> {
+  await slackApi('apps.manifest.update', cfgToken, { app_id: appId, manifest: JSON.stringify(manifest) })
+}
+
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/**
+ * Rutas donde el manifest del repo difiere del vigente. Compara SOLO lo que el
+ * repo declara: Slack devuelve el manifest completo con defaults que nunca
+ * pusimos, y compararlo entero daría diferencias en cada corrida.
+ * Los arrays (scopes, bot_events) se comparan como conjuntos: el orden no es dato.
+ */
+export function manifestChanges(current: unknown, desired: unknown, prefix = ''): string[] {
+  if (Array.isArray(desired)) {
+    const a = [...(Array.isArray(current) ? current : [])].map(String).sort()
+    const b = [...desired].map(String).sort()
+    return a.length === b.length && a.every((v, i) => v === b[i]) ? [] : [prefix]
+  }
+  if (isObj(desired)) {
+    const cur = isObj(current) ? current : {}
+    return Object.entries(desired).flatMap(([k, v]) =>
+      manifestChanges(cur[k], v, prefix ? `${prefix}.${k}` : k))
+  }
+  return current === desired ? [] : [prefix]
+}
+
+/** Cambiar scopes es lo único que invalida la instalación (docs.slack.dev). */
+export const needsReinstall = (changes: string[]): boolean =>
+  changes.some(c => c.startsWith('oauth_config.scopes'))
+
 export const installUrl = (appId: string): string => `https://api.slack.com/apps/${appId}/install-on-team`
 export const appTokenUrl = (appId: string): string => `https://api.slack.com/apps/${appId}/general#app_level_tokens`

@@ -3,7 +3,7 @@ import assert from 'node:assert'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { brandManifest, installUrl, appTokenUrl } from '../src/slack-admin.ts'
+import { brandManifest, installUrl, appTokenUrl, manifestChanges, needsReinstall } from '../src/slack-admin.ts'
 
 let failed = 0
 const check = (name, fn) => {
@@ -37,6 +37,30 @@ check('respeta los topes de longitud de Slack (35 / 80)', () => {
 check('deep links apuntan a install y a los app-level tokens', () => {
   assert.equal(installUrl('A123'), 'https://api.slack.com/apps/A123/install-on-team')
   assert.match(appTokenUrl('A123'), /A123\/general#app_level_tokens$/)
+})
+
+check('manifestChanges: ignora defaults que Slack agrega y el repo no declara', () => {
+  const current = { display_information: { name: 'X', description: 'd' }, settings: { org_deploy_enabled: false } }
+  const desired = { display_information: { name: 'X' } }
+  assert.deepEqual(manifestChanges(current, desired), [])
+})
+
+check('manifestChanges: detecta nombre y scopes, con ruta puntual', () => {
+  const current = { display_information: { name: 'Regent' }, oauth_config: { scopes: { bot: ['chat:write'] } } }
+  const desired = { display_information: { name: 'Talently' }, oauth_config: { scopes: { bot: ['chat:write', 'users:read'] } } }
+  const ch = manifestChanges(current, desired)
+  assert.deepEqual(ch.sort(), ['display_information.name', 'oauth_config.scopes.bot'])
+})
+
+check('manifestChanges: el orden de un array no es un cambio', () => {
+  const current = { oauth_config: { scopes: { bot: ['b', 'a'] } } }
+  const desired = { oauth_config: { scopes: { bot: ['a', 'b'] } } }
+  assert.deepEqual(manifestChanges(current, desired), [])
+})
+
+check('needsReinstall: solo los scopes invalidan la instalación', () => {
+  assert.equal(needsReinstall(['oauth_config.scopes.bot']), true)
+  assert.equal(needsReinstall(['settings.event_subscriptions.bot_events', 'display_information.name']), false)
 })
 
 if (failed) { console.error(`\n${failed} fallaron`); process.exit(1) }
