@@ -35,10 +35,16 @@ interface Card {
 }
 
 /**
- * Pre-siembra la confianza de claude en el directorio (~/.claude.json →
- * projects[dir].hasTrustDialogAccepted). Sin esto, claude interactivo muestra el
- * diálogo "trust this folder" en cada repo/worktree nuevo y el prompt inyectado
- * lo cierra con "No, exit". REPO_PATH es configuración deliberada del operador.
+ * Pre-siembra en ~/.claude.json las dos aprobaciones que claude pide al entrar
+ * por primera vez a un directorio, y que dejarían al agente esperando input:
+ *
+ *   1. "trust this folder" → projects[dir].hasTrustDialogAccepted
+ *   2. "New MCP server found in this project" → enabledMcpjsonServers, por cada
+ *      servidor del .mcp.json del repo
+ *
+ * Sin esto el agente arranca BLOQUEADO en un prompt y el texto de la fase lo
+ * contesta por accidente. REPO_PATH y el .mcp.json del repo son configuración
+ * deliberada del operador; lo que el operador desactivó a mano se respeta.
  */
 function ensureTrusted(dir: string): void {
   const cfgPath = path.join(process.env.HOME ?? '', '.claude.json')
@@ -46,14 +52,32 @@ function ensureTrusted(dir: string): void {
   try {
     const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
     cfg.projects ??= {}
-    cfg.projects[dir] ??= {}
-    if (cfg.projects[dir].hasTrustDialogAccepted !== true) {
-      cfg.projects[dir].hasTrustDialogAccepted = true
-      fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2))
+    const proj = (cfg.projects[dir] ??= {})
+    let changed = false
+
+    if (proj.hasTrustDialogAccepted !== true) {
+      proj.hasTrustDialogAccepted = true
+      changed = true
       console.log(`[launcher] trust pre-sembrado para ${dir}`)
     }
+
+    const mcpPath = path.join(dir, '.mcp.json')
+    if (fs.existsSync(mcpPath)) {
+      const declared = Object.keys(JSON.parse(fs.readFileSync(mcpPath, 'utf8')).mcpServers ?? {})
+      proj.enabledMcpjsonServers ??= []
+      proj.disabledMcpjsonServers ??= []
+      const nuevos = declared.filter(n =>
+        !proj.enabledMcpjsonServers.includes(n) && !proj.disabledMcpjsonServers.includes(n))
+      if (nuevos.length) {
+        proj.enabledMcpjsonServers.push(...nuevos)
+        changed = true
+        console.log(`[launcher] MCP del repo aprobados: ${nuevos.join(', ')}`)
+      }
+    }
+
+    if (changed) fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2))
   } catch (err) {
-    console.warn(`[launcher] no pude sembrar trust (${(err as Error).message}); claude puede pedir confirmación`)
+    console.warn(`[launcher] no pude sembrar trust/MCP (${(err as Error).message}); claude puede pedir confirmación`)
   }
 }
 
