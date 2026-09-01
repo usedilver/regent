@@ -18,7 +18,7 @@ regent/
 └── src/ · ncard · .env (REPO_PATH, tokens)
 ```
 
-La propiedad **`Repo`** del card elige el repo (búsqueda en `REPO_PATH` y un nivel adentro; auto-clone si falta). **Sin `Repo` no se ejecuta nada**: el bridge comenta pidiendo el link.
+La propiedad **`Repo`** del card elige el repo (búsqueda en `REPO_PATH` hasta tres niveles, por nombre y por origin — carpetas y submódulos de monorepos; auto-clone si falta). **Sin `Repo` no se ejecuta nada**: el bridge comenta pidiendo el link.
 
 ```
 Notion board ──webhook──► server.ts ──spawn──► launcher.ts
@@ -122,7 +122,7 @@ Los agents mención-activados **no mueven el card** (salvo que su rol lo indique
 - **Intervenir en vivo**: herdr = clic al tab (blocked → notificación); tmux = `tmux attach -t <label>`; móvil = [Moshi](https://getmoshi.app). El drag es la señal de "ejecuta"; los comentarios solos no disparan.
 - Logs: `log/events.jsonl` (decisiones del server) · `log/agent-*.out` (salida de agentes) · `log/launch-*.log` (launcher).
 - Reintentos de Notion si el server cae: hasta 8 con backoff, sin orden. Eventos pueden agregarse (~1 min de retraso drag→ejecución). Menciones/creaciones más viejas de `EVENT_FRESHNESS_MINUTES` (default 30) se descartan — protege del aluvión de reintentos al despertar un laptop suspendido; las columnas son inmunes (se confirma el Status actual vía API).
-- **Multi-repo**: la propiedad `Repo` del card elige el repo — se busca en `REPO_PATH/<nombre>` y un nivel adentro (`REPO_PATH/<carpeta>/<nombre>`, organización por carpetas), validando que el origin coincida; **si no está clonado, el agente lo clona solo** (gh → git). Sin `Repo` → no se ejecuta: se comenta pidiendo el link.
+- **Multi-repo**: la propiedad `Repo` del card elige el repo — se busca hasta tres niveles adentro de `REPO_PATH`, por nombre de carpeta y por origin (el path de un submódulo no siempre se llama como su repo); **si no está clonado, el agente lo clona solo** (gh → git). Sin `Repo` → no se ejecuta: se comenta pidiendo el link.
 - **Poda de contexto**: los agentes solo leen comentarios NO resueltos — resolver un comentario en Notion lo saca de su vista. Resolver = limpiar memoria de la conversación.
 
 ## Seguridad

@@ -59,8 +59,9 @@ function ensureTrusted(dir: string): void {
 
 /**
  * Resuelve el repo de trabajo del CARD dentro de REPO_PATH (la carpeta de repos).
- *   1. propiedad Repo (url de GitHub) → buscar clon existente: REPO_PATH/<name> o un
- *      nivel adentro REPO_PATH/<org-carpeta>/<name> (organización por carpetas), validando origin
+ *   1. propiedad Repo (url de GitHub) → buscar clon existente hasta tres niveles adentro
+ *      de REPO_PATH: por nombre de carpeta y, si no, por origin — el path de un submódulo
+ *      no siempre se llama como su repo (backend/l9-backend → l9-ops-backend-api)
  *   2. si no está clonado → EL AGENTE LO CLONA (gh, fallback git) a REPO_PATH/<name>
  *   3. sin Repo → no se ejecuta: se solicita por comentario
  */
@@ -83,16 +84,26 @@ function resolveCardRepo(card: Card): string {
   }
   const [, owner, name] = m
 
-  // clon existente: directo o un nivel adentro (carpetas-organización)
-  const candidates = [path.join(reposRoot, name)]
-  for (const sub of fs.readdirSync(reposRoot, { withFileTypes: true })) {
-    if (sub.isDirectory() && !sub.name.startsWith('.')) candidates.push(path.join(reposRoot, sub.name, name))
-  }
-  for (const dir of candidates) {
-    if (fs.existsSync(path.join(dir, '.git')) && originMatches(dir, owner, name)) {
-      try { sh('git', ['-C', dir, 'fetch', 'origin', '--quiet']) } catch { /* offline ok */ }
-      return dir
+  // Clones existentes hasta tres niveles adentro — cubre carpetas-organización
+  // (<root>/<org>/<name>) y submódulos de un monorepo (<root>/<mono>/backend/<name>).
+  const repoDirs: string[] = []
+  const scan = (dir: string, depth: number): void => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!e.isDirectory() || e.name.startsWith('.') || e.name === 'node_modules') continue
+      const full = path.join(dir, e.name)
+      if (fs.existsSync(path.join(full, '.git'))) repoDirs.push(full)
+      if (depth < 3) scan(full, depth + 1)
     }
+  }
+  scan(reposRoot, 1)
+
+  // 1) por nombre de carpeta; 2) por origin — el path de un submódulo puede no
+  // llamarse como su repo. El origin valida en ambos casos.
+  const dir = repoDirs.find(d => path.basename(d) === name && originMatches(d, owner, name))
+    ?? repoDirs.find(d => path.basename(d) !== name && originMatches(d, owner, name))
+  if (dir) {
+    try { sh('git', ['-C', dir, 'fetch', 'origin', '--quiet']) } catch { /* offline ok */ }
+    return dir
   }
 
   // no está → clonar (lo automático se encarga)
