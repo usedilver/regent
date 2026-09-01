@@ -46,6 +46,20 @@ interface Card {
  * contesta por accidente. REPO_PATH y el .mcp.json del repo son configuración
  * deliberada del operador; lo que el operador desactivó a mano se respeta.
  */
+/** Busca un archivo desde `from` hacia arriba, sin salir de $HOME. */
+function findUp(name: string, from: string): string | null {
+  const home = process.env.HOME ?? '/'
+  let cur = path.resolve(from)
+  for (let i = 0; i < 12; i++) {
+    const candidate = path.join(cur, name)
+    if (fs.existsSync(candidate)) return candidate
+    const parent = path.dirname(cur)
+    if (parent === cur || cur === home) return null
+    cur = parent
+  }
+  return null
+}
+
 function ensureTrusted(dir: string): void {
   const cfgPath = path.join(process.env.HOME ?? '', '.claude.json')
   if (!fs.existsSync(cfgPath)) return // primer arranque global de claude: no interferir
@@ -61,8 +75,11 @@ function ensureTrusted(dir: string): void {
       console.log(`[launcher] trust pre-sembrado para ${dir}`)
     }
 
-    const mcpPath = path.join(dir, '.mcp.json')
-    if (fs.existsSync(mcpPath)) {
+    // claude busca .mcp.json hacia ARRIBA: el agente corre en un submódulo
+    // (…/talently-code/frontend/frontend-hire) y el archivo vive en la raíz del
+    // monorepo. Mirar solo el cwd dejaba el diálogo sin pre-aprobar.
+    const mcpPath = findUp('.mcp.json', dir)
+    if (mcpPath) {
       const declared = Object.keys(JSON.parse(fs.readFileSync(mcpPath, 'utf8')).mcpServers ?? {})
       proj.enabledMcpjsonServers ??= []
       proj.disabledMcpjsonServers ??= []
