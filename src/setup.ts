@@ -80,12 +80,41 @@ if (wfExists && env.DATABASE_ID) {
   }
 }
 
+/**
+ * Trae el database traduciendo los dos fallos típicos del primer setup: el token
+ * es válido pero la integración no tiene el board compartido (404), o el token
+ * está mal (401). Notion no da acceso a nada por defecto: compartir es un paso
+ * manual en la UI, y sin este mensaje el wizard moría con un stack trace.
+ */
+async function retrieveBoard(
+  notion: { databases: { retrieve: (a: { database_id: string }) => Promise<unknown> } },
+  dbId: string,
+): Promise<{ id: string; data_sources?: Array<{ id: string }> } | null> {
+  try {
+    return await notion.databases.retrieve({ database_id: dbId }) as { id: string; data_sources?: Array<{ id: string }> }
+  } catch (err) {
+    const e = err as { code?: string; message?: string }
+    if (e.code === 'object_not_found') {
+      const who = e.message?.match(/integration "([^"]+)"/)?.[1] ?? 'tu integración'
+      warn(`la integración ${who} no tiene acceso a ese board (o el ID es de otro board)`)
+      console.log(`    En Notion, abre el board → ··· → Connections → agrega "${who}".`)
+      console.log('    Compartir es un paso manual: una integración no ve nada hasta que se lo das.')
+    } else if (e.code === 'unauthorized') {
+      warn('NOTION_TOKEN inválido o revocado — genera uno nuevo en la integración y ponlo en .env')
+    } else {
+      warn(`Notion respondió ${e.code ?? 'error'}: ${e.message ?? String(err)}`)
+    }
+    return null
+  }
+}
+
 /** Lee el board del usuario y deriva workflow.json de SUS columnas. */
 async function adoptBoard(ref: string): Promise<void> {
   const { Client } = await import('@notionhq/client')
   const notion = new Client({ auth: env.NOTION_TOKEN })
   const dbId = ref.match(/[0-9a-f]{32}/i)?.[0] ?? ref
-  const db = await notion.databases.retrieve({ database_id: dbId }) as { id: string; data_sources?: Array<{ id: string }> }
+  const db = await retrieveBoard(notion, dbId)
+  if (!db) return
   const dsId = db.data_sources?.[0]?.id
   if (!dsId) return warn('no encontré data source en ese database')
   const ds = await notion.dataSources.retrieve({ data_source_id: dsId }) as {
