@@ -66,7 +66,11 @@ if (wfExists && env.DATABASE_ID) {
   ok('workflow.json y board ya configurados — verifico que sigan en sync (borra workflow.json para re-derivar de cero)')
   await reconcileBoard()
 } else {
-  const boardRef = await ask('  ¿Ya tienes un board? Pega su URL o ID (vacío = crear uno default)')
+  // Si .env ya nombra un board (p. ej. falta solo config/), ese es el default:
+  // preguntar de cero cuando el dato ya está invita a pegar otro por error.
+  const boardRef = env.DATABASE_ID
+    ? await ask(`  Board del .env — Enter para usarlo, o pega otra URL/ID`, env.DATABASE_ID)
+    : await ask('  ¿Ya tienes un board? Pega su URL o ID (vacío = crear uno default)')
   if (boardRef && env.NOTION_TOKEN) {
     await adoptBoard(boardRef)
   } else if (!wfExists) {
