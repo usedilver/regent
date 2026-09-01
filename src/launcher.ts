@@ -167,8 +167,12 @@ export interface RunPhaseOptions {
 export function runPhase(pageId: string, agentName: string, opts: RunPhaseOptions = {}, bridge?: LoadedBridge): void {
   const b = bridge ?? loadBridge()
   const mode = opts.mode ?? 'column'
+  // El estado se resuelve por TRIGGER, no por la columna actual del card: así una
+  // mención al dev crea igual su worktree aunque el card esté en otra columna.
   const state = b.config.states.find(s => s.trigger === agentName)
-  if (mode === 'column' && !state?.agent_moves_to) throw new Error(`ningún estado tiene trigger "${agentName}" con agent_moves_to`)
+  if (mode === 'column' && !state?.agent_moves_to && !state?.agent_stays) {
+    throw new Error(`ningún estado tiene trigger "${agentName}" con agent_moves_to o agent_stays`)
+  }
 
   fs.mkdirSync(LOG_DIR, { recursive: true })
   fs.mkdirSync(TMP_DIR, { recursive: true })

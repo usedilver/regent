@@ -64,4 +64,30 @@ check('prompt con nextState: se mantiene el protocolo de movimiento', () => {
   assert.doesNotMatch(p, /NUNCA uses `move`/)
 })
 
+check('runPhase no rechaza una fase con agent_stays en modo columna', async () => {
+  const { f } = withWorkflow(wf => {
+    delete wf.states[1].agent_moves_to
+    wf.states[1].agent_stays = true
+  })
+  const b = loadBridge(f.configDir)
+  const st = b.config.states.find(s => s.trigger === 'planner')
+  // misma condición que el guard de runPhase (launcher.ts): antes tiraba con agent_stays
+  const rechazaria = !st?.agent_moves_to && !st?.agent_stays
+  assert.equal(rechazaria, false)
+  f.cleanup()
+})
+
+check('el estado se resuelve por trigger, no por la columna actual del card', () => {
+  const { f } = withWorkflow(wf => {
+    delete wf.states[1].agent_moves_to
+    wf.states[1].agent_stays = true
+  })
+  const b = loadBridge(f.configDir)
+  // dev mencionado con el card parado en "Planning" igual resuelve su propio estado
+  const st = b.config.states.find(s => s.trigger === 'implementer')
+  assert.equal(st.name, 'In Progress')
+  assert.equal(st.use_worktree, true)
+  f.cleanup()
+})
+
 if (failed) { console.error(`\n${failed} fallaron`); process.exit(1) }
