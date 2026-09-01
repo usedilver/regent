@@ -450,7 +450,7 @@ ${lines.join('\n')}
 
 // ---- 5. Slack (opcional) ----
 console.log('\nSlack (opcional):')
-if (env.SLACK_BOT_TOKEN) { ok('tokens de Slack presentes'); await syncSlackManifest() }
+if (env.SLACK_BOT_TOKEN && env.SLACK_APP_TOKEN) { ok('tokens de Slack presentes'); await syncSlackManifest() }
 else await setupSlackApp()
 
 /**
@@ -490,6 +490,21 @@ async function syncSlackManifest(): Promise<void> {
 }
 
 /**
+ * Escribe una clave al .env en el acto. Lo que se persiste al final del wizard
+ * se pierde si el operador corta antes (y cortar en "pegá el token" es lo normal
+ * cuando todavía no lo tenés): sin esto, la corrida siguiente no sabe que la app
+ * ya existía y crea una duplicada.
+ */
+function persistEnv(key: string, value: string): void {
+  env[key] = value
+  let raw = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') : ''
+  if (new RegExp(`^${key}=`, 'm').test(raw)) raw = raw.replace(new RegExp(`^${key}=.*$`, 'm'), `${key}="${value}"`)
+  else raw += `${raw.endsWith('\n') || raw === '' ? '' : '\n'}${key}="${value}"\n`
+  fs.writeFileSync(envPath, raw, { mode: 0o600 })
+  fs.chmodSync(envPath, 0o600)
+}
+
+/**
  * Crea la app por API en vez de pedirte que pegues el manifest a mano: con un
  * App Configuration Token, `apps.manifest.create` la deja hecha con el nombre de
  * TU instancia. Slack no deja automatizar dos cosas, y solo esas quedan como
@@ -506,16 +521,22 @@ async function setupSlackApp(): Promise<void> {
   let appName = 'Regent'
   try { appName = (JSON.parse(fs.readFileSync(wfPath, 'utf8')) as { name?: string }).name ?? appName } catch { /* default */ }
 
-  let appId: string
-  try {
-    appId = await createAppFromManifest(cfg, brandManifest(manifestPath, appName),
-      seg => console.log(`    ratelimited — espero ${seg}s y reintento…`))
-    env.SLACK_APP_ID = appId
-    ok(`app "${appName}" creada (${appId})`)
-  } catch (err) {
-    const m = (err as Error).message
-    warn(`no pude crear la app: ${m}${/token_expired|invalid_auth/.test(m) ? ' → el token de configuración expira a las 12h, genera otro' : ''}`)
-    return
+  // Idempotente: si ya creamos la app en una corrida anterior, se retoma donde
+  // quedó. Crear otra deja apps huérfanas en el workspace, y Slack no las limpia.
+  let appId = env.SLACK_APP_ID
+  if (appId) {
+    ok(`app "${appName}" ya creada (${appId}) — falta instalarla y traer sus tokens`)
+  } else {
+    try {
+      appId = await createAppFromManifest(cfg, brandManifest(manifestPath, appName),
+        seg => console.log(`    ratelimited — espero ${seg}s y reintento…`))
+      persistEnv('SLACK_APP_ID', appId)
+      ok(`app "${appName}" creada (${appId})`)
+    } catch (err) {
+      const m = (err as Error).message
+      warn(`no pude crear la app: ${m}${/token_expired|invalid_auth/.test(m) ? ' → el token de configuración expira a las 12h, genera otro' : ''}`)
+      return
+    }
   }
 
   console.log(`  1. Instálala (Allow): ${installUrl(appId)}`)
@@ -523,7 +544,7 @@ async function setupSlackApp(): Promise<void> {
   if (bot) {
     try {
       const who = await slackApi('auth.test', bot)
-      env.SLACK_BOT_TOKEN = bot
+      persistEnv('SLACK_BOT_TOKEN', bot)
       ok(`bot @${who.user} (${who.user_id})`)
     } catch (err) { warn(`token de bot inválido: ${(err as Error).message}`) }
   }
@@ -534,7 +555,7 @@ async function setupSlackApp(): Promise<void> {
   if (app) {
     try {
       await slackApi('apps.connections.open', app)
-      env.SLACK_APP_TOKEN = app
+      persistEnv('SLACK_APP_TOKEN', app)
       ok('token app-level válido (Socket Mode listo)')
     } catch (err) { warn(`token app-level inválido: ${(err as Error).message}`) }
   }
