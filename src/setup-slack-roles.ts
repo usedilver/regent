@@ -50,6 +50,7 @@ function appendEnv(key: string, value: string): void {
   if (new RegExp(`^${key}=`, 'm').test(env)) env = env.replace(new RegExp(`^${key}=.*$`, 'm'), `${key}="${value}"`)
   else env += `${env.endsWith('\n') || env === '' ? '' : '\n'}${key}="${value}"\n`
   fs.writeFileSync(ENV_PATH, env, { mode: 0o600 })
+  fs.chmodSync(ENV_PATH, 0o600) // writeFileSync ignora mode si el archivo ya existía
 }
 
 const cfgToken = process.env.SLACK_CONFIG_TOKEN

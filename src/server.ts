@@ -106,12 +106,14 @@ async function fetchBotUserId(): Promise<void> {
 function persistVerificationToken(token: string): void {
   const tokenFile = path.join(LOG_DIR, 'verification_token.txt')
   fs.writeFileSync(tokenFile, token + '\n', { mode: 0o600 })
+  fs.chmodSync(tokenFile, 0o600) // writeFileSync ignora mode si el archivo ya existía
   let env = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, 'utf8') : ''
   if (/^NOTION_VERIFICATION_TOKEN=\s*["']?[^"'\s]/m.test(env)) {
     console.warn('⚠️  .env ya tiene NOTION_VERIFICATION_TOKEN; el nuevo quedó SOLO en log/verification_token.txt')
   } else if (/^NOTION_VERIFICATION_TOKEN=/m.test(env)) {
     env = env.replace(/^NOTION_VERIFICATION_TOKEN=.*$/m, `NOTION_VERIFICATION_TOKEN="${token}"`)
     fs.writeFileSync(ENV_PATH, env)
+    fs.chmodSync(ENV_PATH, 0o600)
   } else {
     fs.appendFileSync(ENV_PATH, `\nNOTION_VERIFICATION_TOKEN="${token}"\n`)
   }

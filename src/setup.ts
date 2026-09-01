@@ -553,7 +553,10 @@ if (env.GITHUB_FORWARD_REPOS) {
 // ---- 7. escribir y validar ----
 const lines2 = Object.entries(env).filter(([, v]) => v !== '').map(([k, v]) => `${k}="${v}"`)
 fs.writeFileSync(envPath, lines2.join('\n') + '\n', { mode: 0o600 })
-ok('.env escrito (600)')
+// `mode` en writeFileSync SOLO aplica al crear: sobre un .env que ya existe no
+// cambia nada, y el archivo se queda con los permisos que tuviera (644 típico).
+fs.chmodSync(envPath, 0o600)
+ok(`.env escrito (${(fs.statSync(envPath).mode & 0o777).toString(8)})`)
 console.log('\nValidación:')
 try {
   execFileSync(process.execPath, [path.join(BRIDGE_DIR, 'src', 'validate.ts')], { stdio: 'inherit', env: { ...process.env, ...env } })
