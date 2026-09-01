@@ -3,8 +3,9 @@
  * setup-board — crea (o repara) el board de Notion desde el workflow del REPO DEL CLIENTE.
  *
  * Uso:
- *   node src/setup-board.ts --parent <page_id>        # crea database bajo una página compartida
- *   node src/setup-board.ts --apply <data_source_id>  # aplica estados a un board existente (idempotente)
+ *   node src/setup-board.ts --parent <page_id>              # crea database bajo una página compartida
+ *   node src/setup-board.ts --ensure-props <data_source_id> # agrega al board las propiedades que faltan
+ *   node src/setup-board.ts --apply <data_source_id>        # aplica estados a un board existente
  *   node src/setup-board.ts --title "Mi Board"
  *
  * Lee REPO_PATH del .env y los estados de <repo>/.bridge/workflow.json.
@@ -14,6 +15,7 @@
 import { Client } from '@notionhq/client'
 import { loadEnv } from './env.ts'
 import { loadBridge } from './bridge-config.ts'
+import { detectProps, missingRequired, type BoardProps } from './board-detect.ts'
 
 loadEnv()
 if (!process.env.NOTION_TOKEN) {
@@ -28,6 +30,8 @@ const flag = (name: string) => {
 }
 const parentPageId = flag('parent')
 const applyDataSourceId = flag('apply')
+const ensurePropsDataSourceId = flag('ensure-props')
+const allowStatusPrune = args.includes('--allow-status-prune')
 const title = flag('title') ?? 'Coding Task Board'
 
 const notion = new Client({ auth: process.env.NOTION_TOKEN })
@@ -44,6 +48,14 @@ async function applyStatusOptions(dataSourceId: string) {
   const existing = before.properties[config.status_property]?.status?.options ?? []
   const byName = Object.fromEntries(existing.map(o => [o.name, o]))
   const dropped = existing.filter(o => !config.states.some(s => s.name === o.name)).map(o => o.name)
+  if (dropped.length && !allowStatusPrune) {
+    console.error(`✋ aplicar este workflow BORRARÍA ${dropped.length} opciones de "${config.status_property}" y el valor de todos los cards que las usan:
+     ${dropped.join(', ')}
+
+En un board compartido eso es pérdida de datos. Alinea los estados en config/workflow.json
+con los del board, o pasa --allow-status-prune si de verdad querés reemplazarlos.`)
+    process.exit(1)
+  }
   if (dropped.length) console.warn(`⚠️  opciones fuera del workflow que se ELIMINARÁN: ${dropped.join(', ')}`)
   const options = config.states.map(s => byName[s.name]
     ? { id: byName[s.name].id, name: s.name, color: (s.color ?? byName[s.name].color) as 'default' }
@@ -56,6 +68,33 @@ async function applyStatusOptions(dataSourceId: string) {
     properties: Record<string, { status?: { options: Array<{ name: string }> } }>
   }
   console.log(`Status aplicado:`, ds.properties[config.status_property]?.status?.options.map(o => o.name).join(' → '))
+}
+
+/**
+ * Agrega SOLO los huecos imprescindibles que el matcher no resolvió contra lo
+ * existente (tipo+propósito, board-detect). Nunca toca una propiedad del cliente.
+ */
+async function ensureProps(dataSourceId: string) {
+  const ds = await notion.dataSources.retrieve({ data_source_id: dataSourceId }) as { properties: BoardProps }
+  const detected = detectProps(ds.properties)
+  for (const [role, name] of Object.entries(detected)) {
+    if (name) console.log(`  ${role} → ${typeof name === 'string' ? `"${name}"` : `"${name.property}" (skip: ${name.skip_value})`}`)
+  }
+  const holes = missingRequired({ ...config, agents: config.agents }, ds.properties)
+  if (!holes.length) {
+    console.log('Propiedades: el board ya cubre todo lo que este workflow necesita.')
+    return
+  }
+  await notion.dataSources.update({
+    data_source_id: dataSourceId,
+    properties: Object.fromEntries(holes.map(h => [h.name, h.shape])) as never,
+  })
+  console.log(`Propiedades agregadas: ${holes.map(h => h.name).join(', ')}`)
+}
+
+if (ensurePropsDataSourceId) {
+  await ensureProps(ensurePropsDataSourceId)
+  process.exit(0)
 }
 
 if (applyDataSourceId) {
