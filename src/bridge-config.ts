@@ -84,6 +84,13 @@ const BridgeConfigSchema = z.object({
   pr_merged_moves_to: z.string().min(1).optional(),
   /** propiedad del card que pone el link del PR (la escribe el dev) */
   pr_property: z.string().default('PR'),
+  /**
+   * .env que se inyectan al proceso de cada agente (los `${VARS}` del .mcp.json
+   * del repo resuelven de acá). Rutas explícitas, `~` permitido; el último gana y
+   * todos ganan sobre el entorno del server — como `set -a; source .env`.
+   * Quien spawnea a claude (herdr, tmux) no hereda el entorno de regent.
+   */
+  agent_env_files: z.array(z.string().min(1)).default([]),
   /** propiedad url del card que apunta al repo de GitHub (elige el clon en REPO_PATH) */
   repo_property: z.string().default('Repo'),
   /**

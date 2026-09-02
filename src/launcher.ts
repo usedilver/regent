@@ -13,6 +13,7 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { BRIDGE_DIR, loadEnv } from './env.ts'
 import { loadBridge, parseAgentFile, type LoadedBridge, type BridgeConfig } from './bridge-config.ts'
+import { parseEnvFile } from './env.ts'
 import { buildPhasePrompt } from './phase-prompt.ts'
 import { launchAgent, closeFinishedTabs } from './terminal.ts'
 import { roomOf, saveRoom } from './chat.ts'
@@ -318,8 +319,16 @@ export function runPhase(pageId: string, agentName: string, opts: RunPhaseOption
     if (b.config.agent_property) sh(NCARD, ['setselect', pageId, b.config.agent_property, agentName])
     if (b.config.hop_property) sh(NCARD, ['setnum', pageId, b.config.hop_property, String(opts.hop ?? 0)])
   } catch { /* propiedades opcionales: no bloquea */ }
+  const agentEnv: Record<string, string> = {}
+  for (const f of b.config.agent_env_files) {
+    const resolved = f.replace(/^~(?=$|\/)/, process.env.HOME ?? '')
+    const vars = parseEnvFile(resolved)
+    Object.assign(agentEnv, vars)
+    console.log(`[launcher] env para el agente: ${resolved} (${Object.keys(vars).length} vars)`)
+  }
+
   const res = launchAgent({
-    cwd, label, claudeArgs, promptText,
+    cwd, label, claudeArgs, promptText, env: agentEnv,
     logFile: path.join(LOG_DIR, `agent-${label}.out`),
   })
   // los tabs de fases anteriores del card ya cumplieron: cerrarlos (el nuevo toma el relevo)

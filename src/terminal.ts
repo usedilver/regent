@@ -18,6 +18,13 @@ export interface LaunchInput {
   /** prompt de fase (se envía como input interactivo o como arg de -p) */
   promptText: string
   logFile: string
+  /** variables para el proceso de claude (además del entorno del backend) */
+  env?: Record<string, string>
+}
+
+/** `--env K=V --env K2=V2`: un flag repetido por variable, como piden herdr y tmux. */
+export function envFlags(flag: string, env: Record<string, string> | undefined): string[] {
+  return Object.entries(env ?? {}).flatMap(([k, v]) => [flag, `${k}=${v}`])
 }
 
 export interface LaunchResult {
@@ -79,7 +86,7 @@ export function detectBackend(): LaunchResult['backend'] {
 // ---------- herdr ----------
 
 function launchHerdr(i: LaunchInput): LaunchResult {
-  const tab = JSON.parse(sh('herdr', ['tab', 'create', '--cwd', i.cwd, '--label', i.label, '--no-focus']))
+  const tab = JSON.parse(sh('herdr', ['tab', 'create', '--cwd', i.cwd, '--label', i.label, '--no-focus', ...envFlags('--env', i.env)]))
   const paneId: string = tab.result?.root_pane?.pane_id ?? tab.result?.root_pane?.id
   const tabId: string | undefined = tab.result?.tab?.tab_id
   if (!paneId) throw new Error('herdr tab create no devolvió pane_id')
@@ -102,7 +109,7 @@ function launchHerdr(i: LaunchInput): LaunchResult {
 
 function launchTmux(i: LaunchInput): LaunchResult {
   const session = i.label.replace(/[^a-zA-Z0-9_-]/g, '-')
-  sh('tmux', ['new-session', '-d', '-s', session, '-c', i.cwd])
+  sh('tmux', ['new-session', '-d', '-s', session, '-c', i.cwd, ...envFlags('-e', i.env)]) // -e: tmux ≥ 3.2
   // claude interactivo en la sesión (permite attach + intervenir); el prompt via buffer
   // para no pelear con quoting de send-keys
   const cmd = ['claude', ...i.claudeArgs].map(a => `'${a.replace(/'/g, `'\\''`)}'`).join(' ')
@@ -122,7 +129,7 @@ function launchTmux(i: LaunchInput): LaunchResult {
 function launchHeadless(i: LaunchInput): LaunchResult {
   const out = fs.openSync(i.logFile, 'a')
   const child = spawn('claude', ['-p', i.promptText, ...i.claudeArgs], {
-    cwd: i.cwd, detached: true, stdio: ['ignore', out, out],
+    cwd: i.cwd, detached: true, stdio: ['ignore', out, out], env: { ...process.env, ...i.env },
   })
   child.unref()
   return { backend: 'headless', ref: `pid ${child.pid} → ${i.logFile}` }

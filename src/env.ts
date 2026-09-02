@@ -5,13 +5,23 @@ import { fileURLToPath } from 'node:url'
 
 export const BRIDGE_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 
-export function loadEnv(): void {
-  const envPath = path.join(BRIDGE_DIR, '.env')
-  if (!fs.existsSync(envPath)) return
+/**
+ * KEY=VALUE de un .env, sin expansión de shell: un `$` en una contraseña llega
+ * literal. Comillas envolventes se quitan; comentarios y líneas vacías se ignoran.
+ */
+export function parseEnvFile(envPath: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (!fs.existsSync(envPath)) return out
   for (const line of fs.readFileSync(envPath, 'utf8').split('\n')) {
-    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/)
+    const m = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/)
     if (!m) continue
-    const val = m[2].replace(/^["']|["']$/g, '')
-    if (!(m[1] in process.env)) process.env[m[1]] = val
+    out[m[1]] = m[2].replace(/^(["'])(.*)\1$/, '$2')
+  }
+  return out
+}
+
+export function loadEnv(): void {
+  for (const [key, val] of Object.entries(parseEnvFile(path.join(BRIDGE_DIR, '.env')))) {
+    if (!(key in process.env)) process.env[key] = val
   }
 }
