@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process'
 import { BRIDGE_DIR, loadEnv } from './env.ts'
 import { loadBridge, parseAgentFile, type LoadedBridge, type BridgeConfig } from './bridge-config.ts'
 import { parseEnvFile } from './env.ts'
-import { shortIdOf, loadRegistry, newRegistry, addWorktree, worktreesOf, type RepoEntry } from './workspace.ts'
+import { shortIdOf, loadRegistry, newRegistry, addWorktree, worktreesOf, scanRepos, reposRootDir, type RepoEntry } from './workspace.ts'
 import { buildPhasePrompt } from './phase-prompt.ts'
 import { launchAgent, closeFinishedTabs } from './terminal.ts'
 import { roomOf, saveRoom } from './chat.ts'
@@ -116,32 +116,18 @@ function originMatches(dir: string, owner: string, name: string): boolean {
   } catch { return false }
 }
 
-/** Clones bajo REPO_PATH hasta tres niveles (carpetas-organización y submódulos de un monorepo). */
-function scanRepoDirs(): string[] {
-  const reposRoot = (process.env.REPO_PATH ?? '').replace(/^~/, process.env.HOME ?? '')
-  if (!reposRoot || !fs.existsSync(reposRoot)) throw new Error(`REPO_PATH no existe: "${reposRoot}"`)
-  const repoDirs: string[] = []
-  const scan = (dir: string, depth: number): void => {
-    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (!e.isDirectory() || e.name.startsWith('.') || e.name === 'node_modules') continue
-      const full = path.join(dir, e.name)
-      if (fs.existsSync(path.join(full, '.git'))) repoDirs.push(full)
-      if (depth < 3) scan(full, depth + 1)
-    }
-  }
-  scan(reposRoot, 1)
-  return repoDirs
-}
-
 /** La raíz del workspace, por nombre de carpeta bajo REPO_PATH. */
 function resolveWorkspaceRoot(name: string): string {
-  const dir = scanRepoDirs().find(d => path.basename(d) === name)
-  if (!dir) throw new Error(`workspace_root "${name}" no está clonado bajo REPO_PATH`)
-  return dir
+  const reposRoot = reposRootDir()
+  if (!reposRoot || !fs.existsSync(reposRoot)) throw new Error(`REPO_PATH no existe: "${reposRoot}"`)
+  const hit = scanRepos(reposRoot).find(r => r.name === name)
+  if (!hit) throw new Error(`workspace_root "${name}" no está clonado bajo REPO_PATH`)
+  return hit.dir
 }
 
 function resolveCardRepo(card: Card, workspaceRoot: string | null): string {
-  const reposRoot = (process.env.REPO_PATH ?? '').replace(/^~/, process.env.HOME ?? '')
+  const reposRoot = reposRootDir()
+  if (!reposRoot || !fs.existsSync(reposRoot)) throw new Error(`REPO_PATH no existe: "${reposRoot}"`)
   const repoUrl = (card as { repo?: string }).repo ?? ''
   const m = repoUrl.match(/github\.com[/:]([^/]+)\/([^/#?]+?)(?:\.git)?(?:[/#?].*)?$/)
   if (!m) {
@@ -151,7 +137,7 @@ function resolveCardRepo(card: Card, workspaceRoot: string | null): string {
   }
   const [, owner, name] = m
 
-  const repoDirs = scanRepoDirs()
+  const repoDirs = scanRepos(reposRoot).map(r => r.dir)
 
   // 1) por nombre de carpeta; 2) por origin — el path de un submódulo puede no
   // llamarse como su repo. El origin valida en ambos casos.

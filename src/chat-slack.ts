@@ -68,21 +68,55 @@ export function createSlackAdapter(cfg: ChatConfig): ChatAdapter {
     if (!json.ok) throw new Error(`${method} → ${json.error}`)
     return json
   }
+  interface SlackFile { id: string; name?: string; title?: string; filetype?: string; mimetype?: string; size?: number; mode?: string; url_private_download?: string; preview?: string }
+  const FILE_INLINE_MAX = 200 * 1024
+  const FILE_INLINE_CHARS = 12_000
+  /** archivo de texto (log, snippet, json…) → contenido inline; otros → solo su nombre */
+  const readFile = async (f: SlackFile): Promise<string> => {
+    const label = `[archivo: ${f.title || f.name || f.id}${f.filetype ? ` · ${f.filetype}` : ''}${f.size ? ` · ${Math.round(f.size / 1024)} KB` : ''}]`
+    const textLike = f.mode === 'snippet' || /^text\//.test(f.mimetype ?? '') || /^(log|txt|json|yaml|yml|md|csv|diff|patch|xml)$/i.test(f.filetype ?? '')
+    if (!textLike || !f.url_private_download || (f.size ?? 0) > FILE_INLINE_MAX) return f.preview ? `${label}\n${f.preview}` : label
+    try {
+      const res = await fetch(f.url_private_download, { headers: { authorization: `Bearer ${process.env.SLACK_BOT_TOKEN ?? ''}` } })
+      if (!res.ok) return f.preview ? `${label}\n${f.preview}` : `${label} (no pude leerlo: HTTP ${res.status})`
+      const body = (await res.text()).slice(0, FILE_INLINE_CHARS)
+      return `${label}\n${body}${body.length >= FILE_INLINE_CHARS ? '\n… (truncado)' : ''}`
+    } catch (err) {
+      return `${label} (no pude leerlo: ${(err as Error).message})`
+    }
+  }
   /** mención REAL a una cara (<@U_rol>) → alias del router ("@pm"); el resto queda igual */
   const translateRoleMentions = (text: string): string =>
     text.replace(/<@([A-Z0-9]+)>/g, (m, id: string) => {
       const role = roleByUserId.get(id)
       return role ? (cfg.role_mentions[role] ?? `@${role}`) : m
     })
-  /** hilo completo → transcript legible + participantes humanos */
-  const gatherThread = async (channel: string, threadTs: string): Promise<{ transcript?: string; participants?: string[] }> => {
+  /**
+   * Hilo completo → transcript + participantes humanos. Los bots ENTRAN (un log de
+   * Sentry o un alerta de CI suelen ser el contexto entero del pedido) y los archivos
+   * de texto se leen inline: sin eso el intake pide "compartí el error" con el error
+   * a la vista. Si el canal no se puede leer, se dice cuál permiso falta.
+   */
+  const gatherThread = async (channel: string, threadTs: string): Promise<{ transcript?: string; participants?: string[]; unreadable?: string }> => {
+    let replies: Awaited<ReturnType<typeof app.client.conversations.replies>>
     try {
-      const replies = await app.client.conversations.replies({ channel, ts: threadTs, limit: 50 })
-      const msgs = (replies.messages ?? []).filter(m => !(m as { bot_id?: string }).bot_id && m.text)
-      const transcript = (await Promise.all(msgs.map(async m => `@${await nameOf(m.user ?? 'unknown')}: ${await humanize(m.text!)}`))).join('\n')
-      const participants = [...new Set(msgs.map(m => m.user!).filter(Boolean))]
-      return { transcript: transcript || undefined, participants: participants.length ? participants : undefined }
-    } catch { return {} } // sin *:history en ese canal: seguimos solo con el mensaje
+      replies = await app.client.conversations.replies({ channel, ts: threadTs, limit: 50 })
+    } catch (err) {
+      const code = (err as { data?: { error?: string } }).data?.error ?? (err as Error).message
+      return { unreadable: code } // típico: missing_scope en un canal privado (groups:history)
+    }
+    const msgs = replies.messages ?? []
+    const lines = await Promise.all(msgs.map(async m => {
+      const files = (m as { files?: SlackFile[] }).files ?? []
+      const who = (m as { bot_id?: string }).bot_id ? `[app ${(m as { username?: string; bot_profile?: { name?: string } }).bot_profile?.name ?? (m as { username?: string }).username ?? 'bot'}]` : `@${await nameOf(m.user ?? 'unknown')}`
+      const text = m.text ? await humanize(m.text) : ''
+      const attached = (await Promise.all(files.map(readFile))).join('\n')
+      const body = [text, attached].filter(Boolean).join('\n')
+      return body ? `${who}: ${body}` : ''
+    }))
+    const transcript = lines.filter(Boolean).join('\n')
+    const participants = [...new Set(msgs.filter(m => !(m as { bot_id?: string }).bot_id).map(m => m.user!).filter(Boolean))]
+    return { transcript: transcript || undefined, participants: participants.length ? participants : undefined }
   }
 
   return {
@@ -107,8 +141,8 @@ export function createSlackAdapter(cfg: ChatConfig): ChatAdapter {
         // DM con el hub (superficie de agente) = otra puerta de intake; cada hilo es una
         // conversación → los follow-ups del hilo caen en su card (threads.json)
         const text = translateRoleMentions(m.text).replace(/<@[A-Z0-9]+>/g, '').trim()
-        const { transcript } = m.thread_ts ? await gatherThread(m.channel, m.thread_ts) : {}
-        handlers.onBotMention?.({ channelId: m.channel, text, userId: m.user ?? 'unknown', threadTs: m.thread_ts ?? m.ts, transcript, participants: m.user ? [m.user] : undefined })
+        const { transcript, unreadable } = m.thread_ts ? await gatherThread(m.channel, m.thread_ts) : {}
+        handlers.onBotMention?.({ channelId: m.channel, text, userId: m.user ?? 'unknown', threadTs: m.thread_ts ?? m.ts, transcript, unreadable, participants: m.user ? [m.user] : undefined })
       })
       // mención al bot fuera de las salas → crear tareas desde cualquier canal.
       // Si la mención está DENTRO de un hilo, se recoge el hilo completo (transcript +
@@ -119,8 +153,8 @@ export function createSlackAdapter(cfg: ChatConfig): ChatAdapter {
         // menciones reales de caras → alias del router; luego fuera el resto de menciones.
         // Puede quedar VACÍO ("@bot" a secas): igual se reenvía — nunca silencio.
         const text = translateRoleMentions(e.text ?? '').replace(/<@[A-Z0-9]+>/g, '').trim()
-        const { transcript, participants } = e.thread_ts ? await gatherThread(e.channel, e.thread_ts) : {}
-        handlers.onBotMention?.({ channelId: e.channel, text, userId: e.user ?? 'unknown', threadTs: e.thread_ts ?? e.ts, transcript, participants })
+        const { transcript, participants, unreadable } = e.thread_ts ? await gatherThread(e.channel, e.thread_ts) : {}
+        handlers.onBotMention?.({ channelId: e.channel, text, userId: e.user ?? 'unknown', threadTs: e.thread_ts ?? e.ts, transcript, unreadable, participants })
       })
       // panel de agente (agent_view): prompts sugeridos al abrir un hilo con el hub
       app.event('assistant_thread_started', async ({ event }) => {

@@ -31,17 +31,22 @@
         "users:read",
         "users:read.email",
         "assistant:write",
-        "im:history"
+        "im:history",
+        "groups:history",
+        "mpim:history",
+        "files:read",
+        "groups:read"
       ]
     }
   },
   "settings": {
     "event_subscriptions": {
       "bot_events": [
-        "message.channels",
         "app_mention",
-        "message.im",
-        "assistant_thread_started"
+        "assistant_thread_started",
+        "message.channels",
+        "message.groups",
+        "message.im"
       ]
     },
     "interactivity": {

@@ -37,6 +37,37 @@ export const WORKSPACES_DIR = path.join(BRIDGE_DIR, 'log', 'workspaces')
 export const WORKTREES_DIR = path.join(BRIDGE_DIR, 'worktrees')
 
 export const shortIdOf = (pageId: string): string => pageId.replace(/-/g, '').slice(-12)
+
+export interface RepoDir { dir: string; name: string; rel: string; origin: string | null }
+
+export const reposRootDir = (): string => (process.env.REPO_PATH ?? '').replace(/^~/, process.env.HOME ?? '')
+
+/**
+ * Clones bajo REPO_PATH hasta tres niveles: carpetas-organización y submódulos
+ * de un monorepo (…/talently-code/backend/l9-backend). Se DESCIENDE dentro de un
+ * repo con remoto: sus submódulos son repos por derecho propio.
+ */
+export function scanRepos(root = reposRootDir()): RepoDir[] {
+  if (!root || !fs.existsSync(root)) return []
+  const out: RepoDir[] = []
+  const walk = (dir: string, depth: number): void => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!e.isDirectory() || e.name.startsWith('.') || e.name === 'node_modules') continue
+      const full = path.join(dir, e.name)
+      if (fs.existsSync(path.join(full, '.git'))) {
+        let origin: string | null = null
+        try { origin = sh('git', ['-C', full, 'remote', 'get-url', 'origin']).trim() || null } catch { /* sin remoto */ }
+        out.push({ dir: full, name: e.name, rel: path.relative(root, full), origin })
+      }
+      if (depth < 3) walk(full, depth + 1)
+    }
+  }
+  walk(root, 1)
+  return out
+}
+
+export const findRepoByName = (name: string, root = reposRootDir()): RepoDir | undefined =>
+  scanRepos(root).find(r => r.name === name)
 export const registryPath = (shortId: string): string => path.join(WORKSPACES_DIR, `${shortId}.json`)
 export const worktreesOf = (shortId: string): string => path.join(WORKTREES_DIR, shortId)
 

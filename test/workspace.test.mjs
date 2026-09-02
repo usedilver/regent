@@ -106,4 +106,23 @@ check('ownerRepoOf: https y ssh', () => {
   assert.equal(W.ownerRepoOf('https://github.com/Org/repo'), 'Org/repo')
 })
 
+check('scanRepos: desciende en un monorepo con remoto y lista sus submódulos con ruta relativa', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'scan-'))
+  const mk = (rel, origin) => {
+    const d = path.join(root, rel); fs.mkdirSync(d, { recursive: true })
+    execFileSync('git', ['init', '-q', d], { stdio: 'ignore' })
+    if (origin) git(d, 'remote', 'add', 'origin', origin)
+  }
+  mk('talently-code', 'git@github.com:Org/talently-code.git')
+  mk('talently-code/frontend/frontend-hire', 'git@github.com:Org/frontend-hire.git')
+  mk('talently-code/backend/l9-backend', 'git@github.com:Org/l9-ops-backend-api.git')
+  mk('solo', null)
+  const repos = W.scanRepos(root)
+  const rels = repos.map(r => r.rel).sort()
+  assert.deepEqual(rels, ['solo', 'talently-code', 'talently-code/backend/l9-backend', 'talently-code/frontend/frontend-hire'])
+  assert.equal(repos.find(r => r.rel === 'talently-code/backend/l9-backend').origin, 'git@github.com:Org/l9-ops-backend-api.git')
+  assert.equal(W.findRepoByName('talently-code', root).rel, 'talently-code')
+  fs.rmSync(root, { recursive: true, force: true })
+})
+
 if (failed) { console.error(`\n${failed} fallaron`); process.exit(1) }

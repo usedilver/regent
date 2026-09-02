@@ -12,6 +12,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
 import { BRIDGE_DIR } from './env.ts'
+import { scanRepos } from './workspace.ts'
 
 export interface RepoRef { name: string; origin: string }
 
@@ -35,6 +36,8 @@ export interface IntakeInput {
   fillable?: FillableProp[]
   /** si existe: es una ACTUALIZACIÓN a ese card, no una tarea nueva */
   existingCard?: { title: string; status: string; repo: string | null }
+  /** narrativa del proceso del equipo (config/process.md): reglas y mapa de repos */
+  processNotes?: string
 }
 
 export interface IntakeResult {
@@ -57,44 +60,17 @@ const ResultSchema = z.object({
 
 /** modelo y timeout salen de workflow.json (`intake`); la env queda de override del operador */
 export interface IntakeConfig { model: string; timeout_sec: number }
+/** dónde corre el intake: la raíz del workspace carga el CLAUDE.md del cliente (sin tools, sin MCP) */
+export interface IntakeRun { cwd?: string }
 
 const intakeSettings = (cfg?: IntakeConfig) => ({
   model: process.env.INTAKE_MODEL ?? cfg?.model ?? 'sonnet',
   timeoutMs: Number(process.env.INTAKE_TIMEOUT_SEC ?? cfg?.timeout_sec ?? 90) * 1000,
 })
 
-/**
- * Repos disponibles en REPO_PATH (mismo layout que resolveCardRepo: directo o un
- * nivel adentro para carpetas de organización; un repo contenedor SIN remote se
- * trata como carpeta y se desciende).
- */
+/** Repos disponibles en REPO_PATH (mismo escáner que el launcher: hasta tres niveles, submódulos incluidos). */
 export function listRepos(): RepoRef[] {
-  const root = (process.env.REPO_PATH ?? '').replace(/^~/, process.env.HOME ?? '')
-  if (!root || !fs.existsSync(root)) return []
-  const originOf = (dir: string): string | null => {
-    try {
-      return execFileSync('git', ['-C', dir, 'remote', 'get-url', 'origin'], { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
-    } catch { return null }
-  }
-  const out: RepoRef[] = []
-  for (const e of fs.readdirSync(root, { withFileTypes: true })) {
-    if (!e.isDirectory() || e.name.startsWith('.')) continue
-    const dir = path.join(root, e.name)
-    if (fs.existsSync(path.join(dir, '.git'))) {
-      const origin = originOf(dir)
-      if (origin) { out.push({ name: e.name, origin }); continue }
-    }
-    let subs: fs.Dirent[] = []
-    try { subs = fs.readdirSync(dir, { withFileTypes: true }) } catch { continue }
-    for (const sub of subs) {
-      if (!sub.isDirectory() || sub.name.startsWith('.')) continue
-      const sdir = path.join(dir, sub.name)
-      if (!fs.existsSync(path.join(sdir, '.git'))) continue
-      const origin = originOf(sdir)
-      if (origin) out.push({ name: `${e.name}/${sub.name}`, origin })
-    }
-  }
-  return out.slice(0, 200)
+  return scanRepos().filter(r => r.origin).map(r => ({ name: r.rel, origin: r.origin! })).slice(0, 200)
 }
 
 const today = () => new Date().toISOString().slice(0, 10)
@@ -120,7 +96,9 @@ Reglas:
 - "repo" sale de la lista de abajo o de una URL de github explícita en el mensaje; nada más.
 - "properties": no llenes métricas de fases posteriores (progreso, resultados); solo lo que se sabe AL CREAR la tarea.
 
-# Roles disponibles
+${i.processNotes ? `# Proceso y reglas del equipo
+${i.processNotes.slice(0, 6000)}
+` : ''}# Roles disponibles
 ${roles}
 
 # Repos disponibles (nombre → origin)
@@ -147,13 +125,17 @@ ${i.transcript}
 }
 
 /** null en cualquier fallo (claude ausente, timeout, JSON inválido) → el caller usa regex. */
-export function runIntake(input: IntakeInput, cfg?: IntakeConfig): Promise<IntakeResult | null> {
+export function runIntake(input: IntakeInput, cfg?: IntakeConfig, run: IntakeRun = {}): Promise<IntakeResult | null> {
   const prompt = buildIntakePrompt(input)
   const { model, timeoutMs } = intakeSettings(cfg)
+  // El intake solo interpreta: corre en la raíz del workspace para heredar su
+  // CLAUDE.md, pero sin levantar los MCP del repo (10 servidores para leer un hilo).
+  const noMcp = path.join(BRIDGE_DIR, 'tmp', 'no-mcp.json')
+  try { fs.mkdirSync(path.dirname(noMcp), { recursive: true }); if (!fs.existsSync(noMcp)) fs.writeFileSync(noMcp, '{"mcpServers":{}}') } catch { /* sin tmp: claude cargará los MCP */ }
   return new Promise(resolve => {
     const child = execFile(
-      'claude', ['-p', '--output-format', 'json', '--model', model],
-      { cwd: BRIDGE_DIR, timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, env: process.env },
+      'claude', ['-p', '--output-format', 'json', '--model', model, '--strict-mcp-config', '--mcp-config', noMcp],
+      { cwd: run.cwd ?? BRIDGE_DIR, timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, env: process.env },
       (err, stdout) => {
         if (err) return resolve(null)
         try {

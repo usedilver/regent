@@ -22,7 +22,7 @@ import { findMentionTargets, pageCreatedAgent, evaluateHandoff } from './router.
 import { createChatAdapter, saveRoom, roomOf, threadKey, pageOfThread, saveThread, type ChatAdapter } from './chat.ts'
 import { runIntake, listRepos, type FillableProp } from './intake.ts'
 import { sendToLiveAgent, interruptLiveAgent, closeTab } from './terminal.ts'
-import { shortIdOf, loadRegistry, removeWorkspace, allPrs, allRemotes, listRegistries, findRegistryByPr, dirtySharedCheckouts, ownerRepoOf } from './workspace.ts'
+import { shortIdOf, loadRegistry, removeWorkspace, allPrs, allRemotes, listRegistries, findRegistryByPr, dirtySharedCheckouts, ownerRepoOf, findRepoByName } from './workspace.ts'
 import { execFile } from 'node:child_process'
 
 loadEnv()
@@ -1083,7 +1083,14 @@ async function cardAlive(pageId: string): Promise<boolean | null> {
   }
 }
 
-type BotMentionMsg = { channelId: string; text: string; userId: string; threadTs?: string; transcript?: string; participants?: string[] }
+type BotMentionMsg = { channelId: string; text: string; userId: string; threadTs?: string; transcript?: string; participants?: string[]; unreadable?: string }
+
+const processNotes = (): string | undefined => {
+  const p = path.join(BRIDGE_DIR, 'config', 'process.md')
+  return fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : undefined
+}
+const workspaceRootDir = (): string | undefined =>
+  bridge.config.workspace_root ? findRepoByName(bridge.config.workspace_root)?.dir : undefined
 
 async function onBotMention(msg: BotMentionMsg): Promise<void> {
   if (!notion || !process.env.DATA_SOURCE_ID) return
@@ -1111,9 +1118,14 @@ async function onBotMention(msg: BotMentionMsg): Promise<void> {
     if (!(await chat.ackWorking?.(channelId, threadTs).catch(() => false))) await chat.postTo(channelId, '👀 leyendo…', threadTs)
   })().catch(() => {})
 
+  // sin permiso para leer el hilo, el intake trabaja a ciegas: que se sepa por qué
+  if (msg.unreadable) {
+    jlog('thread_unreadable', { channel: channelId, error: msg.unreadable })
+    void chat.postTo(channelId, `⚠️ no puedo leer este hilo (\`${msg.unreadable}\`${msg.unreadable === 'missing_scope' ? ' — en un canal privado falta `groups:history`; reinstalá la app con los scopes nuevos' : ''}). Sigo solo con tu mensaje.`, threadTs).catch(() => {})
+  }
   const schema = await boardSchema().catch(() => ({} as Record<string, DsProp>))
   const fillable = fillableFrom(schema)
-  const intake = await runIntake({ text: msg.text, transcript: msg.transcript, repos: listRepos(), roles: roleAliases(), fillable }, bridge.config.intake)
+  const intake = await runIntake({ text: msg.text, transcript: msg.transcript, repos: listRepos(), roles: roleAliases(), fillable, processNotes: processNotes() }, bridge.config.intake, { cwd: workspaceRootDir() })
   // el intake dice "esto no es una tarea" (pregunta/charla, típico en el DM) → conversar, no crear
   if (intake && !intake.title && !intake.description_md && !intake.repo && !intake.role && Object.keys(intake.properties ?? {}).length === 0) {
     jlog('chat_not_a_task', { channel: channelId })
@@ -1213,7 +1225,7 @@ async function applyChatUpdate(pageId: string, input: { text: string; transcript
     const card = await cardSummary(pageId).catch(() => null)
     const schema = await boardSchema().catch(() => ({} as Record<string, DsProp>))
     const fillable = fillableFrom(schema)
-    const intake = await runIntake({ text: input.text, transcript: input.transcript, repos: listRepos(), roles: roleAliases(), fillable, existingCard: card ?? undefined }, bridge.config.intake)
+    const intake = await runIntake({ text: input.text, transcript: input.transcript, repos: listRepos(), roles: roleAliases(), fillable, existingCard: card ?? undefined, processNotes: processNotes() }, bridge.config.intake, { cwd: workspaceRootDir() })
     if (intake) {
       repoUrl = intake.repo ?? undefined
       if (intake.role && bridge.config.agents[intake.role]) roleTargets = [intake.role]

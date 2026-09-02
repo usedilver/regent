@@ -26,7 +26,7 @@ export interface ChatHandlers {
   onMessage: (msg: InboundMessage) => void
   /** mención al bot FUERA de una sala (p. ej. "@regent crea una tarea: …");
    *  si vino en un hilo, transcript+participants traen el contexto completo */
-  onBotMention?: (msg: { channelId: string; text: string; userId: string; threadTs?: string; transcript?: string; participants?: string[] }) => void
+  onBotMention?: (msg: { channelId: string; text: string; userId: string; threadTs?: string; transcript?: string; participants?: string[]; unreadable?: string }) => void
 }
 
 export interface ChatAdapter {
