@@ -120,7 +120,8 @@ check('scanRepos: desciende en un monorepo con remoto y lista sus submódulos co
   const repos = W.scanRepos(root)
   const rels = repos.map(r => r.rel).sort()
   assert.deepEqual(rels, ['solo', 'talently-code', 'talently-code/backend/l9-backend', 'talently-code/frontend/frontend-hire'])
-  assert.equal(repos.find(r => r.rel === 'talently-code/backend/l9-backend').origin, 'git@github.com:Org/l9-ops-backend-api.git')
+  // un `url.insteadOf` global (ssh→https) reescribe get-url: se compara el owner/repo, no la URL literal
+  assert.equal(W.ownerRepoOf(repos.find(r => r.rel === 'talently-code/backend/l9-backend').origin), 'Org/l9-ops-backend-api')
   assert.equal(W.findRepoByName('talently-code', root).rel, 'talently-code')
   fs.rmSync(root, { recursive: true, force: true })
 })
