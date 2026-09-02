@@ -11,6 +11,7 @@
  *
  * Socket Mode: WebSocket saliente — sin URL pública para esta pata.
  */
+import { messageBody, appLabel, type SlackMsgLike } from './slack-thread.ts'
 import pkg from '@slack/bolt'
 import type { ChatAdapter, ChatConfig, ChatHandlers, ChatPersona } from './chat.ts'
 import { loadRooms, saveRoom, roomOf } from './chat.ts'
@@ -108,8 +109,9 @@ export function createSlackAdapter(cfg: ChatConfig): ChatAdapter {
     const msgs = replies.messages ?? []
     const lines = await Promise.all(msgs.map(async m => {
       const files = (m as { files?: SlackFile[] }).files ?? []
-      const who = (m as { bot_id?: string }).bot_id ? `[app ${(m as { username?: string; bot_profile?: { name?: string } }).bot_profile?.name ?? (m as { username?: string }).username ?? 'bot'}]` : `@${await nameOf(m.user ?? 'unknown')}`
-      const text = m.text ? await humanize(m.text) : ''
+      const who = (m as { bot_id?: string }).bot_id ? appLabel(m as SlackMsgLike) : `@${await nameOf(m.user ?? 'unknown')}`
+      const body0 = messageBody(m as SlackMsgLike)
+      const text = body0 ? await humanize(body0) : ''
       const attached = (await Promise.all(files.map(readFile))).join('\n')
       const body = [text, attached].filter(Boolean).join('\n')
       return body ? `${who}: ${body}` : ''
