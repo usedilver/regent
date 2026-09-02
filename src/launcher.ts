@@ -14,6 +14,7 @@ import { execFileSync } from 'node:child_process'
 import { BRIDGE_DIR, loadEnv } from './env.ts'
 import { loadBridge, parseAgentFile, type LoadedBridge, type BridgeConfig } from './bridge-config.ts'
 import { parseEnvFile } from './env.ts'
+import { shortIdOf, loadRegistry, newRegistry, addWorktree, worktreesOf, type RepoEntry } from './workspace.ts'
 import { buildPhasePrompt } from './phase-prompt.ts'
 import { launchAgent, closeFinishedTabs } from './terminal.ts'
 import { roomOf, saveRoom } from './chat.ts'
@@ -21,6 +22,7 @@ import { roomOf, saveRoom } from './chat.ts'
 loadEnv()
 
 const NCARD = path.join(BRIDGE_DIR, 'ncard')
+const REGENT_WT = path.join(BRIDGE_DIR, 'regent-wt')
 const LOG_DIR = path.join(BRIDGE_DIR, 'log')
 const TMP_DIR = path.join(BRIDGE_DIR, 'tmp')
 
@@ -114,20 +116,10 @@ function originMatches(dir: string, owner: string, name: string): boolean {
   } catch { return false }
 }
 
-function resolveCardRepo(card: Card): string {
+/** Clones bajo REPO_PATH hasta tres niveles (carpetas-organización y submódulos de un monorepo). */
+function scanRepoDirs(): string[] {
   const reposRoot = (process.env.REPO_PATH ?? '').replace(/^~/, process.env.HOME ?? '')
   if (!reposRoot || !fs.existsSync(reposRoot)) throw new Error(`REPO_PATH no existe: "${reposRoot}"`)
-
-  const repoUrl = (card as { repo?: string }).repo ?? ''
-  const m = repoUrl.match(/github\.com[/:]([^/]+)\/([^/#?]+?)(?:\.git)?(?:[/#?].*)?$/)
-  if (!m) {
-    // sin repo no se ejecuta nada: se solicita por comentario
-    throw new Error('el card no tiene la propiedad Repo — pon el link de GitHub del repo y vuelve a activar (drag o mención)')
-  }
-  const [, owner, name] = m
-
-  // Clones existentes hasta tres niveles adentro — cubre carpetas-organización
-  // (<root>/<org>/<name>) y submódulos de un monorepo (<root>/<mono>/backend/<name>).
   const repoDirs: string[] = []
   const scan = (dir: string, depth: number): void => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -138,6 +130,28 @@ function resolveCardRepo(card: Card): string {
     }
   }
   scan(reposRoot, 1)
+  return repoDirs
+}
+
+/** La raíz del workspace, por nombre de carpeta bajo REPO_PATH. */
+function resolveWorkspaceRoot(name: string): string {
+  const dir = scanRepoDirs().find(d => path.basename(d) === name)
+  if (!dir) throw new Error(`workspace_root "${name}" no está clonado bajo REPO_PATH`)
+  return dir
+}
+
+function resolveCardRepo(card: Card, workspaceRoot: string | null): string {
+  const reposRoot = (process.env.REPO_PATH ?? '').replace(/^~/, process.env.HOME ?? '')
+  const repoUrl = (card as { repo?: string }).repo ?? ''
+  const m = repoUrl.match(/github\.com[/:]([^/]+)\/([^/#?]+?)(?:\.git)?(?:[/#?].*)?$/)
+  if (!m) {
+    // con workspace el card no necesita Repo: el agente decide qué repos toca desde la raíz
+    if (workspaceRoot) return workspaceRoot
+    throw new Error('el card no tiene la propiedad Repo — pon el link de GitHub del repo y vuelve a activar (drag o mención)')
+  }
+  const [, owner, name] = m
+
+  const repoDirs = scanRepoDirs()
 
   // 1) por nombre de carpeta; 2) por origin — el path de un submódulo puede no
   // llamarse como su repo. El origin valida en ambos casos.
@@ -161,67 +175,17 @@ function resolveCardRepo(card: Card): string {
 }
 
 /** El agent efectivo: override del repo (.claude/agents/<n>.md) o el default del bridge. */
-function resolveAgent(b: LoadedBridge, agentName: string, repoDir: string) {
-  const override = path.join(repoDir, '.claude', 'agents', `${agentName}.md`)
-  if (fs.existsSync(override)) {
-    console.log(`[launcher] agent "${agentName}" sobrescrito por el repo`)
-    return parseAgentFile(override)
+function resolveAgent(b: LoadedBridge, agentName: string, repoDirs: string[]) {
+  for (const repoDir of repoDirs) {
+    const override = path.join(repoDir, '.claude', 'agents', `${agentName}.md`)
+    if (fs.existsSync(override)) {
+      console.log(`[launcher] agent "${agentName}" sobrescrito por ${repoDir}`)
+      return parseAgentFile(override)
+    }
   }
   const def = b.agents.get(agentName)
   if (!def) throw new Error(`agent "${agentName}" no existe en ${b.configDir}/agents/`)
   return def
-}
-
-/**
- * Rama base del trabajo, en orden y sin heurística:
- *   1. `repo_base_branches[<repo>]` — override explícito del equipo
- *   2. `default_base_branch` (por defecto `develop`) SI existe en el remoto
- *   3. `origin/HEAD` — el default del repo, para los chicos que solo tienen main
- *   4. la rama actual (repo sin remoto)
- * El PR se abre contra esta misma rama: el agente recibe la base en su prompt.
- */
-function resolveBaseBranch(repoPath: string, cfg: BridgeConfig): string {
-  const exists = (ref: string): boolean => {
-    try { sh('git', ['-C', repoPath, 'rev-parse', '--verify', '--quiet', `origin/${ref}`]); return true } catch { return false }
-  }
-  const override = cfg.repo_base_branches?.[path.basename(repoPath)]
-  if (override) return override
-  const preferred = cfg.default_base_branch
-  if (preferred && exists(preferred)) return preferred
-  try {
-    const head = sh('git', ['-C', repoPath, 'symbolic-ref', '--short', 'refs/remotes/origin/HEAD']).trim().replace(/^origin\//, '')
-    if (head) return head
-  } catch { /* sin origin/HEAD */ }
-  return sh('git', ['-C', repoPath, 'rev-parse', '--abbrev-ref', 'HEAD']).trim()
-}
-
-function ensureWorktree(repoPath: string, shortId: string, cfg: BridgeConfig): { dir: string; branch: string; baseBranch: string } {
-  // `git submodule update` clona single-branch: el refspec queda atado a UNA rama
-  // y `develop` nunca llega al clon, así que la base caía silenciosamente a
-  // origin/HEAD (master) y el PR salía contra la rama equivocada. Idempotente.
-  try {
-    sh('git', ['-C', repoPath, 'config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*'])
-  } catch { /* sin remoto */ }
-  try { sh('git', ['-C', repoPath, 'fetch', 'origin', '--quiet']) } catch { /* offline ok */ }
-  const base = resolveBaseBranch(repoPath, cfg)
-
-  const branch = `agent/${shortId}`
-  const dir = path.join(BRIDGE_DIR, 'worktrees', `${path.basename(repoPath)}-${shortId}`)
-  fs.mkdirSync(path.join(BRIDGE_DIR, 'worktrees'), { recursive: true })
-
-  if (!fs.existsSync(dir)) {
-    const hasBranch = (() => {
-      try { sh('git', ['-C', repoPath, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`]); return true } catch { return false }
-    })()
-    if (hasBranch) {
-      sh('git', ['-C', repoPath, 'worktree', 'add', dir, branch])
-    } else {
-      let baseRef = `origin/${base}`
-      try { sh('git', ['-C', repoPath, 'rev-parse', '--verify', '--quiet', baseRef]) } catch { baseRef = base }
-      sh('git', ['-C', repoPath, 'worktree', 'add', '-b', branch, dir, baseRef])
-    }
-  }
-  return { dir, branch, baseBranch: base }
 }
 
 export interface RunPhaseOptions {
@@ -254,16 +218,29 @@ export function runPhase(pageId: string, agentName: string, opts: RunPhaseOption
   // 2. cwd: repo del card dentro de REPO_PATH (propiedad Repo), o su worktree.
   // Aplica también en mención: si mencionan al dev para iterar el PR,
   // debe trabajar en el MISMO worktree/rama del card.
-  const cardRepo = resolveCardRepo(card)
-  console.log(`[launcher] repo del card: ${cardRepo}`)
-  const agent = resolveAgent(b, agentName, cardRepo)
-  let cwd = cardRepo
-  let worktree: { branch: string; baseBranch: string } | undefined
+  // Con workspace_root el agente corre SIEMPRE en la raíz (contexto completo) y
+  // abre un worktree por repo que decide cambiar; sin él, en el worktree del
+  // único repo del card, como siempre.
+  const workspaceRoot = b.config.workspace_root ? resolveWorkspaceRoot(b.config.workspace_root) : null
+  const cardRepo = resolveCardRepo(card, workspaceRoot)
+  console.log(`[launcher] repo del card: ${cardRepo}${workspaceRoot ? ` · workspace: ${workspaceRoot}` : ''}`)
+  const agent = resolveAgent(b, agentName, [...new Set([cardRepo, ...(workspaceRoot ? [workspaceRoot] : [])])])
+  let cwd = workspaceRoot ?? cardRepo
+  const reg = loadRegistry(shortId) ?? newRegistry(pageId, cwd)
+  const extraArgs: string[] = []
   if (state?.use_worktree) {
-    const wt = ensureWorktree(cardRepo, shortId, b.config)
-    cwd = wt.dir
-    worktree = { branch: wt.branch, baseBranch: wt.baseBranch }
-    console.log(`[launcher] worktree=${wt.dir} branch=${wt.branch} base=${wt.baseBranch}`)
+    fs.mkdirSync(worktreesOf(shortId), { recursive: true })
+    if (cardRepo !== workspaceRoot) {
+      const wt = addWorktree(reg, cardRepo, b.config)
+      if (!workspaceRoot) cwd = wt.dir
+      console.log(`[launcher] worktree=${wt.dir} branch=${wt.branch} base=${wt.base}`)
+    }
+    // los worktrees viven fuera del cwd: claude necesita permiso explícito para escribir ahí
+    if (workspaceRoot) extraArgs.push('--add-dir', worktreesOf(shortId))
+  }
+  const workspace = {
+    root: cwd, isRoot: Boolean(workspaceRoot), worktreesDir: worktreesOf(shortId),
+    wtTool: REGENT_WT, repos: Object.values(reg.repos) as RepoEntry[],
   }
 
   // 3. system prompt = cuerpo del agent nativo (sin frontmatter)
@@ -295,7 +272,7 @@ export function runPhase(pageId: string, agentName: string, opts: RunPhaseOption
   const processPath = path.join(BRIDGE_DIR, 'config', 'process.md')
   const processNotes = fs.existsSync(processPath) ? fs.readFileSync(processPath, 'utf8') : undefined
   const promptText = buildPhasePrompt({
-    cardJson, pageId, ncardPath: NCARD, mode, state, nextState: state?.agent_moves_to, worktree,
+    cardJson, pageId, ncardPath: NCARD, mode, state, nextState: state?.agent_moves_to, workspace,
     props: {
       estimation: b.config.estimation_property,
       estimationValues: b.config.estimation_values,
@@ -306,10 +283,10 @@ export function runPhase(pageId: string, agentName: string, opts: RunPhaseOption
   })
 
   // 5. flags: tools de .bridge (+ ncard siempre); modelo: card > frontmatter > default del CLI
-  const allowedTools = [...(bridgeAgentCfg?.allowed_tools ?? []), `Bash(${NCARD}:*)`].join(',')
+  const allowedTools = [...(bridgeAgentCfg?.allowed_tools ?? []), `Bash(${NCARD}:*)`, `Bash(${REGENT_WT}:*)`].join(',')
   const modelProp = b.config.model_property
   const model = (modelProp ? card.properties?.[modelProp] as string | undefined : undefined) || agent.model
-  const claudeArgs = ['--allowed-tools', allowedTools, '--append-system-prompt-file', sysFile]
+  const claudeArgs = ['--allowed-tools', allowedTools, '--append-system-prompt-file', sysFile, ...extraArgs]
   if (model) claudeArgs.push('--model', model)
 
   // 6. estado en el board (Agente/Hop = fuente de verdad para handoffs) + lanzar
@@ -319,8 +296,10 @@ export function runPhase(pageId: string, agentName: string, opts: RunPhaseOption
     if (b.config.agent_property) sh(NCARD, ['setselect', pageId, b.config.agent_property, agentName])
     if (b.config.hop_property) sh(NCARD, ['setnum', pageId, b.config.hop_property, String(opts.hop ?? 0)])
   } catch { /* propiedades opcionales: no bloquea */ }
-  const agentEnv: Record<string, string> = {}
-  for (const f of b.config.agent_env_files) {
+  // sin lista explícita, el .env de la raíz del workspace (o del repo): como `talently claude`
+  const envFiles = b.config.agent_env_files.length ? b.config.agent_env_files : [path.join(workspaceRoot ?? cardRepo, '.env')]
+  const agentEnv: Record<string, string> = { REGENT_PAGE_ID: pageId, REGENT_ROOT: cwd, REGENT_WT }
+  for (const f of envFiles) {
     const resolved = f.replace(/^~(?=$|\/)/, process.env.HOME ?? '')
     const vars = parseEnvFile(resolved)
     Object.assign(agentEnv, vars)

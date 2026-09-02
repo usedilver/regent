@@ -55,6 +55,9 @@ Ningún nombre de propiedad está hardcodeado: si tu board está en inglés o le
 
   // propiedades del card (null = tu board no la tiene; el pipeline sigue sin ella)
   "status_property": "Status",
+  "workspace_root": null,          // p. ej. "monorepo": el agente corre en su raíz (contexto completo) y abre un
+                                   // worktree por repo que cambia con `regent-wt`; Repo pasa a ser opcional
+  "agent_env_files": [],           // .env que viajan a cada agente (default: <raíz>/.env, como `set -a; source .env`)
   "repo_property": "Repo",         // url del repo → elige el clon en REPO_PATH
   "default_base_branch": "develop", // rama base si el repo la tiene; null = default del repo
   "repo_base_branches": {},        // override explícito por repo: { "legacy-api": "master" }
@@ -111,6 +114,20 @@ Un agent pasa trabajo a otro **mencionándolo en un comentario** (p. ej. QA encu
 - Comentario del bot sin mención = "respuesta final" del agent → libera el lock del card.
 
 Los agents mención-activados **no mueven el card** (salvo que su rol lo indique): responden con comentario + icono ✅/⚠️. `owner_property` (people) es siempre un humano — el triage lo asigna al creador del card.
+
+### Workspace: cards que tocan varios repos
+
+Con `workspace_root` (nombre de carpeta bajo `REPO_PATH`) el agente **siempre corre en la raíz**:
+ahí están `CLAUDE.md`, skills, `.mcp.json` y todos los repos legibles — checkouts compartidos,
+**solo lectura**. Para cambiar un repo pide su worktree aislado con `regent-wt add <ruta>` (rama
+`agent/<id>` desde la base resuelta) y trabaja ahí; puede abrir uno por cada repo que la tarea
+necesite. Cada repo cambiado termina en **su propio PR** contra su base, registrado con
+`regent-wt pr <repo> <url>`; el card avanza a `pr_merged_moves_to` cuando **todos** mergean, y
+la limpieza (worktrees + ramas) es por registro (`log/workspaces/<id>.json`). Si al terminar un
+agente hay cambios en un checkout compartido, el bridge lo avisa en la sala.
+
+Sin `workspace_root` el card necesita `Repo` y el agente corre en el worktree de ese único repo
+(el caso simple es el degenerado del mismo modelo).
 
 ## Setup
 

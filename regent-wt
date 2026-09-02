@@ -1,0 +1,44 @@
+#!/usr/bin/env node
+/**
+ * regent-wt — worktrees del card para el agente.
+ *   regent-wt add <ruta-del-repo>        # abre (o reutiliza) el worktree aislado; imprime su path
+ *   regent-wt pr  <repo> <url>           # registra el PR de ese repo (el primero va a la propiedad PR)
+ *   regent-wt list                       # worktrees abiertos para este card
+ * Necesita REGENT_PAGE_ID en el entorno (lo pone el launcher).
+ */
+import path from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { loadEnv, BRIDGE_DIR } from './src/env.ts'
+import { loadBridge } from './src/bridge-config.ts'
+import { shortIdOf, loadRegistry, newRegistry, addWorktree, registerPr, allPrs } from './src/workspace.ts'
+
+loadEnv()
+const [cmd, a1, a2] = process.argv.slice(2)
+const pageId = process.env.REGENT_PAGE_ID
+const die = (m) => { console.error(`regent-wt: ${m}`); process.exit(1) }
+if (!pageId) die('falta REGENT_PAGE_ID (el launcher lo pone en el entorno del agente)')
+
+const shortId = shortIdOf(pageId)
+const reg = loadRegistry(shortId) ?? newRegistry(pageId, process.env.REGENT_ROOT ?? process.cwd())
+
+if (cmd === 'add') {
+  if (!a1) die('uso: regent-wt add <ruta-del-repo>')
+  const entry = addWorktree(reg, path.resolve(a1), loadBridge().config)
+  process.stdout.write(`${entry.dir}\n`)
+  process.stderr.write(`ok: ${path.basename(entry.repo)} → rama ${entry.branch} desde ${entry.base}\n`)
+} else if (cmd === 'pr') {
+  if (!a1 || !a2) die('uso: regent-wt pr <repo> <url>')
+  const wasFirst = allPrs(reg).length === 0
+  registerPr(reg, a1, a2)
+  if (wasFirst) {
+    const cfg = loadBridge().config
+    try { execFileSync(path.join(BRIDGE_DIR, 'ncard'), ['seturl', pageId, cfg.pr_property, a2], { stdio: 'ignore' }) } catch { /* propiedad opcional */ }
+  }
+  process.stdout.write(`ok: PR de ${a1} registrado${wasFirst ? ' (y en la propiedad del card)' : ''}\n`)
+} else if (cmd === 'list') {
+  const rows = Object.entries(reg.repos)
+  if (!rows.length) process.stdout.write('(sin worktrees abiertos para este card)\n')
+  for (const [n, r] of rows) process.stdout.write(`${n}\t${r.dir}\t${r.branch} ← ${r.base}${r.pr ? `\t${r.pr}` : ''}\n`)
+} else {
+  die('uso: regent-wt add <ruta> | pr <repo> <url> | list')
+}

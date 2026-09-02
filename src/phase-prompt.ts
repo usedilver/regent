@@ -14,7 +14,14 @@ export interface PhasePromptInput {
   mode?: TriggerMode
   state?: BridgeState
   nextState?: string
-  worktree?: { branch: string; baseBranch: string }
+  workspace?: {
+    root: string
+    /** true = cwd es la raíz del workspace (checkouts compartidos, solo lectura) */
+    isRoot: boolean
+    worktreesDir: string
+    wtTool: string
+    repos: Array<{ repo: string; dir: string; branch: string; base: string; pr?: string }>
+  }
   /** mention: texto del comentario que activó al agent */
   triggerComment?: string
   /** handoffs: salto actual y máximo, y a quién puede mencionar este agent */
@@ -49,12 +56,30 @@ El cuerpo del card es para lo que NO cabe en una propiedad. No escribas ahí la
 estimación, la URL del PR ni el estado: ya viven en su propiedad y duplicarlos
 crea dos verdades.
 `
-  const wt = i.worktree ? `
+  const ws = i.workspace
+  const openList = ws?.repos.length
+    ? ws.repos.map(r => `- **${r.repo.split('/').pop()}** → \`${r.dir}\` (rama \`${r.branch}\` desde \`${r.base}\`${r.pr ? `, PR ${r.pr}` : ''})`).join('\n')
+    : '(ninguno todavía)'
+  const wt = ws ? (ws.isRoot ? `
+# Entorno git (workspace)
+
+Tu cwd es la RAÍZ del workspace: \`${ws.root}\`. Ahí tienes el contexto completo y todos los repos legibles — pero son checkouts **COMPARTIDOS**: SOLO LECTURA. Nunca edites, cambies de rama ni commitees en ellos.
+
+Para cambiar un repo, pedí su worktree aislado: \`${ws.wtTool} add <ruta-del-repo>\` → devuelve el path (rama \`agent/<id>\` desde su base). Trabajá SOLO dentro de \`${ws.worktreesDir}/\`. Podés abrir tantos como repos necesite el card.
+
+Worktrees abiertos para este card:
+${openList}
+
+Cierre de código: **un PR por repo cambiado**, contra su base, desde su worktree: \`gh pr create --base <base> --head <rama> …\`. Registrá cada uno: \`${ws.wtTool} pr <repo> <url>\` (el primero queda en la propiedad del card).
+PROHIBIDO: push a la base, \`push --force\`, editar fuera de los worktrees.
+` : `
 # Entorno git
 
-Estás en un **worktree aislado**, rama \`${i.worktree.branch}\` (creada desde \`${i.worktree.baseBranch}\`). Tu cwd es el worktree: trabaja SOLO aquí.
-PROHIBIDO: cambiar de rama, push a \`${i.worktree.baseBranch}\`, \`push --force\`, tocar archivos fuera del cwd.
-` : ''
+Tu cwd es un **worktree aislado**: \`${ws.root}\`. Trabaja SOLO aquí.
+${openList}
+Si el cambio exige tocar OTRO repo: \`${ws.wtTool} add <ruta-del-repo>\` te abre su worktree en \`${ws.worktreesDir}/\`. Un PR por repo, contra su base; registrá cada uno con \`${ws.wtTool} pr <repo> <url>\`.
+PROHIBIDO: cambiar de rama, push a la base, \`push --force\`, tocar archivos fuera de los worktrees.
+`) : ''
 
   const handoff = i.canTrigger?.length
     ? `

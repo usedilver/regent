@@ -36,4 +36,27 @@ check('usa el nombre real de la propiedad de PR', () => {
   assert.match(p, /propiedad `Pull Request`/)
 })
 
+check('workspace en la raíz: checkouts compartidos solo lectura, regent-wt para escribir', () => {
+  const p = buildPhasePrompt({ ...base, workspace: { root: '/w/talently-code', isRoot: true, worktreesDir: '/r/worktrees/abc', wtTool: '/r/regent-wt',
+    repos: [{ repo: '/w/talently-code/frontend/frontend-hire', dir: '/r/worktrees/abc/frontend-hire', branch: 'agent/abc', base: 'develop' }] } })
+  assert.match(p, /RAÍZ del workspace: `\/w\/talently-code`/)
+  assert.match(p, /SOLO LECTURA/)
+  assert.match(p, /regent-wt add <ruta-del-repo>/)
+  assert.match(p, /\*\*frontend-hire\*\* → `\/r\/worktrees\/abc\/frontend-hire` \(rama `agent\/abc` desde `develop`\)/)
+  assert.match(p, /un PR por repo cambiado/)
+  assert.match(p, /regent-wt pr <repo> <url>/)
+})
+
+check('sin workspace_root: el cwd ES el worktree, y regent-wt sigue disponible para un segundo repo', () => {
+  const p = buildPhasePrompt({ ...base, workspace: { root: '/r/worktrees/abc/api', isRoot: false, worktreesDir: '/r/worktrees/abc', wtTool: '/r/regent-wt', repos: [] } })
+  assert.match(p, /Tu cwd es un \*\*worktree aislado\*\*: `\/r\/worktrees\/abc\/api`/)
+  assert.match(p, /OTRO repo/)
+  assert.doesNotMatch(p, /RAÍZ del workspace/)
+})
+
+check('sin workspace: no hay bloque git', () => {
+  const p = buildPhasePrompt({ ...base })
+  assert.doesNotMatch(p, /# Entorno git/)
+})
+
 if (failed) { console.error(`\n${failed} fallaron`); process.exit(1) }

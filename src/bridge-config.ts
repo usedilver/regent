@@ -85,6 +85,14 @@ const BridgeConfigSchema = z.object({
   /** propiedad del card que pone el link del PR (la escribe el dev) */
   pr_property: z.string().default('PR'),
   /**
+   * Repo raíz del workspace (nombre de carpeta bajo REPO_PATH). Con esto el
+   * agente corre SIEMPRE ahí — contexto completo, todos los repos legibles — y
+   * abre un worktree por cada repo que decide cambiar (`regent-wt`). La
+   * propiedad Repo del card pasa a ser opcional. Sin esto, el card necesita Repo
+   * y el agente corre en el worktree de ese único repo (caso simple).
+   */
+  workspace_root: z.string().min(1).nullable().default(null),
+  /**
    * .env que se inyectan al proceso de cada agente (los `${VARS}` del .mcp.json
    * del repo resuelven de acá). Rutas explícitas, `~` permitido; el último gana y
    * todos ganan sobre el entorno del server — como `set -a; source .env`.

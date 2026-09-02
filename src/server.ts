@@ -22,7 +22,7 @@ import { findMentionTargets, pageCreatedAgent, evaluateHandoff } from './router.
 import { createChatAdapter, saveRoom, roomOf, threadKey, pageOfThread, saveThread, type ChatAdapter } from './chat.ts'
 import { runIntake, listRepos, type FillableProp } from './intake.ts'
 import { sendToLiveAgent, interruptLiveAgent, closeTab } from './terminal.ts'
-import { cleanupCardWorktree } from './git-cleanup.ts'
+import { shortIdOf, loadRegistry, removeWorkspace, allPrs, allRemotes, listRegistries, findRegistryByPr, dirtySharedCheckouts, ownerRepoOf } from './workspace.ts'
 import { execFile } from 'node:child_process'
 
 loadEnv()
@@ -299,6 +299,19 @@ function agentFilterGate(props?: PageProps): { ok: boolean; reason?: string } {
     : { ok: true }
 }
 
+/**
+ * Los checkouts compartidos de la raíz del workspace son solo lectura por
+ * convención, no por permiso: si un agente los tocó, avisar en cuanto termina.
+ */
+function guardSharedCheckouts(pageId: string): void {
+  if (!bridge.config.workspace_root) return
+  const reg = loadRegistry(shortIdOf(pageId))
+  const dirty = reg ? dirtySharedCheckouts(reg.root) : []
+  if (!dirty.length) return
+  jlog('shared_checkout_dirty', { page_id: pageId, paths: dirty })
+  void chat.post(pageId, {}, `⚠️ El agente dejó cambios en checkouts compartidos (no en su worktree): ${dirty.join(', ')}. Revisá antes de que otro agente los herede.`).catch(() => {})
+}
+
 /** comment.created — menciones humanas (hop 0) y handoffs bot→agent (hop+1, can_trigger). */
 async function handleComment(event: NotionEvent): Promise<void> {
   const eventId = event.id
@@ -344,6 +357,7 @@ async function handleComment(event: NotionEvent): Promise<void> {
     // que comment.created es OBLIGATORIO en la suscripción si usas alguna.
     if (isBot && inFlightPages.delete(pageId)) {
       jlog('release_in_flight', { page_id: pageId, reason: 'respuesta del agente (comment)' })
+      guardSharedCheckouts(pageId)
       void processQueued(pageId)
     }
     return void jlog(isBot ? 'skip_own_comment' : 'skip_comment_no_mention', { event_id: eventId, page_id: pageId })
@@ -488,6 +502,7 @@ async function processEvent(event: NotionEvent): Promise<void> {
         if (inFlightPages.has(pageId) && !echoState?.trigger) {
           inFlightPages.delete(pageId)
           jlog('release_in_flight', { page_id: pageId, reason: 'agente movió el card', status: statusName })
+          guardSharedCheckouts(pageId)
           void processQueued(pageId)
         }
       } catch { /* siguiente evento o TTL */ }
@@ -550,8 +565,8 @@ function handleTerminal(pageId: string, statusName?: string): void {
     if (closeTab(t)) jlog('tab_closed', { page_id: pageId, tab: t })
   }
   if (room?.tabRefs?.length) saveRoom(pageId, { tabRefs: [] })
-  const cleaned = cleanupCardWorktree(pageId)
-  if (cleaned.worktree || cleaned.skipped) jlog('worktree_cleanup', { page_id: pageId, ...cleaned })
+  const reg = loadRegistry(shortIdOf(pageId))
+  if (reg) jlog('workspace_cleanup', { page_id: pageId, ...removeWorkspace(reg) })
 }
 
 // ---- drift Notion ↔ workflow.json: columnas renombradas/agregadas ----
@@ -597,12 +612,29 @@ function ghPrState(url: string): Promise<{ state?: string } | null> {
   })
 }
 
-/** El PR de un card está MERGED (verificado con gh): mover, comentar, cerrar el ciclo. */
-async function handleMergedPR(pageId: string, prUrl: string): Promise<void> {
+/** PRs del card: los del registro del workspace (uno por repo) o, sin registro, el de la propiedad. */
+function cardPrs(pageId: string, propertyPr?: string | null): string[] {
+  const reg = loadRegistry(shortIdOf(pageId))
+  const fromRegistry = reg ? allPrs(reg) : []
+  return fromRegistry.length ? fromRegistry : propertyPr ? [propertyPr] : []
+}
+
+/** ¿TODOS los PRs del card están MERGED? (verificado con gh, uno por uno) */
+async function allPrsMerged(prUrls: string[]): Promise<boolean> {
+  for (const url of prUrls) {
+    const pr = await ghPrState(url)
+    if (pr?.state !== 'MERGED') return false
+  }
+  return prUrls.length > 0
+}
+
+/** Todos los PRs del card están MERGED: mover, comentar, cerrar el ciclo. */
+async function handleMergedPR(pageId: string, prUrls: string[]): Promise<void> {
   const moveTo = bridge.config.pr_merged_moves_to
   if (!moveTo || !notion || prHandled.has(pageId)) return
   prHandled.add(pageId)
-  jlog('pr_merged', { page_id: pageId, pr: prUrl, move_to: moveTo })
+  const prUrl = prUrls.join(' · ')
+  jlog('pr_merged', { page_id: pageId, prs: prUrls, move_to: moveTo })
   try {
     await notion.pages.update({
       page_id: pageId,
@@ -610,7 +642,7 @@ async function handleMergedPR(pageId: string, prUrl: string): Promise<void> {
     })
     await notion.comments.create({
       parent: { page_id: pageId },
-      rich_text: [{ type: 'text', text: { content: `🔀 PR mergeado → ${moveTo}. ${prUrl}` } }],
+      rich_text: [{ type: 'text', text: { content: `🔀 ${prUrls.length > 1 ? `${prUrls.length} PRs mergeados` : 'PR mergeado'} → ${moveTo}. ${prUrl}` } }],
     })
   } catch (err) {
     jlog('pr_merged_error', { page_id: pageId, error: (err as Error).message })
@@ -657,8 +689,8 @@ async function pollMergedPRs(): Promise<void> {
     for (const page of res.results) {
       const prUrl = page.properties[prProp]?.url
       if (!prUrl || prHandled.has(page.id)) continue
-      const pr = await ghPrState(prUrl)
-      if (pr?.state === 'MERGED') await handleMergedPR(page.id, prUrl)
+      const prs = cardPrs(page.id, prUrl)
+      if (await allPrsMerged(prs)) await handleMergedPR(page.id, prs)
     }
   } catch (err) {
     jlog('pr_poll_error', { error: (err as Error).message })
@@ -689,16 +721,14 @@ async function processGithubEvent(eventName: string | undefined, payload: { acti
   jlog('github_pr_closed', { pr: prUrl, merged: true })
   const pr = await ghPrState(prUrl) // la verdad: gh confirma el estado
   if (pr?.state !== 'MERGED') return void jlog('github_pr_unverified', { pr: prUrl })
-  const pageId = await findCardByPr(prUrl).catch(() => null)
+  // la propiedad PR guarda solo el primero: los demás PRs del card están en su registro
+  const pageId = (await findCardByPr(prUrl).catch(() => null)) ?? findRegistryByPr(prUrl)?.page_id ?? null
   if (!pageId) return void jlog('github_pr_no_card', { pr: prUrl })
-  await handleMergedPR(pageId, prUrl)
+  const prs = cardPrs(pageId, prUrl)
+  if (!(await allPrsMerged(prs))) return void jlog('github_pr_pending_siblings', { page_id: pageId, prs })
+  await handleMergedPR(pageId, prs)
 }
 
-/** owner/repo de un origin de git (https o ssh) */
-function ownerRepoOf(origin: string): string | null {
-  const m = origin.match(/github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?$/)
-  return m ? `${m[1]}/${m[2]}` : null
-}
 
 /**
  * Repos que el BOARD está trabajando: cards no terminales con Repo. Es la fuente de
@@ -720,9 +750,9 @@ async function activeBoardRepos(): Promise<string[]> {
         ],
       },
     } as never) as { results: Array<{ properties: Record<string, { url?: string | null }> }> }
-    return [...new Set(res.results
-      .map(p => ownerRepoOf(p.properties[repoProp]?.url ?? ''))
-      .filter((r): r is string => Boolean(r)))]
+    const fromBoard = res.results.map(p => ownerRepoOf(p.properties[repoProp]?.url ?? ''))
+    const fromWorkspaces = listRegistries().flatMap(allRemotes)
+    return [...new Set([...fromBoard, ...fromWorkspaces].filter((r): r is string => Boolean(r)))]
   } catch (err) {
     jlog('forward_auto_error', { error: (err as Error).message })
     return []
