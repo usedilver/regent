@@ -77,6 +77,9 @@ const seenEvents = new Set<string>()
 const inFlightPages = new Set<string>()
 /** último status conocido por card: la sala solo anuncia movimientos reales */
 const lastStatusByPage = new Map<string, string>()
+/** un eco de propiedades es un MOVIMIENTO solo si ya conocíamos otro status */
+export const isRealMove = (prev: string | undefined, now: string): boolean => prev !== undefined && prev !== now
+const landingStatus = (): string => bridge.config.intake.landing_status ?? bridge.config.states[0].name
 
 if (fs.existsSync(EVENTS_LOG)) {
   for (const line of fs.readFileSync(EVENTS_LOG, 'utf8').split('\n')) {
@@ -239,6 +242,10 @@ async function processQueued(pageId: string): Promise<void> {
 /** Lanza el launcher para un card (fire-and-forget) con lock + TTL + sala de chat. */
 function launch(pageId: string, agentName: string, extraArgs: string[], lockReason: string): void {
   inFlightPages.add(pageId)
+  // status de partida: sin él, el primer eco del launcher (Agente/Hop) parecería un movimiento
+  if (notion && !lastStatusByPage.has(pageId)) {
+    void currentStatus(pageId).then(({ statusName }) => { if (statusName && !lastStatusByPage.has(pageId)) lastStatusByPage.set(pageId, statusName) }).catch(() => {})
+  }
   const shortId = pageId.replace(/-/g, '').slice(-12)
   // sala efímera: se crea al primer lanzamiento; label para intervención posterior
   saveRoom(pageId, { label: `${agentName}-${shortId}`, agent: agentName })
@@ -490,16 +497,17 @@ async function processEvent(event: NotionEvent): Promise<void> {
       try {
         const { statusName, props } = await currentStatus(pageId)
         const echoState = statusName ? bridge.stateByName[statusName] : undefined
+        // El launcher escribe Agente/Hop al arrancar y el dev escribe PR: esos ecos
+        // no son movimientos. Solo cuenta un status DISTINTO al último conocido —
+        // y la primera observación tampoco (el card recién creado no "se movió").
+        const moved = Boolean(statusName) && isRealMove(lastStatusByPage.get(pageId), statusName!)
+        if (statusName) lastStatusByPage.set(pageId, statusName)
         if (echoState?.terminal) handleTerminal(pageId, statusName)
-        else if (statusName && roomOf(pageId)?.channelId && lastStatusByPage.get(pageId) !== statusName) {
-          // Solo cuando el status CAMBIÓ. Antes se publicaba en cada eco de
-          // propiedades (el launcher escribe Agente/Hop, el dev escribe PR), así
-          // que la sala mostraba "Card → In planning" dos veces y parecía un loop.
+        else if (moved && roomOf(pageId)?.channelId) {
           const pr = (props?.[bridge.config.pr_property] as { url?: string | null } | undefined)?.url
           void chat.post(pageId, {}, `📍 Card → **${statusName}**${pr ? ` · PR: ${pr}` : ''}`).catch(() => {})
         }
-        if (statusName) lastStatusByPage.set(pageId, statusName)
-        if (inFlightPages.has(pageId) && !echoState?.trigger) {
+        if (moved && inFlightPages.has(pageId) && !echoState?.trigger) {
           inFlightPages.delete(pageId)
           jlog('release_in_flight', { page_id: pageId, reason: 'agente movió el card', status: statusName })
           guardSharedCheckouts(pageId)
@@ -1161,12 +1169,13 @@ async function onBotMention(msg: BotMentionMsg): Promise<void> {
       properties: {
         // 'title' es el ID universal de la propiedad título (el nombre visible varía por board)
         title: { title: [{ text: { content: title } }] },
-        // explícito: el default del board puede ser cualquier columna (aquí era Planning 🤖)
-        [bridge.config.status_property]: { status: { name: bridge.config.states[0].name } },
+        // explícito: el default del board puede ser cualquier columna
+        [bridge.config.status_property]: { status: { name: landingStatus() } },
         ...(repoUrl ? { [bridge.config.repo_property]: { url: repoUrl } } : {}),
         ...extraProps,
       },
     } as never) as { id: string }
+    lastStatusByPage.set(page.id, landingStatus())
 
     const body = [
       intake?.description_md || `${msg.text}\n\n(creado desde Slack)`,

@@ -144,7 +144,13 @@ const BridgeConfigSchema = z.object({
   intake: z.object({
     model: z.string().min(1).default('sonnet'),
     timeout_sec: z.number().int().min(10).default(90),
-  }).strict().default({ model: 'sonnet', timeout_sec: 90 }),
+    /**
+     * Columna donde cae un card creado desde el chat. Sin esto se usaba la
+     * primera del board, que en un board de cliente puede ser cualquier cosa
+     * ("Despriorizado" no es donde nace una tarea). null = primera columna.
+     */
+    landing_status: z.string().min(1).nullable().default(null),
+  }).strict().default({ model: 'sonnet', timeout_sec: 90, landing_status: null }),
   github: z.object({
     /** repos a escuchar con `gh webhook forward` — lista owner/repo, o "auto" = los que el board trabaja */
     forward_repos: z.union([z.literal('auto'), z.array(z.string().min(1))]).default([]),
@@ -280,6 +286,9 @@ export function loadBridge(configDir: string = process.env.BRIDGE_CONFIG_DIR ?? 
     if (s.trigger && !s.agent_moves_to && !s.agent_stays) {
       errors.push(`estado "${s.name}": tiene trigger pero no agent_moves_to (si el card debe quedarse, pon "agent_stays": true)`)
     }
+  }
+  if (config.intake.landing_status && !stateByName[config.intake.landing_status]) {
+    errors.push(`intake.landing_status apunta a "${config.intake.landing_status}" que no es un estado`)
   }
   if (config.pr_merged_moves_to && !stateByName[config.pr_merged_moves_to]) {
     errors.push(`pr_merged_moves_to apunta a "${config.pr_merged_moves_to}" que no es un estado`)

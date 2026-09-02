@@ -90,4 +90,19 @@ check('el estado se resuelve por trigger, no por la columna actual del card', ()
   f.cleanup()
 })
 
+check('intake.landing_status debe ser un estado del workflow', () => {
+  const { f } = withWorkflow(wf => { wf.intake = { model: 'sonnet', timeout_sec: 90, landing_status: 'No Existe' } })
+  assert.throws(() => loadBridge(f.configDir), /landing_status apunta a "No Existe"/)
+  f.cleanup()
+})
+
+check('intake.landing_status válido se carga; ausente queda null', () => {
+  const { f } = withWorkflow(wf => { wf.intake = { model: 'sonnet', timeout_sec: 90, landing_status: 'Backlog' } })
+  assert.equal(loadBridge(f.configDir).config.intake.landing_status, 'Backlog')
+  f.cleanup()
+  const g = makeBridgeFixture()
+  assert.equal(loadBridge(g.configDir).config.intake.landing_status, null)
+  g.cleanup()
+})
+
 if (failed) { console.error(`\n${failed} fallaron`); process.exit(1) }

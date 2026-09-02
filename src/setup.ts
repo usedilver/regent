@@ -156,6 +156,9 @@ async function adoptBoard(ref: string): Promise<void> {
   // invitaba a escribir el índice y dejaba un destino inexistente en el workflow.
   const iMerged = await pick('¿A qué columna va un card cuando su PR se mergea? (0 = off)', /done|complet|listo|termin|final/i, true)
   const mergedTo = iMerged >= 0 ? options[iMerged].name : ''
+  // la primera columna del board no siempre es "nuevo" (puede ser "Despriorizado")
+  const iLanding = await pick('¿En qué columna cae una tarea nueva creada desde el chat?', /idea|backlog|inbox|to.?do|pendiente|nuev|por hacer/i)
+  const landing = options[iLanding]?.name ?? options[0].name
 
   const appName = await ask('  ¿Cómo se llama tu app? (así firma en el chat y así la mencionas)', 'Regent')
   const agents = defaultAgents()
@@ -220,6 +223,7 @@ async function adoptBoard(ref: string): Promise<void> {
     ...(mergedTo ? { pr_merged_moves_to: mergedTo } : {}),
     ...(docProp ? { project_doc_property: docProp } : {}),
     ...defaultBehavior(),
+    intake: { ...defaultBehavior().intake, landing_status: landing },
     states,
     agents,
   }
@@ -320,6 +324,8 @@ async function reconcileBoard(): Promise<void> {
       if (st.agent_moves_to && !names.has(st.agent_moves_to as string)) warn(`"${st.name}".agent_moves_to apunta a "${st.agent_moves_to}" que ya no existe — corrígelo en workflow.json`)
     }
     if (wf.pr_merged_moves_to && !names.has(wf.pr_merged_moves_to)) warn(`pr_merged_moves_to apunta a "${wf.pr_merged_moves_to}" que ya no existe`)
+    const landing = (wf as { intake?: { landing_status?: string | null } }).intake?.landing_status
+    if (landing && !names.has(landing)) warn(`intake.landing_status apunta a "${landing}" que ya no existe`)
   }
 
   // 3. huecos imprescindibles (p. ej. alguien borró Repo, o el workflow ganó handoffs)

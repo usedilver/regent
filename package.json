@@ -6,7 +6,7 @@
   "description": "Agents that work your board, in your tools \u2014 humans keep the gates. Notion/Slack \u2192 Claude Code, self-hosted.",
   "scripts": {
     "start": "node src/server.ts",
-    "test": "node test/bridge-config.test.mjs && node test/board-detect.test.mjs && node test/stay-phase.test.mjs && node test/slack-admin.test.mjs && node test/env-perms.test.mjs && node test/setup-idempotence.test.mjs && node test/agent-gate.test.mjs && node test/base-branch.test.mjs && node test/trust-seed.test.mjs && node test/prompt-props.test.mjs && node test/agent-env.test.mjs && node test/workspace.test.mjs && node test/slack-thread.test.mjs && node test/router.test.mjs && node test/webhook.test.mjs",
+    "test": "node test/bridge-config.test.mjs && node test/board-detect.test.mjs && node test/stay-phase.test.mjs && node test/slack-admin.test.mjs && node test/env-perms.test.mjs && node test/setup-idempotence.test.mjs && node test/agent-gate.test.mjs && node test/base-branch.test.mjs && node test/trust-seed.test.mjs && node test/prompt-props.test.mjs && node test/agent-env.test.mjs && node test/workspace.test.mjs && node test/slack-thread.test.mjs && node test/real-move.test.mjs && node test/router.test.mjs && node test/webhook.test.mjs",
     "validate": "node src/validate.ts",
     "dev": "node --watch-path=src --watch-path=agents --watch-path=config --watch-path=.env --watch-preserve-output src/server.ts",
     "setup": "node src/setup.ts",
