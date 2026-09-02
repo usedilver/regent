@@ -195,6 +195,12 @@ function resolveBaseBranch(repoPath: string, cfg: BridgeConfig): string {
 }
 
 function ensureWorktree(repoPath: string, shortId: string, cfg: BridgeConfig): { dir: string; branch: string; baseBranch: string } {
+  // `git submodule update` clona single-branch: el refspec queda atado a UNA rama
+  // y `develop` nunca llega al clon, así que la base caía silenciosamente a
+  // origin/HEAD (master) y el PR salía contra la rama equivocada. Idempotente.
+  try {
+    sh('git', ['-C', repoPath, 'config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*'])
+  } catch { /* sin remoto */ }
   try { sh('git', ['-C', repoPath, 'fetch', 'origin', '--quiet']) } catch { /* offline ok */ }
   const base = resolveBaseBranch(repoPath, cfg)
 
@@ -289,6 +295,11 @@ export function runPhase(pageId: string, agentName: string, opts: RunPhaseOption
   const processNotes = fs.existsSync(processPath) ? fs.readFileSync(processPath, 'utf8') : undefined
   const promptText = buildPhasePrompt({
     cardJson, pageId, ncardPath: NCARD, mode, state, nextState: state?.agent_moves_to, worktree,
+    props: {
+      estimation: b.config.estimation_property,
+      estimationValues: b.config.estimation_values,
+      pr: b.config.pr_property,
+    },
     triggerComment: opts.triggerComment, hop: opts.hop ?? 0, maxHops: b.config.max_hops,
     canTrigger, creatorId: opts.creatorId, projectDoc, processNotes,
   })

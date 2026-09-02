@@ -7,7 +7,8 @@
  *   ncard get <page_id>                 # JSON: título + propiedades + contenido aplanado
  *   ncard move <page_id> <status>       # PATCH de Status (validado contra las 5 opciones)
  *   ncard comment <page_id> "texto"
- *   ncard append <page_id> <file.md|->  # markdown → bloques al final de la página (- = stdin)
+ *   ncard append <page_id> <file.md|->
+ *   ncard subpage <page_id> "<título>" <file.md|->
  *   ncard whoami                        # bot user id (lo usa el anti-loop del server)
  */
 import { Client } from '@notionhq/client'
@@ -318,6 +319,36 @@ async function cmdAppend(pageId, file) {
   process.stdout.write(`ok: ${blocks.length} bloques agregados\n`)
 }
 
+/**
+ * Crea (o reemplaza) una subpágina hija con el detalle técnico. El cuerpo del
+ * card queda para el negocio: el equipo no técnico lo lee sin ruido, y el
+ * detalle sigue a un clic. Idempotente por título: re-planificar no acumula.
+ */
+async function cmdSubpage(pageId, title, file) {
+  if (!file) die('falta el archivo markdown (o "-" para stdin)')
+  const md = file === '-' ? fs.readFileSync(0, 'utf8') : fs.readFileSync(file, 'utf8')
+  const blocks = mdToBlocks(md)
+  if (blocks.length === 0) die('markdown vacío, nada que escribir')
+
+  // una subpágina con el mismo título se archiva: el card muestra una sola verdad
+  const existing = await withRetry(() => notion.blocks.children.list({ block_id: pageId, page_size: 100 }))
+  for (const b of existing.results) {
+    if (b.type === 'child_page' && b.child_page?.title === title) {
+      await withRetry(() => notion.blocks.update({ block_id: b.id, archived: true }))
+    }
+  }
+
+  const page = await withRetry(() => notion.pages.create({
+    parent: { page_id: pageId },
+    properties: { title: [{ type: 'text', text: { content: title } }] },
+    children: blocks.slice(0, 100),
+  }))
+  for (let i = 100; i < blocks.length; i += 100) {
+    await withRetry(() => notion.blocks.children.append({ block_id: page.id, children: blocks.slice(i, i + 100) }))
+  }
+  process.stdout.write(`ok: subpágina "${title}" (${blocks.length} bloques) → ${page.url ?? page.id}\n`)
+}
+
 async function cmdSetUrl(pageId, prop, url) {
   await withRetry(() => notion.pages.update({
     page_id: pageId,
@@ -372,6 +403,7 @@ const USAGE = `uso:
   ncard move <page_id> <status>      # ${STATUS_OPTIONS ? STATUS_OPTIONS.join(' | ') : '(estados del workflow.json del bridge)'}
   ncard comment <page_id> "texto"
   ncard append <page_id> <file.md|->
+  ncard subpage <page_id> "<título>" <file.md|->   # detalle técnico en una subpágina hija
   ncard seturl <page_id> <Propiedad> <url>
   ncard setselect <page_id> <Propiedad> <valor>
   ncard setnum <page_id> <Propiedad> <número>
@@ -385,6 +417,7 @@ try {
     case 'move': args[0] && args[1] ? await cmdMove(args[0], args[1]) : die(USAGE); break
     case 'comment': args[0] ? await cmdComment(args[0], args[1]) : die(USAGE); break
     case 'append': args[0] ? await cmdAppend(args[0], args[1]) : die(USAGE); break
+    case 'subpage': args[0] && args[1] ? await cmdSubpage(args[0], args[1], args[2]) : die(USAGE); break
     case 'seturl': args[0] && args[1] && args[2] ? await cmdSetUrl(args[0], args[1], args[2]) : die(USAGE); break
     case 'setselect': args[0] && args[1] && args[2] ? await cmdSetSelect(args[0], args[1], args[2]) : die(USAGE); break
     case 'setnum': args[0] && args[1] && args[2] ? await cmdSetNum(args[0], args[1], args[2]) : die(USAGE); break

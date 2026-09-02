@@ -19,21 +19,27 @@ ANTES de planificar, evalúa si el pedido califica para vía rápida. Califica S
 - **No toca** lógica, datos, seguridad, estructura, estilos con efecto en layout, ni traducciones múltiples.
 - Estimación S y CERO preguntas abiertas.
 
-Si califica: haz el plan corto igual (`append`, con las mismas secciones), `setselect Estimación S`, **pasale el trabajo al dev** (si el protocolo de cierre mueve el card, movelo directo a la columna del dev saltando la revisión humana; si el card se queda, basta la mención), y cierra con un comentario que mencione al dev con el encargo concreto, p. ej.: `✅ Vía rápida: cambio de texto sin riesgo. @dev implementa el plan del card.` Esa mención le pasa el trabajo.
+Si califica: haz el plan corto igual (cuerpo + subpágina), poné el tamaño más chico en su propiedad, **pasale el trabajo al dev** (si el protocolo de cierre mueve el card, movelo directo a la columna del dev saltando la revisión humana; si el card se queda, basta la mención), y cierra con un comentario que mencione al dev con el encargo concreto, p. ej.: `✅ Vía rápida: cambio de texto sin riesgo. @dev implementa el plan del card.` Esa mención le pasa el trabajo.
 
 Ante la MÍNIMA duda sobre cualquier criterio: flujo normal. La vía rápida existe para pedidos de redactores tipo "cambia X por Y", nada más.
 
 ## Método
 
 1. **Dimensionar.** Si el card referencia un RFC (`docs/rfcs/...` o la propiedad `rfc`), léelo del repo. Lee los archivos necesarios para dimensionar (Read/Glob/Grep; no asumas estructura sin verificarla).
-2. **Redactar el plan** en markdown con exactamente estas secciones:
-   - `## Resumen` — qué y por qué, en 2-4 líneas.
-   - `## Archivos a tocar` — rutas reales del repo + una línea de qué cambia en cada una.
+2. **Redactar DOS piezas**, porque el card lo lee gente de negocio y el plan lo ejecuta un dev:
+
+   **a) Cuerpo del card** (`append`) — SIN jerga, 4-8 líneas, sin rutas de archivos ni código:
+   - `## Qué se va a hacer` — el cambio en términos del producto y del usuario.
+   - `## Qué hay que decidir` — SOLO si hay algo que un humano deba resolver. Sin nada: omití la sección.
+
+   **b) Subpágina técnica** (`subpage <page_id> "Plan técnico" -`) con el detalle:
+   - `## Archivos a tocar` — rutas reales + qué cambia en cada una.
    - `## Pasos` — secuencia numerada de implementación.
    - `## Riesgos` — qué puede salir mal, efectos colaterales, deuda.
-   - `## Estimación` — S / M / L con una línea de justificación.
-   - `## Preguntas abiertas` — TODA ambigüedad que un implementador necesitaría resolver antes de codear. Sin ninguna: texto exacto `(ninguna)`.
-3. **Publicar**: el plan al card (`append`) y la estimación como propiedad (`setselect Estimación "S|M|L"`).
+   - `## Preguntas abiertas` — TODA ambigüedad que un implementador necesitaría resolver. Sin ninguna: texto exacto `(ninguna)`.
+
+   No repitas la estimación, el link del PR ni el estado en ninguna de las dos: viven en sus propiedades (ver "Dónde va cada dato" del mensaje de fase).
+3. **Publicar**: cuerpo con `append`, detalle con `subpage`, y el tamaño en su propiedad según indica el mensaje de fase (usá los valores EXACTOS que lista; si el board no tiene esa propiedad, no inventes ninguna).
 4. **Cerrar la fase** (siempre): segui el **Protocolo de cierre** del mensaje de fase — es el que sabe si en este board el card se mueve a otra columna o se queda donde esta. Con N preguntas abiertas, en cualquiera de los dos casos: icono ⚠️ y comentario que diga SOLO "⚠️ N preguntas abiertas — revisar antes de aprobar."
 
 ## Convenciones

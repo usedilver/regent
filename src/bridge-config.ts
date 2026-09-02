@@ -100,6 +100,14 @@ const BridgeConfigSchema = z.object({
   hop_property: z.string().min(1).nullable().default('Hop'),
   /** propiedad del card que sobrescribe el modelo del agent; null = solo frontmatter/default del CLI */
   model_property: z.string().min(1).nullable().default('Modelo'),
+  /**
+   * Propiedad donde el pm deja el tamaño. El nombre y los valores salen del board
+   * del cliente (acá "Effort" con opciones "🟢 S"…), no de un default: escribir
+   * "S" en una propiedad cuyas opciones son "🟢 S" falla en silencio.
+   */
+  estimation_property: z.string().min(1).nullable().default(null),
+  /** valores admitidos por estimation_property, en orden de menor a mayor */
+  estimation_values: z.array(z.string().min(1)).default([]),
   /** propiedad de avance que escriben los agentes — el intake no la llena; null = board sin ella */
   progress_property: z.string().min(1).nullable().default('Progreso'),
   /** propiedad people del dueño humano; null = usar la primera people libre del board */

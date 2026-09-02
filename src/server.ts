@@ -75,6 +75,8 @@ if (fs.existsSync(EVENTS_LOG) && fs.statSync(EVENTS_LOG).size > LOG_MAX_BYTES) {
 // ---- estado ----
 const seenEvents = new Set<string>()
 const inFlightPages = new Set<string>()
+/** último status conocido por card: la sala solo anuncia movimientos reales */
+const lastStatusByPage = new Map<string, string>()
 
 if (fs.existsSync(EVENTS_LOG)) {
   for (const line of fs.readFileSync(EVENTS_LOG, 'utf8').split('\n')) {
@@ -251,7 +253,7 @@ function launch(pageId: string, agentName: string, extraArgs: string[], lockReas
         } catch { /* sala con id de fallback */ }
       }
       const created = await chat.ensureRoom(pageId, cardUrl(pageId))
-      if (created) await chat.post(pageId, personaOf(agentName), `🤖 arrancando (${lockReason}) · card: ${cardUrl(pageId)}`)
+      if (created) await chat.post(pageId, personaOf(agentName), `🤖 arrancando (${lockReason})`)
     } catch (err) { jlog('chat_error', { page_id: pageId, error: (err as Error).message }) }
   })()
   const agentLog = path.join(LOG_DIR, `launch-${agentName}-${shortId}-${Date.now()}.log`)
@@ -475,12 +477,14 @@ async function processEvent(event: NotionEvent): Promise<void> {
         const { statusName, props } = await currentStatus(pageId)
         const echoState = statusName ? bridge.stateByName[statusName] : undefined
         if (echoState?.terminal) handleTerminal(pageId, statusName)
-        else if (statusName && roomOf(pageId)?.channelId) {
-          // el agente movió el card: el MOVIMIENTO es la señal — el pipeline la publica
-          // en la sala (determinista), el agente ya no comenta veredictos de éxito
+        else if (statusName && roomOf(pageId)?.channelId && lastStatusByPage.get(pageId) !== statusName) {
+          // Solo cuando el status CAMBIÓ. Antes se publicaba en cada eco de
+          // propiedades (el launcher escribe Agente/Hop, el dev escribe PR), así
+          // que la sala mostraba "Card → In planning" dos veces y parecía un loop.
           const pr = (props?.[bridge.config.pr_property] as { url?: string | null } | undefined)?.url
-          void chat.post(pageId, {}, `📍 Card → **${statusName}**${pr ? ` · PR: ${pr}` : ''} · ${cardUrl(pageId)}`).catch(() => {})
+          void chat.post(pageId, {}, `📍 Card → **${statusName}**${pr ? ` · PR: ${pr}` : ''}`).catch(() => {})
         }
+        if (statusName) lastStatusByPage.set(pageId, statusName)
         if (inFlightPages.has(pageId) && !echoState?.trigger) {
           inFlightPages.delete(pageId)
           jlog('release_in_flight', { page_id: pageId, reason: 'agente movió el card', status: statusName })
@@ -504,6 +508,7 @@ async function processEvent(event: NotionEvent): Promise<void> {
   const gate = agentFilterGate(props)
   if (!gate.ok) return void jlog('skip_human_task', { event_id: eventId, page_id: pageId, reason: gate.reason })
 
+  if (statusName) lastStatusByPage.set(pageId, statusName)
   const state = statusName ? bridge.stateByName[statusName] : undefined
   if (state?.terminal) handleTerminal(pageId, statusName)
   if (!state?.trigger) {
@@ -537,7 +542,7 @@ function handleTerminal(pageId: string, statusName?: string): void {
           jlog('room_digest_saved', { page_id: pageId, lines: lines.length })
         }
       } catch (err) { jlog('room_digest_error', { page_id: pageId, error: (err as Error).message }) }
-      await chat.archiveRoom(pageId, `✅ Card → **${statusName}** · ${cardUrl(pageId)} — sala archivada.`)
+      await chat.archiveRoom(pageId, `✅ Card → **${statusName}** — sala archivada.`)
         .catch(err => jlog('chat_error', { page_id: pageId, error: (err as Error).message }))
     })()
   }

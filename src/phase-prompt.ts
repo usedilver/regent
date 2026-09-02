@@ -27,10 +27,28 @@ export interface PhasePromptInput {
   projectDoc?: string
   /** narrativa del proceso del equipo (process.md del bridge, editable) */
   processNotes?: string
+  /** propiedades del board donde va cada dato (nombres del CLIENTE, no defaults) */
+  props?: { estimation?: string | null; estimationValues?: string[]; pr?: string }
 }
 
 export function buildPhasePrompt(i: PhasePromptInput): string {
   const mode: TriggerMode = i.mode ?? 'column'
+  // Las propiedades son la fuente de verdad de los datos estructurados; repetirlos
+  // en el cuerpo del card duplica información que se desincroniza sola.
+  const estim = i.props?.estimation
+  const propsBlock = `
+# Dónde va cada dato (NO lo repitas en el cuerpo)
+
+${estim
+  ? `- **Tamaño** → propiedad \`${estim}\` con \`${i.ncardPath} setselect <page_id> "${estim}" "<valor>"\`.
+  Valores admitidos, exactos: ${(i.props?.estimationValues ?? []).map(v => `\`${v}\``).join(' · ') || '(los del board)'}`
+  : '- **Tamaño**: este board no tiene propiedad de estimación — no la inventes.'}
+- **PR** → propiedad \`${i.props?.pr ?? 'PR'}\` con \`${i.ncardPath} seturl\`.
+
+El cuerpo del card es para lo que NO cabe en una propiedad. No escribas ahí la
+estimación, la URL del PR ni el estado: ya viven en su propiedad y duplicarlos
+crea dos verdades.
+`
   const wt = i.worktree ? `
 # Entorno git
 
@@ -87,6 +105,7 @@ Al terminar tu trabajo de fase:
 
 Ejecutas una fase automatizada de un pipeline de backlog. Tu rol y método de trabajo ya están en tu system prompt; este mensaje aporta el protocolo del pipeline y el card a trabajar.
 
+${propsBlock}
 # Herramienta ncard (única vía de escritura al card de Notion)
 
 - Leer de nuevo:      ${i.ncardPath} get ${i.pageId}

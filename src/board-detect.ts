@@ -26,6 +26,7 @@ const READ_ONLY = new Set(['formula', 'rollup', 'created_by', 'created_time', 'l
 export type RoleKey =
   | 'repo_property' | 'pr_property' | 'agent_property' | 'hop_property'
   | 'model_property' | 'progress_property' | 'owner_property' | 'participants_property'
+  | 'estimation_property'
 
 const ROLES: Array<{ key: RoleKey; type: string; re: RegExp }> = [
   { key: 'repo_property', type: 'url', re: /repo|repositor/i },
@@ -34,6 +35,7 @@ const ROLES: Array<{ key: RoleKey; type: string; re: RegExp }> = [
   { key: 'hop_property', type: 'number', re: /hop|salto/i },
   { key: 'model_property', type: 'select', re: /modelo|model\b/i },
   { key: 'progress_property', type: 'number', re: /progreso|progress|avance/i },
+  { key: 'estimation_property', type: 'select', re: /effort|esfuerzo|estimaci|size|talla|puntos|story ?points/i },
   { key: 'owner_property', type: 'people', re: /owner|dueñ|responsab|asignado|assignee/i },
   { key: 'participants_property', type: 'people', re: /involucrad|particip|watcher|equipo/i },
 ]
@@ -48,8 +50,10 @@ export type Detected = {
   hop_property: string | null
   model_property: string | null
   progress_property: string | null
+  estimation_property: string | null
   owner_property: string | null
   participants_property: string | null
+  estimation_values: string[]
   agent_filter: { property: string; run_value?: string; skip_value?: string } | null
 }
 
@@ -83,7 +87,10 @@ export function detectProps(props: BoardProps): Detected {
   }
 
   const out = Object.fromEntries(ROLES.map(r => [r.key, find(r.type, r.re)])) as Omit<Detected, 'agent_filter'>
-  return { ...out, agent_filter }
+  // los valores del board mandan: el agente debe escribir "🟢 S", no "S"
+  const est = out.estimation_property
+  const estimation_values = est ? (props[est]?.select?.options ?? []).map(o => o.name) : []
+  return { ...out, estimation_values, agent_filter }
 }
 
 /**
