@@ -104,6 +104,7 @@ Ningún nombre de propiedad está hardcodeado: si tu board está en inglés o le
 - `allowed_tools` = permisos de launch (sintaxis del CLI); el bridge agrega siempre `Bash(ncard)`.
 - `agent_permissions` = `allowlist` (default: fuera de `allowed_tools`, claude pide confirmación en la terminal y el agente se queda esperando) o `bypass` (`--permission-mode bypassPermissions`: sin confirmaciones; lo que el rol no deba hacer va en su prompt). Con herdr, un agente parado en un prompt se reporta en la sala del card (`agent_blocked`) en vez de quedar mudo.
 - Modelo: `model_property` del card > frontmatter del agent > default del CLI.
+- `start_message` (frontmatter del agent) = lo que el rol dice en la sala al arrancar (`🔎 Investigando…`); sin él, `🤖 en marcha`. Los comentarios del agente se espejan a la sala con su formato (negrita, código) y son lo único que el equipo lee ahí: las preguntas abiertas van en el comentario, no en el cuerpo del card.
 - **Precedencia general**: env del operador > `workflow.json` > defaults. Las claves que antes vivían en `.env` (`SLACK_INVITE_USERS`, `INTAKE_MODEL`, `INTAKE_TIMEOUT_SEC`, `GITHUB_FORWARD_REPOS`) siguen funcionando como override, y el server avisa al arrancar para que las muevas acá.
 
 ### Handoffs agente→agente (`can_trigger` + `max_hops`)

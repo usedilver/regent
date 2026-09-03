@@ -1,6 +1,7 @@
 /** Tests de carga y validación de workflow.json + agents/ (config de instancia). */
 import assert from 'node:assert'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { makeBridgeFixture } from './fixture.mjs'
 import { loadBridge, parseAgentFile } from '../src/bridge-config.ts'
@@ -83,6 +84,16 @@ check('parseAgentFile: frontmatter + body', () => {
   assert.equal(a.tools, 'Read, Glob, Grep')
   assert.ok(!a.body.includes('---'))
   f.cleanup()
+})
+
+check('parseAgentFile: start_message del frontmatter (opcional)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-'))
+  const f = path.join(dir, 'pm.md')
+  fs.writeFileSync(f, '---\nname: pm\ndescription: x\nstart_message: 🔎 Investigando…\n---\ncuerpo')
+  assert.equal(parseAgentFile(f).startMessage, '🔎 Investigando…')
+  fs.writeFileSync(f, '---\nname: pm\ndescription: x\n---\ncuerpo')
+  assert.equal(parseAgentFile(f).startMessage, undefined)
+  fs.rmSync(dir, { recursive: true, force: true })
 })
 
 // ---- permisos de los agentes ----

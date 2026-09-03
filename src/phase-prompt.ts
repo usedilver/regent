@@ -114,7 +114,7 @@ Por eso acá el COMENTARIO es obligatorio — es la única señal de que termina
 Al terminar tu trabajo de fase:
 1. Publica tu resultado en el card (\`append\`).
 2. **Éxito** → \`icon ✅\` + \`comment\` de 1-2 líneas: qué dejaste hecho y qué tiene que decidir el humano.
-3. **Éxito con preguntas abiertas** → \`icon ⚠️\` + \`comment\`. El comentario se espeja en la sala de Slack: incluye TEXTUALES las preguntas [rápida] (se contestan desde el chat) y de las [con contexto] solo el conteo con "→ ver el card" — esas se responden en Notion, con el contexto delante.
+3. **Éxito con preguntas abiertas** → \`icon ⚠️\` + \`comment\` con las preguntas (ver "Cómo se escribe un comentario").
 4. **Bloqueado** (no puedes completar la fase con lo que hay) → \`icon ⚠️\` + \`comment\` explicando el bloqueo concreto.
 5. NUNCA uses \`move\`: mover el card es decisión humana en este board.`
   : `# Protocolo de cierre (obligatorio)
@@ -122,7 +122,7 @@ Al terminar tu trabajo de fase:
 Al terminar tu trabajo de fase:
 1. Publica tu resultado en el card (\`append\`).
 2. **Éxito** → \`icon ✅\`, \`move\` a **"${i.nextState}"** — y NADA más: el cambio de columna ES la notificación (el pipeline avisa en la sala). NO comentes el veredicto.
-3. **Éxito con preguntas abiertas** → \`icon ⚠️\`, \`move\`, y un \`comment\`. El comentario se espeja en la sala de Slack: incluye TEXTUALES las preguntas [rápida] (se contestan desde el chat) y de las [con contexto] solo el conteo con "→ ver el card" — esas se responden en Notion, con el contexto delante.
+3. **Éxito con preguntas abiertas** → \`icon ⚠️\`, \`move\`, y \`comment\` con las preguntas (ver "Cómo se escribe un comentario").
 4. **Bloqueado** (no puedes completar la fase con lo que hay) → NO muevas el card: \`icon ⚠️\` + \`comment\` explicando el bloqueo concreto. Un humano decidirá.
 5. Si tu rol define matices sobre cuándo mover o no, tu system prompt manda.`
 
@@ -134,13 +134,20 @@ ${propsBlock}
 # Herramienta ncard (única vía de escritura al card de Notion)
 
 - Leer de nuevo:      ${i.ncardPath} get ${i.pageId}
-- Comentar:           ${i.ncardPath} comment ${i.pageId} "texto"
+- Comentar:           ${i.ncardPath} comment ${i.pageId} - <<'EOF' … EOF   (markdown por stdin; NUNCA comillas anidadas en un argumento)
 - Publicar contenido: ${i.ncardPath} append ${i.pageId} - <<'EOF' … EOF   (markdown por stdin)
 - Mover de columna:   ${i.ncardPath} move ${i.pageId} "<estado>"
 - Propiedades:        ${i.ncardPath} setselect|setnum|seturl|setpeople ${i.pageId} <Propiedad> <valor>
 - Icono del card:     ${i.ncardPath} icon ${i.pageId} "<emoji>"
 ${wt}${handoff}
 ${activation}
+
+# Cómo se escribe un comentario
+
+Tu comentario se espeja TAL CUAL en la sala de Slack y es lo único que el equipo lee sin abrir el card.
+- Preguntas abiertas: SOLO en el comentario, nunca en el cuerpo del card. Arranca con \`Ya tengo todo lo necesario, pero necesito que me respondas:\` y una lista; cada pregunta es autocontenida — el contexto para responderla va en la misma línea (2-3 líneas máximo), con las opciones y tu recomendación si la hay — y lleva etiqueta \`[rápida]\` (sí/no o elegir una opción) o \`[con contexto]\` (hay que mirar código o datos; si el detalle está en la subpágina, decilo en esa línea).
+- Nada de "plan publicado", ni resúmenes de lo que hiciste, ni repetir lo que ya está en el cuerpo o en las propiedades.
+- Va por stdin (\`comment ${i.pageId} - <<'EOF' … EOF\`): markdown, negrita y código se respetan. Un argumento con comillas anidadas se parte y el comentario sale truncado.
 
 Convenciones del board: la propiedad \`Progreso\` (0-100) es tuya si tu rol la usa; \`Estimación\` (S/M/L) idem. Las propiedades \`Agente\` y \`Hop\` las gestiona el pipeline — no las toques.
 

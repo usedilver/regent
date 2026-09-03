@@ -216,6 +216,8 @@ export interface NativeAgent {
   /** tool names del frontmatter nativo (informativo; los permisos de launch salen de .bridge) */
   tools?: string
   model?: string
+  /** lo que el rol dice en la sala al arrancar (frontmatter `start_message`) */
+  startMessage?: string
   /** cuerpo markdown = prompt del rol */
   body: string
   filePath: string
@@ -232,6 +234,7 @@ export function parseAgentFile(filePath: string): NativeAgent {
     description: typeof fm.description === 'string' ? fm.description : '',
     tools: typeof fm.tools === 'string' ? fm.tools : undefined,
     model: typeof fm.model === 'string' ? fm.model : undefined,
+    startMessage: typeof fm.start_message === 'string' ? fm.start_message : undefined,
     body: m[2].trim(),
     filePath,
   }

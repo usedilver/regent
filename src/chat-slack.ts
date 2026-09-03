@@ -71,7 +71,8 @@ export function createSlackAdapter(cfg: ChatConfig): ChatAdapter {
   }
   interface SlackFile { id: string; name?: string; title?: string; filetype?: string; mimetype?: string; size?: number; mode?: string; url_private_download?: string; preview?: string }
   const FILE_INLINE_MAX = 200 * 1024
-  const FILE_INLINE_CHARS = 12_000
+  const ROOM_PURPOSE = 'Sala del card: escribí acá para corregir al agente en marcha, o mencioná un @rol para arrancarlo.'
+const FILE_INLINE_CHARS = 12_000
   /** archivo de texto (log, snippet, json…) → contenido inline; otros → solo su nombre */
   const readFile = async (f: SlackFile): Promise<string> => {
     const label = `[archivo: ${f.title || f.name || f.id}${f.filetype ? ` · ${f.filetype}` : ''}${f.size ? ` · ${Math.round(f.size / 1024)} KB` : ''}]`
@@ -235,6 +236,7 @@ export function createSlackAdapter(cfg: ChatConfig): ChatAdapter {
       if (topic) {
         try { await app.client.conversations.setTopic({ channel: channelId, topic: topic.slice(0, 250) }) } catch { /* opcional */ }
       }
+      try { await app.client.conversations.setPurpose({ channel: channelId, purpose: ROOM_PURPOSE }) } catch { /* opcional */ }
       // invitar: participantes del hilo de origen + lista explícita, o auto-descubrir
       // humanos del workspace (users:read; tope chat.auto_invite_limit, 0 = desactivado)
       let invitees = [...new Set([...(existing?.pendingInvites ?? []), ...inviteUsers])]

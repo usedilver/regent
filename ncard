@@ -6,7 +6,7 @@
  * Subcomandos:
  *   ncard get <page_id>                 # JSON: título + propiedades + contenido aplanado
  *   ncard move <page_id> <status>       # PATCH de Status (validado contra las 5 opciones)
- *   ncard comment <page_id> "texto"
+ *   ncard comment <page_id> "texto" | -      # - = markdown por stdin (negrita, código) | -      # - = markdown por stdin (negrita, código)
  *   ncard append <page_id> <file.md|->
  *   ncard subpage <page_id> "<título>" <file.md|->
  *   ncard whoami                        # bot user id (lo usa el anti-loop del server)
@@ -15,7 +15,7 @@ import { Client } from '@notionhq/client'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { mdToBlocks } from './src/md-blocks.ts'
+import { mdToBlocks, inline } from './src/md-blocks.ts'
 
 const BRIDGE_DIR = path.dirname(fileURLToPath(import.meta.url))
 
@@ -227,11 +227,14 @@ async function cmdMove(pageId, status) {
   process.stdout.write(`ok: Status → ${status}\n`)
 }
 
-async function cmdComment(pageId, text) {
-  if (!text) die('falta el texto del comentario')
+async function cmdComment(pageId, text, extra) {
+  if (!text) die('falta el texto del comentario (o "-" para stdin)')
+  if (extra.length) die(`comment: sobran ${extra.length} argumento(s) — el texto se partió (¿comillas anidadas?). Usa stdin: ncard comment <page_id> - <<'EOF' … EOF`)
+  const body = (text === '-' ? fs.readFileSync(0, 'utf8') : text).trim()
+  if (!body) die('comentario vacío')
   await withRetry(() => notion.comments.create({
     parent: { page_id: pageId },
-    rich_text: [{ type: 'text', text: { content: text.slice(0, 2000) } }],
+    rich_text: inline(body),
   }))
   process.stdout.write('ok: comentario creado\n')
 }
@@ -345,7 +348,7 @@ try {
   switch (cmd) {
     case 'get': args[0] ? await cmdGet(args[0]) : die(USAGE); break
     case 'move': args[0] && args[1] ? await cmdMove(args[0], args[1]) : die(USAGE); break
-    case 'comment': args[0] ? await cmdComment(args[0], args[1]) : die(USAGE); break
+    case 'comment': args[0] ? await cmdComment(args[0], args[1], args.slice(2)) : die(USAGE); break
     case 'append': args[0] ? await cmdAppend(args[0], args[1]) : die(USAGE); break
     case 'subpage': args[0] && args[1] ? await cmdSubpage(args[0], args[1], args[2]) : die(USAGE); break
     case 'seturl': args[0] && args[1] && args[2] ? await cmdSetUrl(args[0], args[1], args[2]) : die(USAGE); break

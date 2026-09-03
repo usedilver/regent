@@ -22,6 +22,7 @@ import { findMentionTargets, pageCreatedAgent, evaluateHandoff } from './router.
 import { createChatAdapter, saveRoom, roomOf, loadRooms, threadKey, pageOfThread, saveThread, type ChatAdapter } from './chat.ts'
 import { runIntake, listRepos, type FillableProp } from './intake.ts'
 import { sendToLiveAgent, interruptLiveAgent, closeTab, herdrTabStatuses } from './terminal.ts'
+import { richToMrkdwn, type NotionRichText } from './notion-rich.ts'
 import { threadToMarkdown } from './slack-thread.ts'
 import { shortIdOf, loadRegistry, removeWorkspace, allPrs, allRemotes, listRegistries, findRegistryByPr, dirtySharedCheckouts, ownerRepoOf, findRepoByName } from './workspace.ts'
 import { execFile } from 'node:child_process'
@@ -261,7 +262,7 @@ function launch(pageId: string, agentName: string, extraArgs: string[], lockReas
         } catch { /* sala con id de fallback */ }
       }
       const created = await chat.ensureRoom(pageId, cardUrl(pageId))
-      if (created) await chat.post(pageId, personaOf(agentName), `🤖 arrancando (${lockReason})`)
+      if (created) await chat.post(pageId, personaOf(agentName), bridge.agents.get(agentName)?.startMessage ?? '🤖 en marcha')
     } catch (err) { jlog('chat_error', { page_id: pageId, error: (err as Error).message }) }
   })()
   const agentLog = path.join(LOG_DIR, `launch-${agentName}-${shortId}-${Date.now()}.log`)
@@ -333,15 +334,16 @@ async function handleComment(event: NotionEvent): Promise<void> {
 
   // texto del comentario (payload sparse → API)
   let text = ''
+  let mirror = ''
   try {
     let cursor: string | undefined
     do {
       const res = await notion.comments.list({ block_id: pageId, page_size: 100, start_cursor: cursor }) as {
-        results: Array<{ id: string; rich_text: Array<{ plain_text?: string }> }>
+        results: Array<{ id: string; rich_text: NotionRichText[] }>
         has_more: boolean; next_cursor: string | null
       }
       const found = res.results.find(c => c.id === event.entity?.id)
-      if (found) { text = found.rich_text.map(t => t.plain_text ?? '').join(''); break }
+      if (found) { text = found.rich_text.map(t => t.plain_text ?? '').join(''); mirror = richToMrkdwn(found.rich_text); break }
       cursor = res.has_more ? res.next_cursor ?? undefined : undefined
     } while (cursor)
   } catch (err) {
@@ -356,7 +358,7 @@ async function handleComment(event: NotionEvent): Promise<void> {
   // también se espejan (quien mira la sala ve la conversación completa de Notion)
   if (roomOf(pageId)?.channelId) {
     const persona = isBot ? personaOf(roomOf(pageId)?.agent) : { username: 'Notion 💬' }
-    void chat.post(pageId, persona, text).catch(() => { /* sala archivada */ })
+    void chat.post(pageId, persona, mirror || text).catch(() => { /* sala archivada */ })
   }
 
   if (targets.length === 0) {
@@ -1210,7 +1212,6 @@ async function onBotMention(msg: BotMentionMsg): Promise<void> {
 
     // la sala nace CON el card (no al primer agente): ahí sigue la conversación
     const roomId = await chat.ensureRoom(page.id, cardUrl(page.id)).catch(() => null)
-    if (roomId) await chat.post(page.id, {}, `📌 card: ${cardUrl(page.id)} — este es el canal de la tarea: escribe aquí para corregir al agente o menciona un @rol para arrancarlo.`).catch(() => {})
 
     const lines = [intake?.reply || '✅ Card creado.', `· card: ${cardUrl(page.id)}${roomId ? ` · sala: <#${roomId}>` : ''}`]
     if (Object.keys(extraProps).length > 0) lines.push(`· propiedades: ${Object.keys(extraProps).join(', ')}`)
