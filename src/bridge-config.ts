@@ -99,6 +99,13 @@ const BridgeConfigSchema = z.object({
    * Quien spawnea a claude (herdr, tmux) no hereda el entorno de regent.
    */
   agent_env_files: z.array(z.string().min(1)).default([]),
+  /**
+   * Permisos de los agentes lanzados. `allowlist` = solo `allowed_tools`; lo demás
+   * pide confirmación en la terminal — y un agente desatendido se queda esperando.
+   * `bypass` = sin confirmaciones (`--permission-mode bypassPermissions`): lo que
+   * el rol NO debe hacer se dice en su prompt, no en la lista.
+   */
+  agent_permissions: z.enum(['allowlist', 'bypass']).default('allowlist'),
   /** propiedad url del card que apunta al repo de GitHub (elige el clon en REPO_PATH) */
   repo_property: z.string().default('Repo'),
   /**

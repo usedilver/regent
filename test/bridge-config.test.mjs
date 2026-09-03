@@ -85,6 +85,20 @@ check('parseAgentFile: frontmatter + body', () => {
   f.cleanup()
 })
 
+// ---- permisos de los agentes ----
+
+check('agent_permissions: default allowlist, acepta bypass, rechaza otra cosa', () => {
+  const f = makeBridgeFixture()
+  const wf = path.join(f.configDir, 'config', 'workflow.json')
+  assert.equal(loadBridge(f.configDir).config.agent_permissions, 'allowlist')
+  const raw = JSON.parse(fs.readFileSync(wf, 'utf8'))
+  fs.writeFileSync(wf, JSON.stringify({ ...raw, agent_permissions: 'bypass' }))
+  assert.equal(loadBridge(f.configDir).config.agent_permissions, 'bypass')
+  fs.writeFileSync(wf, JSON.stringify({ ...raw, agent_permissions: 'yolo' }))
+  assert.throws(() => loadBridge(f.configDir))
+  f.cleanup()
+})
+
 // ---- config que migró de .env a workflow.json ----
 
 check('defaults de propiedades: un workflow mínimo trae los nombres estándar', () => {

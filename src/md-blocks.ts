@@ -3,16 +3,64 @@
  * quote, divider), entiende dos contenedores que el cuerpo de un card necesita:
  *   <details><summary>Título</summary> … </details>  → toggle (plegable) con hijos
  *   > [!NOTE|WARNING|QUESTION|INFO] texto              → callout con ícono
- * Las líneas `> ` consecutivas forman UN quote, no uno por línea.
+ * Las líneas `> ` consecutivas forman UN quote, no uno por línea. El texto de
+ * cada bloque pasa por `inline`: negrita, cursiva, código, tachado y links
+ * llegan como anotaciones de rich_text, no como asteriscos literales.
  */
 export type Block = Record<string, unknown>
-type Rich = Array<{ type: 'text'; text: { content: string } }>
+type Annotations = { bold?: boolean; italic?: boolean; strikethrough?: boolean; code?: boolean }
+type RichText = { type: 'text'; text: { content: string; link?: { url: string } }; annotations?: Annotations }
+export type Rich = RichText[]
 
+const NOTION_TEXT_CHUNK = 2000
+const NOTION_MAX_RICH = 100
+const NOTION_MAX_CHILDREN = 100
+const NOTION_MAX_NESTING = 2
+
+/** Texto plano troceado al límite de Notion (sin anotaciones: bloques de código). */
 export function chunkText(str: string): Rich {
   const chunks: string[] = []
-  for (let i = 0; i < str.length; i += 2000) chunks.push(str.slice(i, i + 2000))
+  for (let i = 0; i < str.length; i += NOTION_TEXT_CHUNK) chunks.push(str.slice(i, i + NOTION_TEXT_CHUNK))
   if (chunks.length === 0) chunks.push('')
   return chunks.map(c => ({ type: 'text', text: { content: c } }))
+}
+
+const INLINE = new RegExp([
+  '(?<code>`[^`\\n]+`)',
+  '(?<link>\\[[^\\]\\n]+\\]\\(https?:\\/\\/[^\\s)]+\\))',
+  '(?<bold>\\*\\*[^\\n]+?\\*\\*|__[^\\n]+?__)',
+  '(?<strike>~~[^\\n]+?~~)',
+  '(?<italic>(?<![\\w*])\\*(?!\\s)[^*\\n]+?(?<!\\s)\\*(?![\\w*])|(?<![\\w_])_(?!\\s)[^_\\n]+?(?<!\\s)_(?![\\w_]))',
+].join('|'))
+const LINK_PARTS = /^\[([^\]]+)\]\((\S+)\)$/
+
+/** `**negrita**`, `*cursiva*`/`_cursiva_`, `` `código` ``, `~~tachado~~`, `[texto](url)` → rich_text anotado. */
+export function inline(md: string, ann: Annotations = {}, link?: string): Rich {
+  const out: Rich = []
+  const push = (content: string, a: Annotations, url?: string) => {
+    for (const chunk of content ? chunkText(content) : []) {
+      const rt: RichText = { type: 'text', text: { content: chunk.text.content, ...(url ? { link: { url } } : {}) } }
+      if (Object.keys(a).length) rt.annotations = { ...a }
+      out.push(rt)
+    }
+  }
+  let rest = md
+  while (rest) {
+    const m = rest.match(INLINE)
+    if (!m || m.index === undefined) { push(rest, ann, link); break }
+    push(rest.slice(0, m.index), ann, link)
+    const tok = m[0]
+    const kind = Object.entries(m.groups ?? {}).find(([, v]) => v !== undefined)?.[0]
+
+    if (kind === 'code') push(tok.slice(1, -1), { ...ann, code: true }, link)
+    if (kind === 'link') { const [, label, url] = tok.match(LINK_PARTS)!; out.push(...inline(label, ann, url)) }
+    if (kind === 'bold') out.push(...inline(tok.slice(2, -2), { ...ann, bold: true }, link))
+    if (kind === 'strike') out.push(...inline(tok.slice(2, -2), { ...ann, strikethrough: true }, link))
+    if (kind === 'italic') out.push(...inline(tok.slice(1, -1), { ...ann, italic: true }, link))
+    rest = rest.slice(m.index + tok.length)
+  }
+  if (out.length === 0) return chunkText('')
+  return out.slice(0, NOTION_MAX_RICH)
 }
 
 const CODE_LANGS = new Set(['bash', 'c', 'c++', 'c#', 'css', 'go', 'html', 'java', 'javascript',
@@ -26,7 +74,7 @@ export function normalizeLang(lang?: string): string {
 }
 
 const CALLOUT_ICON: Record<string, string> = { NOTE: '💡', INFO: 'ℹ️', WARNING: '⚠️', QUESTION: '❓', TIP: '💡', IMPORTANT: '📌' }
-const NOTION_MAX_NESTING = 2
+const CALLOUT_COLOR: Record<string, string> = { WARNING: 'yellow_background', QUESTION: 'orange_background' }
 
 export function mdToBlocks(md: string, depth = 0): Block[] {
   const lines = md.replace(/\r\n/g, '\n').split('\n')
@@ -34,7 +82,7 @@ export function mdToBlocks(md: string, depth = 0): Block[] {
   let para: string[] = []
   const flushPara = () => {
     if (para.length) {
-      blocks.push({ type: 'paragraph', paragraph: { rich_text: chunkText(para.join('\n')) } })
+      blocks.push({ type: 'paragraph', paragraph: { rich_text: inline(para.join('\n')) } })
       para = []
     }
   }
@@ -65,8 +113,8 @@ export function mdToBlocks(md: string, depth = 0): Block[] {
       }
       i++
       const children = depth < NOTION_MAX_NESTING ? mdToBlocks(inner.join('\n'), depth + 1) : []
-      const toggle: Block = { type: 'toggle', toggle: { rich_text: chunkText(m[1]) } }
-      if (children.length) (toggle.toggle as Record<string, unknown>).children = children.slice(0, 100)
+      const toggle: Block = { type: 'toggle', toggle: { rich_text: inline(m[1]) } }
+      if (children.length) (toggle.toggle as Record<string, unknown>).children = children.slice(0, NOTION_MAX_CHILDREN)
       blocks.push(toggle)
       continue
     }
@@ -78,9 +126,9 @@ export function mdToBlocks(md: string, depth = 0): Block[] {
       i++
       while (i < lines.length && /^>\s?(.*)$/.test(lines[i]) && !/^>\s*\[!/.test(lines[i])) { text.push(lines[i].replace(/^>\s?/, '')); i++ }
       blocks.push({ type: 'callout', callout: {
-        rich_text: chunkText(text.filter(Boolean).join('\n')),
+        rich_text: inline(text.filter(Boolean).join('\n')),
         icon: { type: 'emoji', emoji: CALLOUT_ICON[kind] ?? '💬' },
-        color: kind === 'WARNING' ? 'yellow_background' : kind === 'QUESTION' ? 'orange_background' : 'gray_background',
+        color: CALLOUT_COLOR[kind] ?? 'gray_background',
       } })
       continue
     }
@@ -90,23 +138,23 @@ export function mdToBlocks(md: string, depth = 0): Block[] {
       const text = [m[1]]
       i++
       while (i < lines.length && /^>\s?(.*)$/.test(lines[i]) && !/^>\s*\[!/.test(lines[i])) { text.push(lines[i].replace(/^>\s?/, '')); i++ }
-      blocks.push({ type: 'quote', quote: { rich_text: chunkText(text.join('\n')) } })
+      blocks.push({ type: 'quote', quote: { rich_text: inline(text.join('\n')) } })
       continue
     }
 
     if ((m = line.match(/^(#{1,3})\s+(.*)$/))) {
       flushPara()
       const key = `heading_${m[1].length}`
-      blocks.push({ type: key, [key]: { rich_text: chunkText(m[2]) } })
+      blocks.push({ type: key, [key]: { rich_text: inline(m[2]) } })
     } else if ((m = line.match(/^\s*-\s+\[( |x|X)\]\s+(.*)$/))) {
       flushPara()
-      blocks.push({ type: 'to_do', to_do: { checked: m[1].toLowerCase() === 'x', rich_text: chunkText(m[2]) } })
+      blocks.push({ type: 'to_do', to_do: { checked: m[1].toLowerCase() === 'x', rich_text: inline(m[2]) } })
     } else if ((m = line.match(/^\s*[-*]\s+(.*)$/))) {
       flushPara()
-      blocks.push({ type: 'bulleted_list_item', bulleted_list_item: { rich_text: chunkText(m[1]) } })
+      blocks.push({ type: 'bulleted_list_item', bulleted_list_item: { rich_text: inline(m[1]) } })
     } else if ((m = line.match(/^\s*\d+[.)]\s+(.*)$/))) {
       flushPara()
-      blocks.push({ type: 'numbered_list_item', numbered_list_item: { rich_text: chunkText(m[1]) } })
+      blocks.push({ type: 'numbered_list_item', numbered_list_item: { rich_text: inline(m[1]) } })
     } else if (/^\s*---+\s*$/.test(line)) {
       flushPara()
       blocks.push({ type: 'divider', divider: {} })

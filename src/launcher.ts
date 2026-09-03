@@ -18,6 +18,7 @@ import { shortIdOf, loadRegistry, newRegistry, addWorktree, worktreesOf, scanRep
 import { buildPhasePrompt } from './phase-prompt.ts'
 import { launchAgent, closeFinishedTabs } from './terminal.ts'
 import { roomOf, saveRoom } from './chat.ts'
+import { ensureBypassAccepted } from './claude-settings.ts'
 
 loadEnv()
 
@@ -274,6 +275,12 @@ export function runPhase(pageId: string, agentName: string, opts: RunPhaseOption
   const model = (modelProp ? card.properties?.[modelProp] as string | undefined : undefined) || agent.model
   const claudeArgs = ['--allowed-tools', allowedTools, '--append-system-prompt-file', sysFile, ...extraArgs]
   if (model) claudeArgs.push('--model', model)
+  if (b.config.agent_permissions === 'bypass') {
+    claudeArgs.push('--permission-mode', 'bypassPermissions')
+    const seeded = ensureBypassAccepted()
+    if (seeded === 'seeded') console.log('[launcher] aviso de bypass pre-aceptado en ~/.claude/settings.json')
+    if (seeded === 'unreadable') console.log('[launcher] ⚠️ ~/.claude/settings.json ilegible: el aviso de bypass puede bloquear al agente')
+  }
 
   // 6. estado en el board (Agente/Hop = fuente de verdad para handoffs) + lanzar
   ensureTrusted(cwd)

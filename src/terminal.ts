@@ -44,7 +44,7 @@ export function closeTab(tabRef: string): boolean {
 }
 
 /** tab_id → agent_status de los tabs vivos de herdr. */
-function herdrTabStatuses(): Map<string, string> {
+export function herdrTabStatuses(): Map<string, string> {
   const list = JSON.parse(sh('herdr', ['tab', 'list']))
   const tabs: { tab_id?: string; agent_status?: string }[] = list.result?.tabs ?? []
   return new Map(tabs.filter(t => t.tab_id).map(t => [t.tab_id!, t.agent_status ?? 'idle']))

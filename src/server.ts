@@ -19,9 +19,9 @@ import { Client, verifyWebhookSignature } from '@notionhq/client'
 import { BRIDGE_DIR, loadEnv } from './env.ts'
 import { loadBridge, warnMovedEnv, csvEnvOr } from './bridge-config.ts'
 import { findMentionTargets, pageCreatedAgent, evaluateHandoff } from './router.ts'
-import { createChatAdapter, saveRoom, roomOf, threadKey, pageOfThread, saveThread, type ChatAdapter } from './chat.ts'
+import { createChatAdapter, saveRoom, roomOf, loadRooms, threadKey, pageOfThread, saveThread, type ChatAdapter } from './chat.ts'
 import { runIntake, listRepos, type FillableProp } from './intake.ts'
-import { sendToLiveAgent, interruptLiveAgent, closeTab } from './terminal.ts'
+import { sendToLiveAgent, interruptLiveAgent, closeTab, herdrTabStatuses } from './terminal.ts'
 import { threadToMarkdown } from './slack-thread.ts'
 import { shortIdOf, loadRegistry, removeWorkspace, allPrs, allRemotes, listRegistries, findRegistryByPr, dirtySharedCheckouts, ownerRepoOf, findRepoByName } from './workspace.ts'
 import { execFile } from 'node:child_process'
@@ -610,6 +610,25 @@ async function checkBoardDrift(): Promise<void> {
 // ---- PR mergeado → card a Done (polling con gh: sin webhooks, sin tokens nuevos) ----
 
 const PR_POLL_MIN = Number(process.env.PR_POLL_MINUTES ?? 2)
+
+// ---- vigía: un agente parado en un prompt de su terminal no avisa solo ----
+// herdr reporta `blocked` cuando claude espera una respuesta (permiso, pregunta,
+// diálogo). Sin esto, "no hizo más" es lo único que ve el equipo.
+const BLOCKED_AGENT_POLL_SEC = 60
+const blockedNotified = new Set<string>()
+function watchBlockedAgents(): void {
+  let statuses: Map<string, string>
+  try { statuses = herdrTabStatuses() } catch { return } // sin herdr no hay estados que mirar
+  for (const [pageId, room] of Object.entries(loadRooms())) {
+    for (const tab of room.tabRefs ?? []) {
+      if (statuses.get(tab) !== 'blocked') { blockedNotified.delete(tab); continue }
+      if (blockedNotified.has(tab)) continue
+      blockedNotified.add(tab)
+      jlog('agent_blocked', { page_id: pageId, tab, agent: room.agent ?? null })
+      void chat.post(pageId, {}, `⚠️ el agente \`${room.agent ?? '?'}\` se detuvo: espera una respuesta en su terminal (\`${tab}\`) y no puede seguir solo. Si es una pregunta, contestala acá y se la paso; si es un permiso, hay que responder en la terminal.`).catch(() => {})
+    }
+  }
+}
 const prHandled = new Set<string>() // evita repetir mientras Notion propaga el cambio de status
 
 function ghPrState(url: string): Promise<{ state?: string } | null> {
@@ -1351,4 +1370,5 @@ server.listen(PORT, HOST, async () => {
   await fetchBotUserId()
   await checkBoardDrift()
   setInterval(() => void checkBoardDrift(), 60 * 60 * 1000).unref()
+  setInterval(watchBlockedAgents, BLOCKED_AGENT_POLL_SEC * 1000).unref()
 })

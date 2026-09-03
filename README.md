@@ -58,6 +58,7 @@ Ningún nombre de propiedad está hardcodeado: si tu board está en inglés o le
   "workspace_root": null,          // p. ej. "monorepo": el agente corre en su raíz (contexto completo) y abre un
                                    // worktree por repo que cambia con `regent-wt`; Repo pasa a ser opcional
   "agent_env_files": [],           // .env que viajan a cada agente (default: <raíz>/.env, como `set -a; source .env`)
+  "agent_permissions": "allowlist", // o "bypass": sin confirmaciones — un agente desatendido no puede contestarlas
   "repo_property": "Repo",         // url del repo → elige el clon en REPO_PATH
   "default_base_branch": "develop", // rama base si el repo la tiene; null = default del repo
   "repo_base_branches": {},        // override explícito por repo: { "legacy-api": "master" }
@@ -101,6 +102,7 @@ Ningún nombre de propiedad está hardcodeado: si tu board está en inglés o le
   un `trigger` sin ninguno de los dos sigue siendo un error de config, no un "se queda".
 - `agents.<n>.triggers.mentions` = textos que activan al agent desde un comentario (`@qa`); `triggers.page_created` = corre al crearse un card (rol triage). Requieren los eventos `comment.created` / `page.created` en la suscripción del webhook.
 - `allowed_tools` = permisos de launch (sintaxis del CLI); el bridge agrega siempre `Bash(ncard)`.
+- `agent_permissions` = `allowlist` (default: fuera de `allowed_tools`, claude pide confirmación en la terminal y el agente se queda esperando) o `bypass` (`--permission-mode bypassPermissions`: sin confirmaciones; lo que el rol no deba hacer va en su prompt). Con herdr, un agente parado en un prompt se reporta en la sala del card (`agent_blocked`) en vez de quedar mudo.
 - Modelo: `model_property` del card > frontmatter del agent > default del CLI.
 - **Precedencia general**: env del operador > `workflow.json` > defaults. Las claves que antes vivían en `.env` (`SLACK_INVITE_USERS`, `INTAKE_MODEL`, `INTAKE_TIMEOUT_SEC`, `GITHUB_FORWARD_REPOS`) siguen funcionando como override, y el server avisa al arrancar para que las muevas acá.
 
