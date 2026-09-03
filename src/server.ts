@@ -16,7 +16,7 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { Client, verifyWebhookSignature } from '@notionhq/client'
-import { BRIDGE_DIR, loadEnv } from './env.ts'
+import { BRIDGE_DIR, loadEnv, agentEnvFiles } from './env.ts'
 import { loadBridge, warnMovedEnv, csvEnvOr } from './bridge-config.ts'
 import { findMentionTargets, pageCreatedAgent, evaluateHandoff, hasOpenQuestions, explicitRoleIn, entryRole } from './router.ts'
 import { createChatAdapter, saveRoom, roomOf, loadRooms, threadKey, pageOfThread, saveThread, type ChatAdapter } from './chat.ts'
@@ -1209,7 +1209,7 @@ async function onBotMention(msg: BotMentionMsg): Promise<void> {
     const answer = await answerQuestion(
       { text: msg.text, transcript: msg.transcript, repos: listRepos(), processNotes: processNotes() },
       { model: bridge.config.intake.model, timeout_sec: bridge.config.intake.answer_timeout_sec },
-      { cwd: workspaceRootDir() },
+      { cwd: workspaceRootDir(), envFiles: agentEnvFiles(bridge.config.agent_env_files, workspaceRootDir()) },
     )
     if (!answer) jlog('chat_answer_failed', { channel: channelId })
     return void chat.postTo(channelId, answer || intake.reply || 'dime qué necesitas: descríbeme la tarea (o el bug) y yo armo el card.', threadTs).catch(() => {})

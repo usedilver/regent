@@ -13,12 +13,12 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { BRIDGE_DIR, loadEnv } from './env.ts'
 import { loadBridge, parseAgentFile, type LoadedBridge, type BridgeConfig } from './bridge-config.ts'
-import { parseEnvFile } from './env.ts'
+import { agentEnvFiles, loadAgentEnv } from './env.ts'
 import { shortIdOf, loadRegistry, newRegistry, addWorktree, worktreesOf, scanRepos, reposRootDir, refreshShared, syncWorktreeWithBase, saveRegistry, type RepoEntry } from './workspace.ts'
 import { buildPhasePrompt } from './phase-prompt.ts'
 import { launchAgent, closeFinishedTabs } from './terminal.ts'
 import { roomOf, saveRoom } from './chat.ts'
-import { ensureBypassAccepted } from './claude-settings.ts'
+import { ensureBypassAccepted, ensureTrusted } from './claude-settings.ts'
 
 loadEnv()
 
@@ -50,57 +50,6 @@ interface Card {
  * contesta por accidente. REPO_PATH y el .mcp.json del repo son configuración
  * deliberada del operador; lo que el operador desactivó a mano se respeta.
  */
-/** Busca un archivo desde `from` hacia arriba, sin salir de $HOME. */
-function findUp(name: string, from: string): string | null {
-  const home = process.env.HOME ?? '/'
-  let cur = path.resolve(from)
-  for (let i = 0; i < 12; i++) {
-    const candidate = path.join(cur, name)
-    if (fs.existsSync(candidate)) return candidate
-    const parent = path.dirname(cur)
-    if (parent === cur || cur === home) return null
-    cur = parent
-  }
-  return null
-}
-
-function ensureTrusted(dir: string): void {
-  const cfgPath = path.join(process.env.HOME ?? '', '.claude.json')
-  if (!fs.existsSync(cfgPath)) return // primer arranque global de claude: no interferir
-  try {
-    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
-    cfg.projects ??= {}
-    const proj = (cfg.projects[dir] ??= {})
-    let changed = false
-
-    if (proj.hasTrustDialogAccepted !== true) {
-      proj.hasTrustDialogAccepted = true
-      changed = true
-      console.log(`[launcher] trust pre-sembrado para ${dir}`)
-    }
-
-    // claude busca .mcp.json hacia ARRIBA: el agente corre en un submódulo
-    // (…/talently-code/frontend/frontend-hire) y el archivo vive en la raíz del
-    // monorepo. Mirar solo el cwd dejaba el diálogo sin pre-aprobar.
-    const mcpPath = findUp('.mcp.json', dir)
-    if (mcpPath) {
-      const declared = Object.keys(JSON.parse(fs.readFileSync(mcpPath, 'utf8')).mcpServers ?? {})
-      proj.enabledMcpjsonServers ??= []
-      proj.disabledMcpjsonServers ??= []
-      const nuevos = declared.filter(n =>
-        !proj.enabledMcpjsonServers.includes(n) && !proj.disabledMcpjsonServers.includes(n))
-      if (nuevos.length) {
-        proj.enabledMcpjsonServers.push(...nuevos)
-        changed = true
-        console.log(`[launcher] MCP del repo aprobados: ${nuevos.join(', ')}`)
-      }
-    }
-
-    if (changed) fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2))
-  } catch (err) {
-    console.warn(`[launcher] no pude sembrar trust/MCP (${(err as Error).message}); claude puede pedir confirmación`)
-  }
-}
 
 /**
  * Resuelve el repo de trabajo del CARD dentro de REPO_PATH (la carpeta de repos).
@@ -301,14 +250,9 @@ export function runPhase(pageId: string, agentName: string, opts: RunPhaseOption
     if (b.config.hop_property) sh(NCARD, ['setnum', pageId, b.config.hop_property, String(opts.hop ?? 0)])
   } catch { /* propiedades opcionales: no bloquea */ }
   // sin lista explícita, el .env de la raíz del workspace (o del repo): como `talently claude`
-  const envFiles = b.config.agent_env_files.length ? b.config.agent_env_files : [path.join(workspaceRoot ?? cardRepo, '.env')]
-  const agentEnv: Record<string, string> = { REGENT_PAGE_ID: pageId, REGENT_ROOT: cwd, REGENT_WT }
-  for (const f of envFiles) {
-    const resolved = f.replace(/^~(?=$|\/)/, process.env.HOME ?? '')
-    const vars = parseEnvFile(resolved)
-    Object.assign(agentEnv, vars)
-    console.log(`[launcher] env para el agente: ${resolved} (${Object.keys(vars).length} vars)`)
-  }
+  const loaded = loadAgentEnv(agentEnvFiles(b.config.agent_env_files, workspaceRoot ?? cardRepo))
+  const agentEnv: Record<string, string> = { REGENT_PAGE_ID: pageId, REGENT_ROOT: cwd, REGENT_WT, ...loaded.vars }
+  for (const f of loaded.files) console.log(`[launcher] env para el agente: ${f.file} (${f.count} vars)`)
 
   const res = launchAgent({
     cwd, label, claudeArgs, promptText, env: agentEnv,

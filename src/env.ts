@@ -25,3 +25,22 @@ export function loadEnv(): void {
     if (!(key in process.env)) process.env[key] = val
   }
 }
+
+/** Lista de .env a inyectar: la configurada, o el .env de la raíz dada (como `talently claude`). */
+export function agentEnvFiles(configured: string[], fallbackRoot?: string): string[] {
+  if (configured.length) return configured
+  return fallbackRoot ? [path.join(fallbackRoot, '.env')] : []
+}
+
+/** Vars de esos archivos, en orden (el último gana); `~` permitido. Los que no existen cuentan 0. */
+export function loadAgentEnv(files: string[]): { vars: Record<string, string>; files: Array<{ file: string; count: number }> } {
+  const vars: Record<string, string> = {}
+  const report: Array<{ file: string; count: number }> = []
+  for (const f of files) {
+    const resolved = f.replace(/^~(?=$|\/)/, process.env.HOME ?? '')
+    const parsed = parseEnvFile(resolved)
+    Object.assign(vars, parsed)
+    report.push({ file: resolved, count: Object.keys(parsed).length })
+  }
+  return { vars, files: report }
+}
