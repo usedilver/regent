@@ -86,7 +86,7 @@ PROHIBIDO: cambiar de rama, push a la base, \`push --force\`, tocar archivos fue
 # Handoffs disponibles
 
 Puedes pasar trabajo a otro agente incluyendo su mención en un COMENTARIO (\`comment\`): ${i.canTrigger.map(c => `**${c.mention}** → ${c.agent}`).join(' · ')}.
-Salto actual: ${i.hop ?? 0} de ${i.maxHops ?? 3}. ${(i.hop ?? 0) >= (i.maxHops ?? 3) ? 'LÍMITE ALCANZADO: no menciones a ningún agente (no será procesado); deja el pendiente descrito para un humano.' : 'Úsalo solo si tu rol lo indica; incluye en la mención el encargo concreto.'}
+Salto actual: ${i.hop ?? 0} de ${i.maxHops ?? 3}. ${(i.hop ?? 0) >= (i.maxHops ?? 3) ? 'LÍMITE ALCANZADO: no menciones a ningún agente (no será procesado); deja el pendiente descrito para un humano.' : 'La mención arranca al otro agente EN EL ACTO: úsala solo si tu rol lo indica, con el encargo concreto, y NUNCA en un comentario que deje preguntas abiertas (el pipeline la ignora).'}
 `
     : ''
 
@@ -146,6 +146,7 @@ ${activation}
 
 Tu comentario se espeja TAL CUAL en la sala de Slack y es lo único que el equipo lee sin abrir el card.
 - Preguntas abiertas: SOLO en el comentario, nunca en el cuerpo del card. Arranca con \`Ya tengo todo lo necesario, pero necesito que me respondas:\` y una lista; cada pregunta es autocontenida — el contexto para responderla va en la misma línea (2-3 líneas máximo), con las opciones y tu recomendación si la hay — y lleva etiqueta \`[rápida]\` (sí/no o elegir una opción) o \`[con contexto]\` (hay que mirar código o datos; si el detalle está en la subpágina, decilo en esa línea).
+- Un comentario con preguntas NO menciona a otro agente. No existe "implementa cuando confirmen": primero llegan las respuestas, después el handoff (en otro comentario).
 - Nada de "plan publicado", ni resúmenes de lo que hiciste, ni repetir lo que ya está en el cuerpo o en las propiedades.
 - Va por stdin (\`comment ${i.pageId} - <<'EOF' … EOF\`): markdown, negrita y código se respetan. Un argumento con comillas anidadas se parte y el comentario sale truncado.
 

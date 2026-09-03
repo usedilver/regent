@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { Client, verifyWebhookSignature } from '@notionhq/client'
 import { BRIDGE_DIR, loadEnv } from './env.ts'
 import { loadBridge, warnMovedEnv, csvEnvOr } from './bridge-config.ts'
-import { findMentionTargets, pageCreatedAgent, evaluateHandoff } from './router.ts'
+import { findMentionTargets, pageCreatedAgent, evaluateHandoff, hasOpenQuestions } from './router.ts'
 import { createChatAdapter, saveRoom, roomOf, loadRooms, threadKey, pageOfThread, saveThread, type ChatAdapter } from './chat.ts'
 import { runIntake, listRepos, type FillableProp } from './intake.ts'
 import { sendToLiveAgent, interruptLiveAgent, closeTab, herdrTabStatuses } from './terminal.ts'
@@ -417,6 +417,15 @@ async function handleComment(event: NotionEvent): Promise<void> {
   const hopProp = bridge.config.hop_property
   const sourceAgent = agentProp ? props?.[agentProp]?.select?.name : undefined
   const currentHops = (hopProp ? props?.[hopProp]?.number : 0) ?? 0
+  // un comentario con preguntas abiertas no es un handoff: "implementa cuando
+  // confirmen" no existe — la mención arrancaría al otro agente en el acto
+  if (hasOpenQuestions(text)) {
+    const mention = bridge.config.agents[target]?.triggers?.mentions?.[0] ?? `@${target}`
+    jlog('skip_handoff_open_questions', { event_id: eventId, page_id: pageId, source: sourceAgent, target })
+    void chat.post(pageId, {}, `⛔ mención a ${mention} ignorada: el comentario deja preguntas abiertas. Cuando estén respondidas, mencioná ${mention} para arrancarlo.`).catch(() => {})
+    guardSharedCheckouts(pageId)
+    return void processQueued(pageId)
+  }
   const verdict = evaluateHandoff(sourceAgent, target, currentHops, bridge.config)
   if (!verdict.ok) {
     jlog('skip_handoff_denied', { event_id: eventId, page_id: pageId, source: sourceAgent, target, reason: verdict.reason })

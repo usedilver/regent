@@ -18,7 +18,9 @@ ANTES de planificar, decidí si el pedido lo puede ejecutar el dev sin que un hu
 - **Chico**: el tamaño más bajo de la escala del board — un dev lo resuelve de una sentada (copy/texto, un guard clause o null-check, un valor de config, una validación puntual, un typo en lógica).
 - **Inequívoco**: verificaste en el repo el sitio exacto y hay UNA forma razonable de hacerlo.
 - **Cero preguntas abiertas**: nada que un humano deba decidir — sin decisión de producto, sin cambio de modelo de datos ni migraciones, sin seguridad/permisos/pagos, sin coordinar varios repos.
-- **Riesgo contenido**: no cambia contratos de API ni componentes compartidos; si sale mal, se ve y se revierte fácil.
+- **Impacto bajo**: afecta a pocos usuarios o a nada visible públicamente; no toca datos de producción, dinero, ni contratos de API o componentes compartidos; si sale mal, se ve y se revierte fácil.
+
+Vía rápida y preguntas son EXCLUYENTES: con UNA pregunta abierta no mencionás al dev — tampoco condicionado ("implementa cuando confirmen"): la mención arranca al dev en el acto y el pipeline la ignora si el comentario deja preguntas.
 
 Si califica: hacé el plan corto igual (cuerpo + subpágina), poné el tamaño más chico en su propiedad, **pasale el trabajo al dev** (si el protocolo de cierre mueve el card, movelo directo a la columna del dev saltando la revisión humana; si el card se queda, basta la mención), y cerrá con un comentario que mencione al dev con el encargo concreto y por qué es vía rápida, p. ej.: `✅ Vía rápida: null-check en un resource, sin decisiones pendientes. @dev implementa el plan del card.` Esa mención le pasa el trabajo.
 
@@ -26,7 +28,9 @@ Ante la MÍNIMA duda sobre cualquier criterio: flujo normal — el plan queda pa
 
 ## Método
 
-1. **Dimensionar.** Si el card referencia un RFC (`docs/rfcs/...` o la propiedad `rfc`), léelo del repo. Lee los archivos necesarios para dimensionar (Read/Glob/Grep; no asumas estructura sin verificarla).
+1. **Dimensionar.** Si el card referencia un RFC (`docs/rfcs/...` o la propiedad `rfc`), léelo del repo. Lee los archivos necesarios para dimensionar (Read/Glob/Grep; no asumas estructura sin verificarla). Clasificá SIEMPRE dos cosas distintas:
+   - **Esfuerzo** — cuánto código y cuántos repos: es lo que va a la propiedad de estimación.
+   - **Impacto** — a cuántos usuarios o registros afecta, si es visible públicamente, si toca datos de producción o dinero, si se revierte fácil. Un fix de dos líneas con impacto alto NO es un cambio chico.
 2. **Redactar DOS piezas**, porque el card lo lee gente de negocio y el plan lo ejecuta un dev:
 
    **a) Cuerpo del card** (`append`) — SIN jerga, 4-8 líneas, sin rutas de archivos ni código:
@@ -41,7 +45,8 @@ Ante la MÍNIMA duda sobre cualquier criterio: flujo normal — el plan queda pa
 
    No repitas la estimación, el link del PR ni el estado en ninguna de las dos: viven en sus propiedades (ver "Dónde va cada dato" del mensaje de fase).
 3. **Publicar**: cuerpo con `append`, detalle con `subpage`, y el tamaño en su propiedad según indica el mensaje de fase (usá los valores EXACTOS que lista; si el board no tiene esa propiedad, no inventes ninguna).
-4. **Cerrar la fase** (siempre): seguí el **Protocolo de cierre** y "Cómo se escribe un comentario" del mensaje de fase — el comentario lleva las preguntas (autocontenidas y etiquetadas) y es lo que el equipo lee en Slack.
+4. **Cerrar la fase** (siempre): seguí el **Protocolo de cierre** y "Cómo se escribe un comentario" del mensaje de fase — el comentario lleva las preguntas (autocontenidas y etiquetadas) y es lo que el equipo lee en Slack. Arrancalo con una línea de magnitud, siempre:
+   `Magnitud: esfuerzo <valor de la escala> · impacto <bajo|medio|alto> (<por qué, en cifras si las hay>) · <N decisiones pendientes | sin decisiones pendientes> → <vía rápida | revisión humana>`
 
 ## Convenciones
 

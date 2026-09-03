@@ -1,6 +1,6 @@
 /** Tests del router de triggers (funciones puras). */
 import assert from 'node:assert'
-import { findMentionTargets, pageCreatedAgent, evaluateHandoff } from '../src/router.ts'
+import { findMentionTargets, pageCreatedAgent, evaluateHandoff, hasOpenQuestions } from '../src/router.ts'
 
 const config = {
   status_property: 'Status',
@@ -58,6 +58,14 @@ check('handoff denegado: sin agente origen (card sin propiedad Agente)', () => {
   const v = evaluateHandoff(undefined, 'qa', 0, config)
   assert.equal(v.ok, false)
   assert.match(v.reason, /Agente/)
+})
+
+check('hasOpenQuestions: etiquetas del protocolo o el arranque obligatorio → true; un handoff limpio → false', () => {
+  assert.equal(hasOpenQuestions('Ya tengo todo lo necesario, pero necesito que me respondas:\n- [rápida] ¿sí?\n\n@dev implementa una vez confirmado'), true)
+  assert.equal(hasOpenQuestions('- [con contexto] ¿qué relación?'), true)
+  assert.equal(hasOpenQuestions('- [RAPIDA] sin acento también'), true)
+  assert.equal(hasOpenQuestions('✅ Vía rápida: null-check sin decisiones pendientes. @dev implementa el plan del card.'), false)
+  assert.equal(hasOpenQuestions('⚠️ Con observaciones: falta el test de X. @dev corrige.'), false)
 })
 
 if (failed > 0) { console.error(`\n${failed} test(s) fallaron`); process.exit(1) }

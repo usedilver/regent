@@ -25,6 +25,15 @@ export function findMentionTargets(text: string, config: BridgeConfig): string[]
   return out
 }
 
+/**
+ * ¿El comentario deja preguntas abiertas? Usa los marcadores que el protocolo de
+ * cierre obliga a escribir. Un comentario así NUNCA es un handoff: la mención se
+ * ignora hasta que las respuestas lleguen (regla del server, no del modelo).
+ */
+export function hasOpenQuestions(text: string): boolean {
+  return /\[(rápida|rapida|con contexto)\]/i.test(text) || /necesito que me respondas/i.test(text)
+}
+
 /** El agent (si hay) que se activa cuando se crea un card. */
 export function pageCreatedAgent(config: BridgeConfig): string | undefined {
   return Object.entries(config.agents).find(([, a]) => a.triggers?.page_created)?.[0]
