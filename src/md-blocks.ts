@@ -76,13 +76,15 @@ export function normalizeLang(lang?: string): string {
 const CALLOUT_ICON: Record<string, string> = { NOTE: '💡', INFO: 'ℹ️', WARNING: '⚠️', QUESTION: '❓', TIP: '💡', IMPORTANT: '📌' }
 const CALLOUT_COLOR: Record<string, string> = { WARNING: 'yellow_background', QUESTION: 'orange_background' }
 
+const dedent = (line: string, width: number): string => line.slice(Math.min(width, line.match(/^\s*/)![0].length))
+
 export function mdToBlocks(md: string, depth = 0): Block[] {
   const lines = md.replace(/\r\n/g, '\n').split('\n')
   const blocks: Block[] = []
   let para: string[] = []
   const flushPara = () => {
     if (para.length) {
-      blocks.push({ type: 'paragraph', paragraph: { rich_text: inline(para.join('\n')) } })
+      blocks.push({ type: 'paragraph', paragraph: { rich_text: inline(para.map(l => l.trimStart()).join('\n')) } })
       para = []
     }
   }
@@ -91,24 +93,26 @@ export function mdToBlocks(md: string, depth = 0): Block[] {
     const line = lines[i]
     let m: RegExpMatchArray | null
 
-    if ((m = line.match(/^```(\S*)\s*$/))) {
+    // la valla puede venir indentada (dentro de una viñeta): se acepta y el código se des-indenta igual
+    if ((m = line.match(/^(\s*)```(\S*)\s*$/))) {
       flushPara()
+      const indent = m[1].length
       const buf: string[] = []
       i++
-      while (i < lines.length && !/^```\s*$/.test(lines[i])) { buf.push(lines[i]); i++ }
+      while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) { buf.push(dedent(lines[i], indent)); i++ }
       i++
-      blocks.push({ type: 'code', code: { language: normalizeLang(m[1]), rich_text: chunkText(buf.join('\n')) } })
+      blocks.push({ type: 'code', code: { language: normalizeLang(m[2]), rich_text: chunkText(buf.join('\n')) } })
       continue
     }
 
-    if ((m = line.match(/^<details>\s*<summary>(.*?)<\/summary>\s*$/))) {
+    if ((m = line.match(/^\s*<details>\s*<summary>(.*?)<\/summary>\s*$/))) {
       flushPara()
       const inner: string[] = []
       let open = 1
       i++
       while (i < lines.length) {
-        if (/^<details>/.test(lines[i])) open++
-        if (/^<\/details>\s*$/.test(lines[i])) { open--; if (open === 0) break }
+        if (/^\s*<details>/.test(lines[i])) open++
+        if (/^\s*<\/details>\s*$/.test(lines[i])) { open--; if (open === 0) break }
         inner.push(lines[i]); i++
       }
       i++

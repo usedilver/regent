@@ -81,4 +81,19 @@ check('inline: vacío sigue siendo un rich_text válido; lo largo se trocea a 20
   assert.equal(long.length, 3); assert.ok(long.every(r => r.annotations.bold && r.text.content.length <= 2000))
 })
 
+check('valla indentada bajo una viñeta → bloque code (des-indentado), no párrafo con backticks', () => {
+  const md = "- `Feature.php:20` — cambiar el eager load:\n\n  ```php\n  $this->load([\n      'skill' => fn ($q) => $q->withTrashed(),\n  ]);\n  ```\n  `MatchUser` también usa SoftDeletes."
+  const bs = mdToBlocks(md)
+  assert.deepEqual(bs.map(b => b.type), ['bulleted_list_item', 'code', 'paragraph'])
+  assert.equal(bs[1].code.language, 'php')
+  assert.equal(text(bs[1]), "$this->load([\n    'skill' => fn ($q) => $q->withTrashed(),\n]);")
+  assert.equal(bs[2].paragraph.rich_text[0].text.content, 'MatchUser'); assert.equal(bs[2].paragraph.rich_text[0].annotations.code, true)
+})
+
+check('toggle indentado también se reconoce', () => {
+  const bs = mdToBlocks('- item\n  <details><summary>traza</summary>\n  ```\n  boom\n  ```\n  </details>')
+  assert.deepEqual(bs.map(b => b.type), ['bulleted_list_item', 'toggle'])
+  assert.equal(bs[1].toggle.children[0].type, 'code'); assert.equal(text(bs[1].toggle.children[0]), 'boom')
+})
+
 if (failed) { console.error(`\n${failed} fallaron`); process.exit(1) }
