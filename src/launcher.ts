@@ -216,7 +216,7 @@ export function runPhase(pageId: string, agentName: string, opts: RunPhaseOption
   // contexto al día: lo que el agente LEE (checkouts compartidos) se trae a su upstream
   // con fast-forward; nada sucio, detached o divergido se toca
   for (const dir of new Set([cardRepo, ...(workspaceRoot ? [workspaceRoot] : [])])) {
-    console.log(`[launcher] checkout compartido ${dir}: ${refreshShared(dir)}`)
+    console.log(`[launcher] checkout compartido ${dir}: ${refreshShared(dir, b.config)}`)
   }
   const reg = loadRegistry(shortId) ?? newRegistry(pageId, cwd)
   // worktrees ya abiertos (handoff / re-activación): traer origin/<base> a la rama;

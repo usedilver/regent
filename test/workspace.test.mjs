@@ -111,7 +111,12 @@ check('refreshShared: clon limpio atrás del remoto → fast-forward; sucio o de
   fs.writeFileSync(path.join(r.clone, 'f'), 'editado a mano')
   assert.equal(W.refreshShared(r.clone), 'skipped:dirty')
   git(r.clone, 'checkout', '-q', '--', 'f'); git(r.clone, 'checkout', '-q', '--detach')
-  assert.equal(W.refreshShared(r.clone), 'skipped:detached')
+  assert.equal(W.refreshShared(r.clone), 'skipped:detached', 'sin config no cambia de rama')
+  assert.equal(W.refreshShared(r.clone, cfg), 'switched', 'con config vuelve a su rama base')
+  assert.equal(git(r.clone, 'rev-parse', '--abbrev-ref', 'HEAD').trim(), 'main')
+  assert.equal(W.refreshShared(r.clone, cfg), 'up-to-date')
+  fs.writeFileSync(path.join(r.clone, 'suelto.log'), 'x')
+  assert.equal(W.refreshShared(r.clone, cfg), 'up-to-date', 'un archivo sin trackear no cuenta como sucio')
   r.cleanup()
 })
 

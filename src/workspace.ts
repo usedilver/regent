@@ -23,7 +23,7 @@ export interface RepoEntry {
   sync?: { status: SyncStatus; at: string }
 }
 
-export type RefreshStatus = 'updated' | 'up-to-date' | 'skipped:dirty' | 'skipped:detached' | 'skipped:no-upstream' | 'skipped:diverged' | 'error'
+export type RefreshStatus = 'updated' | 'up-to-date' | 'switched' | 'skipped:dirty' | 'skipped:detached' | 'skipped:no-upstream' | 'skipped:diverged' | 'error'
 export type SyncStatus = 'merged' | 'up-to-date' | 'conflict' | 'skipped:dirty' | 'error'
 
 export interface Registry {
@@ -130,7 +130,8 @@ function originOf(repoPath: string): string | null {
  * Abre (o reutiliza) el worktree aislado de un repo para este card:
  * worktrees/<id>/<repo> en la rama agent/<id> desde la base resuelta.
  */
-const isDirty = (dir: string): boolean => sh('git', ['-C', dir, 'status', '--porcelain', '--ignore-submodules=all']).trim() !== ''
+// sucio = cambios en archivos TRACKEADOS; un archivo suelto (lock, log) no frena nada
+const isDirty = (dir: string): boolean => sh('git', ['-C', dir, 'status', '--porcelain', '--untracked-files=no', '--ignore-submodules=all']).trim() !== ''
 const headOf = (dir: string): string => sh('git', ['-C', dir, 'rev-parse', 'HEAD']).trim()
 
 /**
@@ -138,12 +139,26 @@ const headOf = (dir: string): string => sh('git', ['-C', dir, 'rev-parse', 'HEAD
  * upstream. Nunca toca nada que un humano dejó a medias: sucio, detached, sin
  * upstream o divergido → se salta y lo dice. Es lo que el pm lee para analizar;
  * sin esto, el análisis parte del código de la última vez que alguien hizo pull.
+ * Detached (submódulo pineado por el monorepo) y con `cfg`: se pasa UNA vez a la
+ * rama base del pipeline (`develop` si existe) y desde ahí sigue por fast-forward.
+ * Una rama local ya existente se reutiliza tal cual, nunca se resetea.
  */
-export function refreshShared(repoPath: string): RefreshStatus {
+export function refreshShared(repoPath: string, cfg?: BaseBranchConfig): RefreshStatus {
   try {
     if (isDirty(repoPath)) return 'skipped:dirty'
     let branch: string
-    try { branch = sh('git', ['-C', repoPath, 'symbolic-ref', '-q', '--short', 'HEAD']).trim() } catch { return 'skipped:detached' }
+    try { branch = sh('git', ['-C', repoPath, 'symbolic-ref', '-q', '--short', 'HEAD']).trim() } catch {
+      if (!cfg) return 'skipped:detached'
+      refreshRemote(repoPath)
+      const base = resolveBaseBranch(repoPath, cfg)
+      if (base === 'HEAD') return 'skipped:detached'
+      const hasLocal = (() => { try { sh('git', ['-C', repoPath, 'show-ref', '--verify', '--quiet', `refs/heads/${base}`]); return true } catch { return false } })()
+      try {
+        if (hasLocal) sh('git', ['-C', repoPath, 'checkout', '-q', base])
+        else sh('git', ['-C', repoPath, 'checkout', '-q', '--track', '-b', base, `origin/${base}`])
+      } catch { return 'skipped:detached' }
+      return 'switched'
+    }
     refreshRemote(repoPath)
     let upstream: string
     try { upstream = sh('git', ['-C', repoPath, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']).trim() } catch {

@@ -629,7 +629,7 @@ const SHARED_REFRESH_MIN = 60
 async function refreshSharedCheckouts(): Promise<void> {
   const summary: Record<string, string[]> = {}
   for (const r of scanRepos()) {
-    const st = refreshShared(r.dir) // cada fetch bloquea ~1s; entre repos se cede el loop
+    const st = refreshShared(r.dir, bridge.config) // cada fetch bloquea ~1s; entre repos se cede el loop
     ;(summary[st] ??= []).push(r.rel)
     await new Promise(resolve => setImmediate(resolve))
   }
