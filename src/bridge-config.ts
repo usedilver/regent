@@ -152,7 +152,7 @@ const BridgeConfigSchema = z.object({
     model: z.string().min(1).default('sonnet'),
     timeout_sec: z.number().int().min(10).default(90),
     /** una consulta técnica lee código antes de contestar: más tiempo que el intake */
-    answer_timeout_sec: z.number().int().min(30).default(240),
+    answer_timeout_sec: z.number().int().min(30).default(300),
     /**
      * Columna donde cae un card creado desde el chat. Sin esto se usaba la
      * primera del board, que en un board de cliente puede ser cualquier cosa
