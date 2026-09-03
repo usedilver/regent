@@ -34,6 +34,28 @@ export function hasOpenQuestions(text: string): boolean {
   return /\[(rápida|rapida|con contexto)\]/i.test(text) || /necesito que me respondas/i.test(text)
 }
 
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * Rol nombrado EXPLÍCITAMENTE en el texto (`@qa`, o `qa` como palabra suelta).
+ * Es la única forma de que un mensaje del chat elija el rol que arranca; el
+ * tono ("rápido", "urgente") no es una orden de rol.
+ */
+export function explicitRoleIn(text: string, config: BridgeConfig): string | undefined {
+  for (const [name, a] of Object.entries(config.agents)) {
+    for (const m of a.triggers?.mentions ?? []) {
+      const word = m.replace(/^@/, '')
+      if (word && new RegExp(`(^|[^\\w@])@?${escapeRe(word)}(?![\\w-])`, 'i').test(text)) return name
+    }
+  }
+  return undefined
+}
+
+/** Punto de entrada del pipeline: el trigger de la primera columna del board que tiene uno. */
+export function entryRole(config: BridgeConfig): string | undefined {
+  return config.states.find(s => s.trigger)?.trigger
+}
+
 /** El agent (si hay) que se activa cuando se crea un card. */
 export function pageCreatedAgent(config: BridgeConfig): string | undefined {
   return Object.entries(config.agents).find(([, a]) => a.triggers?.page_created)?.[0]

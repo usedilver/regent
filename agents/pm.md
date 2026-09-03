@@ -20,6 +20,8 @@ ANTES de planificar, decidí si el pedido lo puede ejecutar el dev sin que un hu
 - **Cero preguntas abiertas**: nada que un humano deba decidir — sin decisión de producto, sin cambio de modelo de datos ni migraciones, sin seguridad/permisos/pagos, sin coordinar varios repos.
 - **Impacto bajo**: afecta a pocos usuarios o a nada visible públicamente; no toca datos de producción, dinero, ni contratos de API o componentes compartidos; si sale mal, se ve y se revierte fácil.
 
+La urgencia con que lo piden ("rápido", "urgente", "ya") no cambia ningún criterio: la vía rápida es por tamaño e impacto, no por prisa.
+
 Vía rápida y preguntas son EXCLUYENTES: con UNA pregunta abierta no mencionás al dev — tampoco condicionado ("implementa cuando confirmen"): la mención arranca al dev en el acto y el pipeline la ignora si el comentario deja preguntas.
 
 Si califica: hacé el plan corto igual (cuerpo + subpágina), poné el tamaño más chico en su propiedad, **pasale el trabajo al dev** (si el protocolo de cierre mueve el card, movelo directo a la columna del dev saltando la revisión humana; si el card se queda, basta la mención), y cerrá con un comentario que mencione al dev con el encargo concreto y por qué es vía rápida, p. ej.: `✅ Vía rápida: null-check en un resource, sin decisiones pendientes. @dev implementa el plan del card.` Esa mención le pasa el trabajo.

@@ -18,9 +18,10 @@ import { fileURLToPath } from 'node:url'
 import { Client, verifyWebhookSignature } from '@notionhq/client'
 import { BRIDGE_DIR, loadEnv } from './env.ts'
 import { loadBridge, warnMovedEnv, csvEnvOr } from './bridge-config.ts'
-import { findMentionTargets, pageCreatedAgent, evaluateHandoff, hasOpenQuestions } from './router.ts'
+import { findMentionTargets, pageCreatedAgent, evaluateHandoff, hasOpenQuestions, explicitRoleIn, entryRole } from './router.ts'
 import { createChatAdapter, saveRoom, roomOf, loadRooms, threadKey, pageOfThread, saveThread, type ChatAdapter } from './chat.ts'
 import { runIntake, listRepos, type FillableProp } from './intake.ts'
+import { answerQuestion } from './answer.ts'
 import { sendToLiveAgent, interruptLiveAgent, closeTab, herdrTabStatuses } from './terminal.ts'
 import { richToMrkdwn, type NotionRichText } from './notion-rich.ts'
 import { threadToMarkdown } from './slack-thread.ts'
@@ -1159,6 +1160,14 @@ const processNotes = (): string | undefined => {
 const workspaceRootDir = (): string | undefined =>
   bridge.config.workspace_root ? findRepoByName(bridge.config.workspace_root)?.dir : undefined
 
+/** Rol que arranca desde el chat: el nombrado en el texto; sin nombre, el intake solo decide SI arranca y el pipeline decide POR DÓNDE. */
+function chatRoleTargets(text: string, intakeRole?: string | null): string[] {
+  const explicit = explicitRoleIn(text, bridge.config)
+  if (explicit) return [explicit]
+  if (intakeRole && bridge.config.agents[intakeRole]) return [entryRole(bridge.config) ?? intakeRole]
+  return []
+}
+
 async function onBotMention(msg: BotMentionMsg): Promise<void> {
   if (!notion || !process.env.DATA_SOURCE_ID) return
   const { channelId, threadTs } = msg
@@ -1195,13 +1204,20 @@ async function onBotMention(msg: BotMentionMsg): Promise<void> {
   const intake = await runIntake({ text: msg.text, transcript: msg.transcript, repos: listRepos(), roles: roleAliases(), fillable, processNotes: processNotes() }, bridge.config.intake, { cwd: workspaceRootDir() })
   // el intake dice "esto no es una tarea" (pregunta/charla, típico en el DM) → conversar, no crear
   if (intake && !intake.title && !intake.description_md && !intake.repo && !intake.role && Object.keys(intake.properties ?? {}).length === 0) {
-    jlog('chat_not_a_task', { channel: channelId })
-    return void chat.postTo(channelId, intake.reply || 'dime qué necesitas: descríbeme la tarea (o el bug) y yo armo el card.', threadTs).catch(() => {})
+    // pregunta/charla: se contesta en el hilo con base en el código — sin card ni sala
+    jlog('chat_question', { channel: channelId })
+    const answer = await answerQuestion(
+      { text: msg.text, transcript: msg.transcript, repos: listRepos(), processNotes: processNotes() },
+      { model: bridge.config.intake.model, timeout_sec: bridge.config.intake.answer_timeout_sec },
+      { cwd: workspaceRootDir() },
+    )
+    if (!answer) jlog('chat_answer_failed', { channel: channelId })
+    return void chat.postTo(channelId, answer || intake.reply || 'dime qué necesitas: descríbeme la tarea (o el bug) y yo armo el card.', threadTs).catch(() => {})
   }
   const repoUrl = intake?.repo ?? repoFromText(msg.text)
-  const roleTargets = intake?.role && bridge.config.agents[intake.role]
-    ? [intake.role]
-    : findMentionTargets(msg.text, bridge.config)
+  // qué rol arranca: solo un rol NOMBRADO en el texto elige; si el intake dice
+  // "esto arranca ya" sin nombre, entra por la primera fase del pipeline
+  const roleTargets = chatRoleTargets(msg.text, intake?.role)
   const title = (intake?.title || msg.text.replace(/@\w+/g, '').trim().split('\n')[0].slice(0, 80) || 'Tarea desde Slack').slice(0, 90)
 
   // propiedades extra: juicio del intake + deterministas — Owner (autor del mention),
@@ -1295,7 +1311,7 @@ async function applyChatUpdate(pageId: string, input: { text: string; transcript
     const intake = await runIntake({ text: input.text, transcript: input.transcript, repos: listRepos(), roles: roleAliases(), fillable, existingCard: card ?? undefined, processNotes: processNotes() }, bridge.config.intake, { cwd: workspaceRootDir() })
     if (intake) {
       repoUrl = intake.repo ?? undefined
-      if (intake.role && bridge.config.agents[intake.role]) roleTargets = [intake.role]
+      if (roleTargets.length === 0) roleTargets = chatRoleTargets(input.text, intake.role)
       note = intake.description_md || undefined
       replyText = intake.reply || undefined
       ;({ props: extraProps, misses: propMisses } = await resolveProps(intake.properties ?? {}, fillable))

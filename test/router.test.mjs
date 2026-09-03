@@ -1,6 +1,6 @@
 /** Tests del router de triggers (funciones puras). */
 import assert from 'node:assert'
-import { findMentionTargets, pageCreatedAgent, evaluateHandoff, hasOpenQuestions } from '../src/router.ts'
+import { findMentionTargets, pageCreatedAgent, evaluateHandoff, hasOpenQuestions, explicitRoleIn, entryRole } from '../src/router.ts'
 
 const config = {
   status_property: 'Status',
@@ -66,6 +66,20 @@ check('hasOpenQuestions: etiquetas del protocolo o el arranque obligatorio → t
   assert.equal(hasOpenQuestions('- [RAPIDA] sin acento también'), true)
   assert.equal(hasOpenQuestions('✅ Vía rápida: null-check sin decisiones pendientes. @dev implementa el plan del card.'), false)
   assert.equal(hasOpenQuestions('⚠️ Con observaciones: falta el test de X. @dev corrige.'), false)
+})
+
+check('explicitRoleIn: solo un rol nombrado (@dev o "dev" suelto) elige; "rápido" o "develop" no', () => {
+  const cfg = { agents: { pm: { triggers: { mentions: ['@pm'] } }, dev: { triggers: { mentions: ['@dev'] } }, qa: { triggers: { mentions: ['@qa'] } } }, states: [] }
+  assert.equal(explicitRoleIn('@Talently que lo vea @dev', cfg), 'dev')
+  assert.equal(explicitRoleIn('que qa revise el PR', cfg), 'qa')
+  assert.equal(explicitRoleIn('revisa y soluciona rápido, va a develop', cfg), undefined)
+  assert.equal(explicitRoleIn('los rpm del server', cfg), undefined)
+})
+
+check('entryRole: el trigger de la primera columna con trigger, en orden del board', () => {
+  const cfg = { agents: {}, states: [{ name: 'Idea' }, { name: 'In planning', trigger: 'pm' }, { name: 'In development', trigger: 'dev' }] }
+  assert.equal(entryRole(cfg), 'pm')
+  assert.equal(entryRole({ agents: {}, states: [{ name: 'Idea' }] }), undefined)
 })
 
 if (failed > 0) { console.error(`\n${failed} test(s) fallaron`); process.exit(1) }
