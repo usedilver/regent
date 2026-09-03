@@ -22,6 +22,7 @@ import { findMentionTargets, pageCreatedAgent, evaluateHandoff } from './router.
 import { createChatAdapter, saveRoom, roomOf, threadKey, pageOfThread, saveThread, type ChatAdapter } from './chat.ts'
 import { runIntake, listRepos, type FillableProp } from './intake.ts'
 import { sendToLiveAgent, interruptLiveAgent, closeTab } from './terminal.ts'
+import { threadToMarkdown } from './slack-thread.ts'
 import { shortIdOf, loadRegistry, removeWorkspace, allPrs, allRemotes, listRegistries, findRegistryByPr, dirtySharedCheckouts, ownerRepoOf, findRepoByName } from './workspace.ts'
 import { execFile } from 'node:child_process'
 
@@ -561,7 +562,7 @@ function handleTerminal(pageId: string, statusName?: string): void {
       try {
         const lines = (await chat.historyOf?.(pageId)) ?? null
         if (lines?.length) {
-          await appendMd(pageId, `## Conversación de la sala (Slack)\n\n${lines.map(l => `> ${l}`).join('\n')}`)
+          await appendMd(pageId, threadToMarkdown(lines.join('\n'), 'Conversación de la sala (Slack)'))
           jlog('room_digest_saved', { page_id: pageId, lines: lines.length })
         }
       } catch (err) { jlog('room_digest_error', { page_id: pageId, error: (err as Error).message }) }
@@ -1179,7 +1180,7 @@ async function onBotMention(msg: BotMentionMsg): Promise<void> {
 
     const body = [
       intake?.description_md || `${msg.text}\n\n(creado desde Slack)`,
-      ...(msg.transcript ? ['## Hilo de origen (Slack)', msg.transcript.split('\n').map(l => `> ${l}`).join('\n')] : []),
+      ...(msg.transcript ? [threadToMarkdown(msg.transcript)] : []),
     ].join('\n\n')
     await appendMd(page.id, body)
 

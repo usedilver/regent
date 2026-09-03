@@ -23,6 +23,14 @@ function richText(elements: unknown[] | undefined, out: string[]): void {
   }
 }
 
+/** Las apps pegan las vallas inline ("Context: ```{…}```"); markdown las necesita en línea propia. */
+export function normalizeFences(text: string): string {
+  return text
+    .replace(/([^\n])```(\w*)\n/g, '$1\n```$2\n')
+    .replace(/^```(\w*)([^\n`])/gm, '```$1\n$2')
+    .replace(/([^\n`])```(?=\s*$)/gm, '$1\n```')
+}
+
 export function attachmentText(a: SlackAttachment): string {
   const parts: string[] = []
   if (a.pretext) parts.push(a.pretext)
@@ -31,7 +39,8 @@ export function attachmentText(a: SlackAttachment): string {
   else if (a.fallback) parts.push(a.fallback)
   for (const f of a.fields ?? []) {
     if (!f.value) continue
-    parts.push(f.title ? `${f.title}: ${f.value}` : f.value)
+    const v = normalizeFences(f.value)
+    parts.push(f.title ? (v.includes('\n') ? `${f.title}:\n${v}` : `${f.title}: ${v}`) : v)
   }
   return parts.join('\n')
 }
@@ -54,3 +63,20 @@ export function messageBody(m: SlackMsgLike): string {
 
 /** Cómo firmar un mensaje de app en el transcript. */
 export const appLabel = (m: SlackMsgLike): string => `[app ${m.bot_profile?.name ?? m.username ?? 'bot'}]`
+
+/**
+ * Transcript del hilo → markdown para el card: plegado en un toggle, autor en
+ * negrita, y las vallas ``` de los adjuntos intactas (el trace queda como código,
+ * no como veinte quotes). Fuera de una valla nada se toca.
+ */
+export function threadToMarkdown(transcript: string, title = 'Hilo de origen (Slack)'): string {
+  const out: string[] = []
+  let inFence = false
+  for (const line of transcript.split('\n')) {
+    if (/^\s*```/.test(line)) { inFence = !inFence; out.push(line); continue }
+    if (inFence) { out.push(line); continue }
+    const m = line.match(/^(@[^:]+|\[app [^\]]+\]):\s?(.*)$/)
+    out.push(m ? `**${m[1]}:** ${m[2]}` : line)
+  }
+  return `<details><summary>${title}</summary>\n${out.join('\n')}\n</details>`
+}

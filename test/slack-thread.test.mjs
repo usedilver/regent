@@ -1,6 +1,6 @@
 /** El error viaja en attachments (Sentry, Laravel Log) o blocks, no en `text`. Forma real del hilo. */
 import assert from 'node:assert'
-import { messageBody, appLabel } from '../src/slack-thread.ts'
+import { messageBody, appLabel, threadToMarkdown, normalizeFences } from '../src/slack-thread.ts'
 
 let failed = 0
 const check = (name, fn) => {
@@ -42,6 +42,31 @@ check('appLabel: bot_profile > username > bot', () => {
   assert.equal(appLabel({ bot_profile: { name: 'Sentry' } }), '[app Sentry]')
   assert.equal(appLabel({ username: 'Demo App' }), '[app Demo App]')
   assert.equal(appLabel({}), '[app bot]')
+})
+
+check('threadToMarkdown: plegado, autores en negrita, vallas intactas', () => {
+  const t = '[app bot]: Message\nLevel: ERROR\nContext:\n```\n{"file": "@x.php"}\n```\n@Dilver: @Talently ayudame'
+  const md = threadToMarkdown(t)
+  assert.match(md, /^<details><summary>Hilo de origen \(Slack\)<\/summary>\n/)
+  assert.match(md, /\*\*\[app bot\]:\*\* Message/)
+  assert.match(md, /\*\*@Dilver:\*\* @Talently ayudame/)
+  assert.match(md, /\{"file": "@x.php"\}/, 'dentro de la valla no se toca')
+  assert.doesNotMatch(md, /\*\*@x\.php/)
+  assert.match(md, /<\/details>$/)
+})
+
+check('normalizeFences: la valla inline de un campo queda en líneas propias', () => {
+  assert.equal(normalizeFences('```{\n  "file": "x.php:17"\n}```'), '```\n{\n  "file": "x.php:17"\n}\n```')
+  const body = messageBody({ attachments: [{ fields: [{ title: 'Exception', value: '```{\n"a":1\n}```' }] }] })
+  assert.equal(body, 'Exception:\n```\n{\n"a":1\n}\n```')
+})
+
+check('de punta a punta: attachment con valla inline → toggle con bloque code en Notion', async () => {
+  const { mdToBlocks } = await import('../src/md-blocks.ts')
+  const body = messageBody({ bot_id: 'B', attachments: [{ title: 'Message', text: 'boom', fields: [{ title: 'Exception', value: '```{\n"file":"x.php:17"\n}```' }] }] })
+  const [toggle] = mdToBlocks(threadToMarkdown(`[app bot]: ${body}`))
+  const types = toggle.toggle.children.map(c => c.type)
+  assert.ok(types.includes('code'), `sin bloque code: ${types}`)
 })
 
 if (failed) { console.error(`\n${failed} fallaron`); process.exit(1) }
