@@ -51,8 +51,8 @@ export function herdrTabStatuses(): Map<string, string> {
 }
 
 /**
- * Cierra los tabs de fases ya terminadas de un card. Un tab de herdr con agente
- * aún `working` se respeta (la fase previa podría estar cerrando su protocolo).
+ * Cierra los tabs de fases ya terminadas de un card (`idle` o `done`). Un tab de
+ * herdr con agente aún `working` se respeta (la fase previa podría estar cerrando su protocolo).
  * Devuelve los refs que dejaron de existir (cerrados aquí o ya inexistentes).
  */
 export function closeFinishedTabs(tabRefs: string[]): string[] {
@@ -64,7 +64,7 @@ export function closeFinishedTabs(tabRefs: string[]): string[] {
       if (statuses === null) continue
       const status = statuses.get(ref)
       if (status === undefined) { gone.push(ref); continue } // el tab ya no existe
-      if (status !== 'idle') continue
+      if (status !== 'idle' && status !== 'done') continue // working/blocked se respetan
     }
     if (closeTab(ref)) gone.push(ref)
   }
