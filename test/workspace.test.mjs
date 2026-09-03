@@ -101,6 +101,37 @@ check('dirtySharedCheckouts: detecta edición en el checkout compartido', () => 
   r.cleanup()
 })
 
+check('refreshShared: clon limpio atrás del remoto → fast-forward; sucio o detached → no se toca', () => {
+  const r = makeRepo('svc', ['main'], 'main')
+  const origin = path.join(r.root, 'origin.git')
+  fs.writeFileSync(path.join(origin, 'g'), 'y'); git(origin, 'add', '.'); git(origin, 'commit', '-qm', 'remote avanza')
+  assert.equal(W.refreshShared(r.clone), 'updated')
+  assert.ok(fs.existsSync(path.join(r.clone, 'g')))
+  assert.equal(W.refreshShared(r.clone), 'up-to-date')
+  fs.writeFileSync(path.join(r.clone, 'f'), 'editado a mano')
+  assert.equal(W.refreshShared(r.clone), 'skipped:dirty')
+  git(r.clone, 'checkout', '-q', '--', 'f'); git(r.clone, 'checkout', '-q', '--detach')
+  assert.equal(W.refreshShared(r.clone), 'skipped:detached')
+  r.cleanup()
+})
+
+check('syncWorktreeWithBase: la base avanza sin chocar → merged; chocando → conflict y worktree limpio', () => {
+  const r = makeRepo('svc', ['main'], 'main')
+  const origin = path.join(r.root, 'origin.git')
+  const reg = W.newRegistry(PAGE, r.root)
+  const e = W.addWorktree(reg, r.clone, cfg)
+  fs.writeFileSync(path.join(e.dir, 'agent.txt'), 'a'); git(e.dir, 'add', '.'); git(e.dir, 'commit', '-qm', 'agente')
+  fs.writeFileSync(path.join(origin, 'other'), 'o'); git(origin, 'add', '.'); git(origin, 'commit', '-qm', 'base avanza')
+  assert.equal(W.syncWorktreeWithBase(e), 'merged'); assert.ok(fs.existsSync(path.join(e.dir, 'other')))
+  assert.equal(W.syncWorktreeWithBase(e), 'up-to-date')
+  fs.writeFileSync(path.join(e.dir, 'f'), 'agente'); git(e.dir, 'commit', '-qam', 'agente toca f')
+  fs.writeFileSync(path.join(origin, 'f'), 'humano'); git(origin, 'commit', '-qam', 'humano toca f')
+  assert.equal(W.syncWorktreeWithBase(e), 'conflict')
+  assert.equal(git(e.dir, 'status', '--porcelain').trim(), '', 'el merge abortado no deja restos')
+  assert.equal(e.sync.status, 'conflict')
+  W.removeWorkspace(reg); r.cleanup()
+})
+
 check('ownerRepoOf: https y ssh', () => {
   assert.equal(W.ownerRepoOf('git@github.com:Org/repo.git'), 'Org/repo')
   assert.equal(W.ownerRepoOf('https://github.com/Org/repo'), 'Org/repo')

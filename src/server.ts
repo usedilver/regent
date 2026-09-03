@@ -24,7 +24,7 @@ import { runIntake, listRepos, type FillableProp } from './intake.ts'
 import { sendToLiveAgent, interruptLiveAgent, closeTab, herdrTabStatuses } from './terminal.ts'
 import { richToMrkdwn, type NotionRichText } from './notion-rich.ts'
 import { threadToMarkdown } from './slack-thread.ts'
-import { shortIdOf, loadRegistry, removeWorkspace, allPrs, allRemotes, listRegistries, findRegistryByPr, dirtySharedCheckouts, ownerRepoOf, findRepoByName } from './workspace.ts'
+import { shortIdOf, loadRegistry, removeWorkspace, allPrs, allRemotes, listRegistries, findRegistryByPr, dirtySharedCheckouts, ownerRepoOf, findRepoByName, refreshShared, scanRepos } from './workspace.ts'
 import { execFile } from 'node:child_process'
 
 loadEnv()
@@ -622,6 +622,20 @@ async function checkBoardDrift(): Promise<void> {
 
 const PR_POLL_MIN = Number(process.env.PR_POLL_MINUTES ?? 2)
 
+// ---- checkouts compartidos al día: lo que los agentes leen para analizar ----
+// fast-forward de cada clon (raíz + submódulos) sobre su upstream; lo sucio,
+// detached o divergido se deja como está y queda en el log.
+const SHARED_REFRESH_MIN = 60
+async function refreshSharedCheckouts(): Promise<void> {
+  const summary: Record<string, string[]> = {}
+  for (const r of scanRepos()) {
+    const st = refreshShared(r.dir) // cada fetch bloquea ~1s; entre repos se cede el loop
+    ;(summary[st] ??= []).push(r.rel)
+    await new Promise(resolve => setImmediate(resolve))
+  }
+  jlog('shared_refresh', summary)
+}
+
 // ---- vigía: un agente parado en un prompt de su terminal no avisa solo ----
 // herdr reporta `blocked` cuando claude espera una respuesta (permiso, pregunta,
 // diálogo). Sin esto, "no hizo más" es lo único que ve el equipo.
@@ -642,9 +656,9 @@ function watchBlockedAgents(): void {
 }
 const prHandled = new Set<string>() // evita repetir mientras Notion propaga el cambio de status
 
-function ghPrState(url: string): Promise<{ state?: string } | null> {
+function ghPrState(url: string): Promise<{ state?: string; mergeable?: string } | null> {
   return new Promise(resolve => {
-    execFile('gh', ['pr', 'view', url, '--json', 'state'], { timeout: 20_000 }, (err, stdout) => {
+    execFile('gh', ['pr', 'view', url, '--json', 'state,mergeable'], { timeout: 20_000 }, (err, stdout) => {
       if (err) return resolve(null)
       try { resolve(JSON.parse(stdout)) } catch { resolve(null) }
     })
@@ -659,12 +673,26 @@ function cardPrs(pageId: string, propertyPr?: string | null): string[] {
 }
 
 /** ¿TODOS los PRs del card están MERGED? (verificado con gh, uno por uno) */
-async function allPrsMerged(prUrls: string[]): Promise<boolean> {
+async function allPrsMerged(prUrls: string[], pageId?: string): Promise<boolean> {
+  let all = prUrls.length > 0
   for (const url of prUrls) {
     const pr = await ghPrState(url)
-    if (pr?.state !== 'MERGED') return false
+    if (pr?.state !== 'MERGED') all = false
+    if (pageId && pr?.state === 'OPEN') notePrConflict(pageId, url, pr.mergeable)
   }
-  return prUrls.length > 0
+  return all
+}
+
+// un PR abierto que dejó de poder mergearse no avisa solo: la base avanzó y la rama
+// del agente chocó. Se avisa UNA vez por PR; al volver a MERGEABLE se rearma.
+const prConflictNotified = new Set<string>()
+function notePrConflict(pageId: string, url: string, mergeable?: string): void {
+  if (mergeable !== 'CONFLICTING') { if (mergeable === 'MERGEABLE') prConflictNotified.delete(url); return }
+  if (prConflictNotified.has(url)) return
+  prConflictNotified.add(url)
+  jlog('pr_conflict', { page_id: pageId, pr: url })
+  const devMention = Object.entries(bridge.config.agents).find(([, a]) => (a.can_trigger ?? []).length === 0 && a.triggers?.mentions?.length)?.[1].triggers?.mentions?.[0] ?? '@dev'
+  void chat.post(pageId, {}, `⚠️ El PR ${url} tiene conflictos con su rama base (la base avanzó). Mencioná ${devMention} para que sincronice la rama y los resuelva.`).catch(() => {})
 }
 
 /** Todos los PRs del card están MERGED: mover, comentar, cerrar el ciclo. */
@@ -729,7 +757,7 @@ async function pollMergedPRs(): Promise<void> {
       const prUrl = page.properties[prProp]?.url
       if (!prUrl || prHandled.has(page.id)) continue
       const prs = cardPrs(page.id, prUrl)
-      if (await allPrsMerged(prs)) await handleMergedPR(page.id, prs)
+      if (await allPrsMerged(prs, page.id)) await handleMergedPR(page.id, prs)
     }
   } catch (err) {
     jlog('pr_poll_error', { error: (err as Error).message })
@@ -1381,4 +1409,6 @@ server.listen(PORT, HOST, async () => {
   await checkBoardDrift()
   setInterval(() => void checkBoardDrift(), 60 * 60 * 1000).unref()
   setInterval(watchBlockedAgents, BLOCKED_AGENT_POLL_SEC * 1000).unref()
+  setTimeout(() => void refreshSharedCheckouts(), 5_000).unref() // después de escuchar, no antes
+  setInterval(() => void refreshSharedCheckouts(), SHARED_REFRESH_MIN * 60 * 1000).unref()
 })

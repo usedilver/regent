@@ -4,6 +4,7 @@
  * cuerpo del agent nativo (.claude/agents/<n>.md), que el launcher inyecta como
  * system prompt. Este template es agnóstico del cliente.
  */
+import type { RepoEntry } from './workspace.ts'
 import type { BridgeState } from './bridge-config.ts'
 import type { TriggerMode } from './router.ts'
 
@@ -38,6 +39,12 @@ export interface PhasePromptInput {
   props?: { estimation?: string | null; estimationValues?: string[]; pr?: string }
 }
 
+const syncNote = (r: RepoEntry): string => {
+  if (r.sync?.status === 'conflict') return ` — ⚠️ CONFLICTOS con \`origin/${r.base}\`: ANTES de cualquier otra cosa, en ese worktree \`git merge origin/${r.base}\`, resolvé los conflictos y commiteá.`
+  if (r.sync?.status === 'merged') return ` — sincronizada con \`origin/${r.base}\` al arrancar`
+  return ''
+}
+
 export function buildPhasePrompt(i: PhasePromptInput): string {
   const mode: TriggerMode = i.mode ?? 'column'
   // Las propiedades son la fuente de verdad de los datos estructurados; repetirlos
@@ -58,7 +65,7 @@ crea dos verdades.
 `
   const ws = i.workspace
   const openList = ws?.repos.length
-    ? ws.repos.map(r => `- **${r.repo.split('/').pop()}** → \`${r.dir}\` (rama \`${r.branch}\` desde \`${r.base}\`${r.pr ? `, PR ${r.pr}` : ''})`).join('\n')
+    ? ws.repos.map(r => `- **${r.repo.split('/').pop()}** → \`${r.dir}\` (rama \`${r.branch}\` desde \`${r.base}\`${r.pr ? `, PR ${r.pr}` : ''})${syncNote(r)}`).join('\n')
     : '(ninguno todavía)'
   const wt = ws ? (ws.isRoot ? `
 # Entorno git (workspace)

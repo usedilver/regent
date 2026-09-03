@@ -19,7 +19,12 @@ export interface RepoEntry {
   base: string
   remote: string | null
   pr?: string
+  /** último intento de traer origin/<base> a la rama del agente (lo hace el launcher al arrancar) */
+  sync?: { status: SyncStatus; at: string }
 }
+
+export type RefreshStatus = 'updated' | 'up-to-date' | 'skipped:dirty' | 'skipped:detached' | 'skipped:no-upstream' | 'skipped:diverged' | 'error'
+export type SyncStatus = 'merged' | 'up-to-date' | 'conflict' | 'skipped:dirty' | 'error'
 
 export interface Registry {
   page_id: string
@@ -125,6 +130,56 @@ function originOf(repoPath: string): string | null {
  * Abre (o reutiliza) el worktree aislado de un repo para este card:
  * worktrees/<id>/<repo> en la rama agent/<id> desde la base resuelta.
  */
+const isDirty = (dir: string): boolean => sh('git', ['-C', dir, 'status', '--porcelain', '--ignore-submodules=all']).trim() !== ''
+const headOf = (dir: string): string => sh('git', ['-C', dir, 'rev-parse', 'HEAD']).trim()
+
+/**
+ * Trae un checkout COMPARTIDO al día: fetch + fast-forward de su rama sobre su
+ * upstream. Nunca toca nada que un humano dejó a medias: sucio, detached, sin
+ * upstream o divergido → se salta y lo dice. Es lo que el pm lee para analizar;
+ * sin esto, el análisis parte del código de la última vez que alguien hizo pull.
+ */
+export function refreshShared(repoPath: string): RefreshStatus {
+  try {
+    if (isDirty(repoPath)) return 'skipped:dirty'
+    let branch: string
+    try { branch = sh('git', ['-C', repoPath, 'symbolic-ref', '-q', '--short', 'HEAD']).trim() } catch { return 'skipped:detached' }
+    refreshRemote(repoPath)
+    let upstream: string
+    try { upstream = sh('git', ['-C', repoPath, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']).trim() } catch {
+      try { sh('git', ['-C', repoPath, 'rev-parse', '--verify', '--quiet', `origin/${branch}`]); upstream = `origin/${branch}` } catch { return 'skipped:no-upstream' }
+    }
+    const before = headOf(repoPath)
+    try { sh('git', ['-C', repoPath, 'merge', '--ff-only', '--quiet', upstream]) } catch { return 'skipped:diverged' }
+    return headOf(repoPath) === before ? 'up-to-date' : 'updated'
+  } catch { return 'error' }
+}
+
+/**
+ * Trae origin/<base> a la rama del agente en su worktree (merge, no rebase: la
+ * rama puede tener PR). Con conflicto se aborta y se marca: el agente que arranca
+ * lo ve en su prompt y lo resuelve antes de seguir. Sucio = trabajo a medias → no se toca.
+ */
+export function syncWorktreeWithBase(entry: RepoEntry): SyncStatus {
+  const status = ((): SyncStatus => {
+    try {
+      if (!fs.existsSync(entry.dir)) return 'error'
+      if (isDirty(entry.dir)) return 'skipped:dirty'
+      refreshRemote(entry.repo)
+      const before = headOf(entry.dir)
+      try {
+        sh('git', ['-C', entry.dir, 'merge', '--no-edit', '--quiet', `origin/${entry.base}`])
+      } catch {
+        try { sh('git', ['-C', entry.dir, 'merge', '--abort']) } catch { /* no había merge en curso */ }
+        return 'conflict'
+      }
+      return headOf(entry.dir) === before ? 'up-to-date' : 'merged'
+    } catch { return 'error' }
+  })()
+  entry.sync = { status, at: new Date().toISOString() }
+  return status
+}
+
 export function addWorktree(reg: Registry, repoPath: string, cfg: BaseBranchConfig): RepoEntry {
   const name = path.basename(path.resolve(repoPath))
   const existing = reg.repos[name]

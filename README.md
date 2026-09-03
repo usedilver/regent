@@ -126,6 +126,7 @@ ahí están `CLAUDE.md`, skills, `.mcp.json` y todos los repos legibles — chec
 `agent/<id>` desde la base resuelta) y trabaja ahí; puede abrir uno por cada repo que la tarea
 necesite. Cada repo cambiado termina en **su propio PR** contra su base, registrado con
 `regent-wt pr <repo> <url>`; el card avanza a `pr_merged_moves_to` cuando **todos** mergean, y
+**Al día sin humano**: los checkouts compartidos se traen a su upstream con fast-forward cada hora y al arrancar cada agente (lo sucio, detached o divergido se deja y queda en el log `shared_refresh`); un worktree ya abierto recibe `origin/<base>` al arrancar el agente (merge; con conflicto se aborta y el prompt se lo marca al dev para que lo resuelva primero); un PR abierto que pasa a `CONFLICTING` se avisa una vez en la sala. Las ramas nuevas siempre nacen de `origin/<base>` recién traído, no del checkout local.
 la limpieza (worktrees + ramas) es por registro (`log/workspaces/<id>.json`). Si al terminar un
 agente hay cambios en un checkout compartido, el bridge lo avisa en la sala.
 

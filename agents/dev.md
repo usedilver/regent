@@ -30,7 +30,8 @@ La propiedad `Progreso` (0-100) del card es tuya — actualízala en los hitos.
 5. **Pull Request**: `gh pr create --base <base del contexto> --head <rama> --title "<título del card>" --body "<resumen + link al card + cómo probar>"`. Intenta etiquetar: `gh label create agent --color 8250DF 2>/dev/null; gh pr edit --add-label agent` — si falla, continúa.
 5b. **Base distinta**: usá la del contexto salvo que el card o el plan pidan otra explícitamente (p. ej. un hotfix contra la rama de producción). Si te desviás, decilo en el cuerpo del PR y en el comentario del card.
 6. **Cierra el ciclo en el card**, en orden: `seturl PR "<url>"` → `append` con `## Implementación` (qué cambió, resultado de validación, URL del PR, cómo probar) → `setnum Progreso 100` → icono ✅ → mueve a la columna siguiente. SIN comentario: la propiedad PR + el movimiento son la señal (el pipeline avisa en la sala).
-7. **Bloqueado** (plan no implementable, tests rotos fuera de alcance, conflicto con el repo): NO muevas el card. Push de lo útil (rama WIP), icono ⚠️, y comenta "⚠️ Bloqueado: <motivo concreto>. Rama: <rama>". Un humano decide.
+7. **Base al día**: antes de abrir o actualizar el PR, en tu worktree `git fetch origin && git merge --no-edit origin/<base>`. Los conflictos con la base son tuyos: resolvelos y commiteá (si el conflicto es de fondo — otro cambió la misma lógica — explicalo en el comentario de cierre). Si el mensaje de fase marca un worktree con ⚠️ CONFLICTOS, eso va PRIMERO.
+8. **Bloqueado** (plan no implementable, tests rotos fuera de alcance, conflicto con el repo): NO muevas el card. Push de lo útil (rama WIP), icono ⚠️, y comenta "⚠️ Bloqueado: <motivo concreto>. Rama: <rama>". Un humano decide.
 
 ## Convenciones
 

@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process'
 import { BRIDGE_DIR, loadEnv } from './env.ts'
 import { loadBridge, parseAgentFile, type LoadedBridge, type BridgeConfig } from './bridge-config.ts'
 import { parseEnvFile } from './env.ts'
-import { shortIdOf, loadRegistry, newRegistry, addWorktree, worktreesOf, scanRepos, reposRootDir, type RepoEntry } from './workspace.ts'
+import { shortIdOf, loadRegistry, newRegistry, addWorktree, worktreesOf, scanRepos, reposRootDir, refreshShared, syncWorktreeWithBase, saveRegistry, type RepoEntry } from './workspace.ts'
 import { buildPhasePrompt } from './phase-prompt.ts'
 import { launchAgent, closeFinishedTabs } from './terminal.ts'
 import { roomOf, saveRoom } from './chat.ts'
@@ -213,7 +213,18 @@ export function runPhase(pageId: string, agentName: string, opts: RunPhaseOption
   console.log(`[launcher] repo del card: ${cardRepo}${workspaceRoot ? ` · workspace: ${workspaceRoot}` : ''}`)
   const agent = resolveAgent(b, agentName, [...new Set([cardRepo, ...(workspaceRoot ? [workspaceRoot] : [])])])
   let cwd = workspaceRoot ?? cardRepo
+  // contexto al día: lo que el agente LEE (checkouts compartidos) se trae a su upstream
+  // con fast-forward; nada sucio, detached o divergido se toca
+  for (const dir of new Set([cardRepo, ...(workspaceRoot ? [workspaceRoot] : [])])) {
+    console.log(`[launcher] checkout compartido ${dir}: ${refreshShared(dir)}`)
+  }
   const reg = loadRegistry(shortId) ?? newRegistry(pageId, cwd)
+  // worktrees ya abiertos (handoff / re-activación): traer origin/<base> a la rama;
+  // un conflicto no se resuelve acá — se le informa al agente en su prompt
+  for (const entry of Object.values(reg.repos)) {
+    console.log(`[launcher] sync ${entry.branch} ← origin/${entry.base}: ${syncWorktreeWithBase(entry)}`)
+  }
+  if (Object.keys(reg.repos).length) saveRegistry(reg)
   const extraArgs: string[] = []
   if (state?.use_worktree) {
     fs.mkdirSync(worktreesOf(shortId), { recursive: true })
