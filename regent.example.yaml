@@ -1,0 +1,42 @@
+name: Regent
+auth:
+  # Pro/Max personal via Claude Code. Compartir la cuenta puede causar suspension/baneo.
+  mode: indie
+repos:
+  path: /absolute/path/to/repos
+  workspace_root: null
+  agent_env_files: []
+  readonly_mcp: []
+  # Argv por nombre/ruta relativa de repo; usa '.' si path es el repo mismo.
+  test_commands: {}
+slack:
+  workspace_team_id: T_REPLACE
+  allowed_users: [U_REPLACE] # Solo tu usuario; obligatorio en indie, nunca una lista vacia.
+limits:
+  max_concurrent_runs: 3
+  max_run_sec: { ask: 600, patch: 1800, task: 3600 }
+  stall_sec: 300
+  cancel_grace_sec: 60
+budget:
+  max_cost_usd_per_run: 8
+  max_cost_usd_per_user_day: 25
+session:
+  idle_reset_hours: 24
+models:
+  ask: null
+  patch: null
+  task: null
+notion:
+  board_triggers: false # Entrada board-first todavia no implementada en v2.
+  landing_status: Backlog
+  pr_merged_moves_to: Done
+  properties: { status: Status }
+policy:
+  room: on_task
+  track_small_fixes: digest # Requiere slack.digest_channel para publicar el digest.
+  fast_track: false
+  small_fix:
+    max_files: 5
+    max_lines: 150
+    deny_paths: ['**/migrations/**', '**/schema*', 'infra/**', '.github/**']
+    require_tests_pass: true

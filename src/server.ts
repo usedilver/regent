@@ -430,6 +430,8 @@ async function handleComment(event: NotionEvent): Promise<void> {
   const verdict = evaluateHandoff(sourceAgent, target, currentHops, bridge.config)
   if (!verdict.ok) {
     jlog('skip_handoff_denied', { event_id: eventId, page_id: pageId, source: sourceAgent, target, reason: verdict.reason })
+    await chat.post(pageId, {}, `Handoff a ${target} denegado: ${verdict.reason}. Una persona puede mencionar al agente para continuar.`)
+      .catch(err => jlog('chat_error', { page_id: pageId, error: (err as Error).message }))
     return void processQueued(pageId) // el lock quedó libre: atender pendientes
   }
   jlog('handoff', { event_id: eventId, page_id: pageId, source: sourceAgent, target, hop: verdict.nextHop, comment_id: commentId })

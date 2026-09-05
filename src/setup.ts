@@ -15,6 +15,14 @@ import { BRIDGE_DIR } from './env.ts'
 import { detectProps, missingRequired, checkMappings, requiredRoleKeys, ROLE_TYPES, type BoardProps } from './board-detect.ts'
 import { slackApi, createAppFromManifest, brandManifest, installUrl, appTokenUrl, exportManifest, updateManifest, manifestChanges, needsReinstall } from './slack-admin.ts'
 
+if (process.argv.includes('--migrate')) {
+  const { loadEnv } = await import('./env.ts')
+  const { migrate } = await import('./v2/migrate.ts')
+  loadEnv()
+  migrate()
+  process.exit(0)
+}
+
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
 const ask = async (q: string, def?: string): Promise<string> => {
   const a = (await rl.question(def !== undefined ? `${q} [${def}]: ` : `${q}: `)).trim()

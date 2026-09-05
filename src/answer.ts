@@ -18,7 +18,7 @@ export interface AnswerInput {
 export interface AnswerConfig { model: string; timeout_sec: number }
 export interface AnswerRun { cwd?: string; envFiles?: string[] }
 
-const READ_TOOLS = ['Read', 'Glob', 'Grep', 'Bash(git log:*)', 'Bash(git blame:*)', 'Bash(git show:*)']
+const READ_TOOLS = ['Read', 'Glob', 'Grep', 'Bash(git log:*)', 'Bash(git blame:*)', 'Bash(git show:*)', 'Bash(git -C:*)', 'Bash(gh pr view:*)', 'Bash(gh pr list:*)', 'Bash(gh pr diff:*)', 'Bash(gh issue view:*)', 'Bash(gh issue list:*)']
 const MAX_PROCESS_NOTES = 4000
 
 /** Servidores del .mcp.json que aplica al cwd (hacia arriba, como los busca claude). */

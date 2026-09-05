@@ -28,6 +28,7 @@ check('answerArgs: solo lectura del repo + los MCP del .mcp.json que aplica al c
   const args = answerArgs('sonnet', sub)
   const tools = args[args.indexOf('--allowed-tools') + 1].split(',')
   assert.ok(tools.includes('Read') && tools.includes('Bash(git log:*)'))
+  assert.ok(tools.includes('Bash(git -C:*)') && tools.includes('Bash(gh pr view:*)'))
   assert.ok(tools.includes('mcp__database-prod') && tools.includes('mcp__n8n'))
   assert.ok(!tools.some(x => /Edit|Write/.test(x)))
   assert.ok(!args.includes('--strict-mcp-config'))
