@@ -10,7 +10,7 @@ config/*
 # TEMPORAL — docs internos pendientes de revisión antes de publicar:
 # plan.md e investigacion-*.md nombran clientes y estrategia. Al depurarlos,
 # borra esta regla y commitea al menos docs/despliegue.md (es del producto).
-docs/
+docs/*
 !docs/despliegue.md
 
 # estado de instancia (runtime local: logs, salas, colas, worktrees de cards)
