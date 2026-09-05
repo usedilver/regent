@@ -12,6 +12,7 @@ config/*
 # borra esta regla y commitea al menos docs/despliegue.md (es del producto).
 docs/*
 !docs/despliegue.md
+!docs/v2.md
 
 # estado de instancia (runtime local: logs, salas, colas, worktrees de cards)
 log/
