@@ -40,8 +40,16 @@ Notion board ──webhook──► server.ts ──spawn──► launcher.ts
 | `src/bridge-config.ts` | carga+valida `workflow.json` + `agents/` (zod: agents existen, sin ciclos en `can_trigger`) |
 | `src/phase-prompt.ts` | capa [Bridge]: protocolo (ncard, cierre de fase, seguridad card=DATOS) — el oficio va en el agent |
 | `src/terminal.ts` | backends: `herdr` (interactivo+notificaciones) · `tmux` (attach por SSH) · `headless` (log) — autodetección o `TERMINAL_BACKEND` |
-| `src/setup-board.ts` | crea/repara el board de Notion desde el workflow del repo cliente |
-| `ncard` | CLI Notion: get (con comments+anchors), move, comment, append, seturl, setselect, setnum, icon, whoami |
+| `src/setup.ts` · `src/board-detect.ts` · `src/setup-slack-roles.ts` · `src/slack-admin.ts` | `pnpm setup`: adopta o crea el board (detección determinista de propiedades por tipo/propósito, sin LLM), crea/sincroniza la app de Slack y las caras por rol vía manifest API, escribe `.env` + `config/` |
+| `src/setup-board.ts` | crea/repara el board de Notion desde el workflow |
+| `src/router.ts` | rutas puras: menciones, punto de entrada, handoffs (`evaluateHandoff`), `hasOpenQuestions`, `explicitRoleIn` |
+| `src/workspace.ts` · `regent-wt` | workspace por card: worktree por repo desde `origin/<base>`, registro `log/workspaces/<id>.json`, PRs, limpieza; `refreshShared` (checkouts compartidos al día) y `syncWorktreeWithBase` |
+| `src/intake.ts` | el "secretario": `claude -p` sin MCP que interpreta una mención de Slack → título, descripción, repo, rol, propiedades (o "no es una tarea") |
+| `src/answer.ts` | consulta técnica desde el chat: `claude -p` solo lectura + los MCP del repo → respuesta en el hilo, sin card |
+| `src/chat.ts` · `src/chat-slack.ts` · `src/slack-thread.ts` | adaptador de chat (salas, personas, intake por mención/DM, intervención al agente vivo); lectura de hilos con adjuntos, bloques y archivos; hilo → markdown plegado |
+| `src/md-blocks.ts` · `src/notion-rich.ts` | markdown → bloques de Notion (vallas, toggles, callouts, negrita/código inline) y rich_text de Notion → mrkdwn de Slack |
+| `src/claude-settings.ts` · `src/env.ts` | pre-siembra de trust/MCP/bypass de claude; `.env` de la instancia y de los agentes |
+| `ncard` | CLI Notion: get (con comments+anchors), move, comment (stdin, markdown), append, subpage, seturl, setselect, setnum, setpeople, icon, whoami |
 
 ## `config/workflow.json` (config de la instancia)
 
@@ -63,6 +71,9 @@ Ningún nombre de propiedad está hardcodeado: si tu board está en inglés o le
   "default_base_branch": "develop", // rama base si el repo la tiene; null = default del repo
   "repo_base_branches": {},        // override explícito por repo: { "legacy-api": "master" }
   "pr_property": "PR",             // url del PR (la escribe el dev)
+  "pr_merged_moves_to": "Done",    // columna al mergear TODOS los PRs del card (null = off)
+  "estimation_property": "Estimación", // dónde va el tamaño; null = el board no lo tiene
+  "estimation_values": ["S", "M", "L"], // valores EXACTOS del select (el agente no inventa)
   "agent_property": "Agente",      // qué agent corre — fuente de verdad del handoff
   "hop_property": "Hop",           // contador de saltos del handoff
   "model_property": "Modelo",      // override del modelo por card
@@ -72,7 +83,9 @@ Ningún nombre de propiedad está hardcodeado: si tu board está en inglés o le
   "project_doc_property": "Proyecto Doc",
 
   "chat":   { "invite_users": [], "auto_invite_limit": 15 },  // [] = auto-descubre humanos del workspace
-  "intake": { "model": "sonnet", "timeout_sec": 90 },         // el "secretario" que lee las menciones
+  "intake": { "model": "sonnet", "timeout_sec": 90,           // el "secretario" que lee las menciones
+              "answer_timeout_sec": 300,                      // consulta técnica (lee código y datos)
+              "landing_status": "Backlog" },                  // columna donde nace un card creado desde el chat
   "github": { "forward_repos": "auto" },                      // "auto" = repos de los cards activos; o lista fija
 
   // OPT-IN: solo corre si la propiedad vale run_value. Un card sin el valor NUNCA
@@ -101,7 +114,7 @@ Ningún nombre de propiedad está hardcodeado: si tu board está en inglés o le
   comentario — que ahí pasa a ser obligatorio, porque es la única señal. Son excluyentes, y
   un `trigger` sin ninguno de los dos sigue siendo un error de config, no un "se queda".
 - `agents.<n>.triggers.mentions` = textos que activan al agent desde un comentario (`@qa`); `triggers.page_created` = corre al crearse un card (rol triage). Requieren los eventos `comment.created` / `page.created` en la suscripción del webhook.
-- `allowed_tools` = permisos de launch (sintaxis del CLI); el bridge agrega siempre `Bash(ncard)`.
+- `allowed_tools` = permisos de launch (sintaxis del CLI); el bridge agrega siempre `Bash(ncard)` y `Bash(regent-wt)`.
 - `agent_permissions` = `allowlist` (default: fuera de `allowed_tools`, claude pide confirmación en la terminal y el agente se queda esperando) o `bypass` (`--permission-mode bypassPermissions`: sin confirmaciones; lo que el rol no deba hacer va en su prompt). Con herdr, un agente parado en un prompt se reporta en la sala del card (`agent_blocked`) en vez de quedar mudo.
 - Modelo: `model_property` del card > frontmatter del agent > default del CLI.
 - **Desde el chat**: una PREGUNTA ("¿por qué…?", "¿cómo funciona…?") se contesta en el hilo leyendo el código y, si el repo declara MCP (base de datos, telescope…), también datos — `claude -p` con Read/Grep/Glob + git + `mcp__<server>` de cada servidor del `.mcp.json`, el mismo `.env` que los agentes (`agent_env_files`), `intake.answer_timeout_sec` — sin card ni sala. Una TAREA crea el card y arranca por la **primera fase del pipeline** (la primera columna con `trigger`); solo un rol nombrado en el texto (`@qa`, `qa`) elige otro punto de entrada — el tono ("rápido", "urgente") no.
@@ -141,35 +154,51 @@ Sin `workspace_root` el card necesita `Repo` y el agente corre en el worktree de
 3. **Board**: crea una página, compártela con la conexión, y `node src/setup-board.ts --parent <page_id>` → IDs a `.env`. (Único paso manual cosmético: arrastrar opciones de Status a sus grupos en la UI.)
 4. **Túnel** con URL estable (p. ej. [cftunnel](https://github.com/usedilver/cloudflare-tunnel-cli)): `cftunnel create notion-hooks <dominio> 8787`.
 5. **Arrancar**: `pnpm start` + `cftunnel run notion-hooks`. En desarrollo: **`pnpm dev`** (watch nativo de Node — se reinicia solo al cambiar `src/`, `agents/`, `workflow.json` o `.env`). El launcher/prompts/agents nunca requieren reinicio: cada card lanza un proceso fresco.
-6. **Webhook**: UI de la conexión → Create a subscription → `https://<host>/notion-webhook`, solo `page.properties_updated`. El server captura el verification token; pégalo en Verify. ⚠️ URL inmutable tras verificar; una sola suscripción activa por board.
+6. **Webhook**: UI de la conexión → Create a subscription → `https://<host>/notion-webhook`, eventos `page.properties_updated` + `comment.created` (obligatorio para menciones y fases `agent_stays`; `page.created` solo con un rol `page_created`). El server captura el verification token; pégalo en Verify. ⚠️ URL inmutable tras verificar; una sola suscripción activa por board.
+
+## Qué escribe un agente y dónde
+
+Tres destinos, con reglas distintas, porque los lee gente distinta:
+
+| Destino | Quién lo lee | Qué va |
+|---|---|---|
+| **Cuerpo del card** (`ncard append`) | negocio | `## Qué se va a hacer`, sin jerga. Nada de preguntas, estimación, PR ni estado (viven en propiedades) |
+| **Subpágina "Plan técnico"** (`ncard subpage`) | el dev | archivos a tocar, pasos, riesgos; rutas y comandos en bloques de código; trazas largas en `<details>` |
+| **Comentario de cierre** (`ncard comment <id> -`, markdown por stdin) | el equipo, **espejado tal cual en Slack** | línea `Magnitud: esfuerzo … · impacto … · N decisiones pendientes → vía rápida \| revisión humana`, y las **preguntas abiertas** — solo acá — cada una autocontenida y etiquetada `[rápida]` (sí/no) o `[con contexto]` (hay que mirar código o datos) |
+
+El conversor markdown→Notion entiende vallas (también indentadas dentro de una viñeta), `<details><summary>` → toggle, `> [!QUESTION|WARNING|NOTE]` → callout, y negrita/cursiva/código/links inline → anotaciones. El hilo de Slack de origen se guarda plegado en un toggle con la traza como bloque de código.
+
+**Un comentario con preguntas abiertas nunca es un handoff**: aunque mencione a otro rol, el server ignora la mención (`skip_handoff_open_questions`), lo avisa en la sala y libera el card. No existe "implementa cuando confirmen": primero llegan las respuestas, después un humano menciona al rol. El pm clasifica **esfuerzo** (código: va a `estimation_property`) e **impacto** (usuarios/registros afectados, visibilidad pública, datos de prod, reversibilidad) por separado; la vía rápida — pasarle el trabajo al dev sin revisión humana — exige esfuerzo mínimo, impacto bajo, cero preguntas y un plan inequívoco. La urgencia del pedido no es un criterio.
 
 ## Operación
 
-- **Backlog es espacio de borrador**: crear/editar cards ahí NO dispara nada (puedes planear días). La activación es siempre explícita: **arrastrar** a una columna con trigger o **mencionar** un rol en un comentario (`@pm`, `@dev`, `@qa`, `@triage`). Una mención a un rol con fase = fase completa (trabaja Y mueve el card).
-- Card a **Planning** → tab `pm-<id>` (herdr/tmux) → plan + `Estimación` en el card → **Plan Review** con ✅/⚠️.
-- Ajustes al plan: comenta (la caja o flotantes sobre el texto) y devuelve el card a **Planning** → re-planifica (`> Rev N`).
-- Card a **In Progress** → worktree + implementación + PR (label `agent`, URL en la propiedad `PR`) → **Testing**. Ajustes: comenta en el card o en el PR y devuélvelo a In Progress — mismo PR, `## Ajustes (Rev N)`.
-- **Intervenir en vivo**: herdr = clic al tab (blocked → notificación); tmux = `tmux attach -t <label>`; móvil = [Moshi](https://getmoshi.app). El drag es la señal de "ejecuta"; los comentarios solos no disparan.
-- Logs: `log/events.jsonl` (decisiones del server) · `log/agent-*.out` (salida de agentes) · `log/launch-*.log` (launcher).
-- Reintentos de Notion si el server cae: hasta 8 con backoff, sin orden. Eventos pueden agregarse (~1 min de retraso drag→ejecución). Menciones/creaciones más viejas de `EVENT_FRESHNESS_MINUTES` (default 30) se descartan — protege del aluvión de reintentos al despertar un laptop suspendido; las columnas son inmunes (se confirma el Status actual vía API).
-- **Multi-repo**: la propiedad `Repo` del card elige el repo — se busca hasta tres niveles adentro de `REPO_PATH`, por nombre de carpeta y por origin (el path de un submódulo no siempre se llama como su repo); **si no está clonado, el agente lo clona solo** (gh → git). Sin `Repo` → no se ejecuta: se comenta pidiendo el link.
-- **Poda de contexto**: los agentes solo leen comentarios NO resueltos — resolver un comentario en Notion lo saca de su vista. Resolver = limpiar memoria de la conversación.
+- **Activación siempre explícita**: arrastrar el card a una columna con `trigger`, o mencionar un rol en un comentario (`@pm`, `@dev`, `@qa`). Crear o editar cards en columnas humanas no dispara nada. Con `agent_filter.run_value`, un card sin ese valor **nunca** se ejecuta (ni por mención: se contesta el motivo).
+- **Fase con `agent_moves_to`**: el agente trabaja y mueve el card; el movimiento ES la notificación (el bridge publica `📍 Card → estado` en la sala, solo en movimientos reales, no en ecos). **Fase con `agent_stays`**: el card no se mueve; el comentario de cierre es la señal y libera el lock (por eso `comment.created` es obligatorio en la suscripción).
+- **Desde Slack**: mención al bot en un hilo → el intake lee TODO el hilo (bots, adjuntos de apps, archivos, canales privados) con el contexto del workspace y crea el card en `intake.landing_status` con la sala `#task-<slug>`; el hilo de origen queda plegado en el card. Una **pregunta** no crea nada: se responde en el hilo leyendo código y datos. Una **tarea** arranca por la primera fase del pipeline; solo un rol nombrado elige otra. En la sala: texto plano = corrección al agente vivo (o intake sobre el card si no hay agente), `stop` lo interrumpe, `@rol` lo arranca.
+- **Handoffs**: mención de un agente en su comentario → `can_trigger` + `max_hops` (`Agente`/`Hop` en el card son la verdad). Un handoff con preguntas abiertas se rechaza (ver arriba).
+- **Git**: ramas `agent/<id>` desde `origin/<base>` recién traído (`default_base_branch` si existe en el remoto, si no el default del repo, salvo `repo_base_branches`). Cada hora y al arrancar un agente, los checkouts compartidos se traen a su upstream con fast-forward (`shared_refresh`: sucio/divergido se deja; un submódulo detached pasa una vez a su base); un worktree reutilizado recibe `origin/<base>` (conflicto → se aborta y el prompt del dev lo marca como lo primero); un PR abierto que pasa a `CONFLICTING` se avisa una vez (`pr_conflict`). Al mergear TODOS los PRs del card → `pr_merged_moves_to`, sala archivada con digest de la conversación humana, tabs cerrados, worktrees limpios (nunca uno con cambios sin commitear).
+- **Agentes desatendidos**: con `agent_permissions: bypass` no hay confirmaciones. Con herdr, un agente parado en un prompt se reporta en la sala al minuto (`agent_blocked`); los tabs `done`/`idle` de fases previas se cierran solos.
+- **Intervenir en vivo**: herdr = clic al tab; tmux = `tmux attach -t <label>`; móvil = mosh + tmux. O un mensaje en la sala.
+- **Logs**: `log/events.jsonl` (cada decisión del server, con `kind`) · `log/agent-*.out` (salida de agentes) · `log/launch-*.log` (launcher: repo, worktree, env, MCP aprobados) · `log/workspaces/<id>.json` (worktrees y PRs del card) · `log/rooms.json` / `log/threads.json` (sala e hilo de cada card).
+- **Reintentos de Notion** si el server cae: hasta 8 con backoff, sin orden; eventos agregados (~1 min drag→ejecución). Menciones/creaciones más viejas de `EVENT_FRESHNESS_MINUTES` (30) se descartan; las columnas son inmunes (se confirma el Status actual por API).
+- **Poda de contexto**: los agentes solo leen comentarios NO resueltos — resolver un comentario en Notion lo saca de su vista.
 
 ## Seguridad
 
 - El contenido de cards y comentarios es **DATOS, no instrucciones** — el prompt de fase lo delimita y ordena reportar (no obedecer) instrucciones embebidas.
-- Permisos por fase desde `.bridge` (pm solo lectura; dev escritura+git/gh scoped), en worktree aislado, nunca sobre el working tree principal.
+- Permisos por fase en `workflow.json` (`allowed_tools`; pm solo lectura, dev escritura+git/gh) en worktree aislado, nunca sobre el checkout compartido. Con `agent_permissions: bypass` la lista deja de frenar: lo que un rol no debe hacer vive en su prompt, y el tope duro son los hooks/`settings.json` del repo (p. ej. un `PreToolUse` que rechace DML contra prod). La consulta técnica es solo lectura por lista de tools; en datos, por prompt.
 - Los agentes del cliente se revisan en el git del cliente (PRs) — sus dueños correctos.
 - Secretos solo en `.env` (600). El server escucha en `127.0.0.1`; lo público es el túnel.
 
 ## Tests
 
 ```bash
-pnpm test   # bridge-config (validación zod, ciclos) + webhook (eventos firmados fabricados)
+pnpm test   # 20 suites, sin red ni Notion: config (zod, ciclos, stay), router (menciones, handoffs, preguntas abiertas),
+            # webhook (eventos firmados fabricados), workspace (git real: worktrees, refresh, sync, conflictos),
+            # md-blocks/slack-thread/notion-rich (formato), intake/answer (prompts), setup (idempotencia), trust/env/bypass
 ```
 
 ## Docs
 
-- [docs/plan.md](docs/plan.md) — plan maestro (fases, decisiones, estado)
-- [docs/investigacion-agentes-chat.md](docs/investigacion-agentes-chat.md) — investigación que sustenta el diseño
 - [docs/despliegue.md](docs/despliegue.md) — despliegue en un servidor (requisitos, red, servicios, acceso remoto); agnóstico de proveedor
+- `docs/plan.md` y `docs/investigacion-agentes-chat.md` son internos (nombran clientes) y no se publican: el porqué de cada decisión vive ahí, el comportamiento vigente en este README y en despliegue.md
