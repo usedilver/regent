@@ -37,6 +37,8 @@ export const ConfigSchema = z.object({
     landing_status: z.string().default('Backlog'),
     pr_merged_moves_to: z.string().default('Done'),
     properties: z.object({ status: z.string().default('Status'), repo: z.string().default('Repo'), pr: z.string().default('PR'), estimation: z.string().nullable().optional(), owner: z.string().nullable().optional() }).prefault({}),
+    people: z.record(z.string(), z.string()).default({}),                 // Slack user id -> Notion user id (owner)
+    estimation_values: z.record(z.string(), z.string()).default({}),      // size S/M/L -> board option name
   }).prefault({}),
   policy: z.object({
     room: z.enum(['never', 'on_task', 'always']).default('on_task'),

@@ -4,7 +4,8 @@ import type { Conversation, Output } from './types.ts'
 import { Store, redact } from './store.ts'
 import { Changes, hash, type Worktree } from './changes.ts'
 import { Effects } from './effects.ts'
-import type { Tracker } from './tracker.ts'
+import { ownerRepoOf } from '../workspace.ts'
+import type { BoardFields, Tracker } from './tracker.ts'
 import { hasOpenQuestions } from '../router.ts'
 
 export interface Rooms {
@@ -67,6 +68,7 @@ export class Tasks {
       this.store.db.prepare('UPDATE tasks SET notion_id=?,url=? WHERE id=?').run(page.id, page.url, id)
       await this.writeSection(this.get(id), 'summary', args.summary_md)
       if (args.plan_md) await this.writeSection(this.get(id), 'plan', args.plan_md)
+      await this.setProperties(this.get(id), { size: args.size, owner: c.author })
       if (this.config.policy.room !== 'never' && this.rooms && c.adapter === 'slack') {
         const name = `task-${id.slice(0, 20)}`
         const room = await this.effects.once(`room:${id}`, () => this.rooms!.create(name, c.author, `${args.title}\n${page.url}`), () => this.rooms!.find(name))
@@ -83,6 +85,14 @@ export class Tasks {
     this.store.db.prepare("INSERT INTO sections(task_id,section,md,revision) VALUES(?,?,?,?) ON CONFLICT(task_id,section) DO UPDATE SET md=excluded.md,revision=excluded.revision,state='pending'").run(task.id, section, redact(md), revision)
     await this.tracker.section(task.notion_id, section, redact(md))
     this.store.db.prepare("UPDATE sections SET state='done' WHERE task_id=? AND section=? AND revision=?").run(task.id, section, revision)
+  }
+  /** Best-effort board columns: metadata never blocks the flow, and skips are logged, not silenced. */
+  async setProperties(task: Task, fields: BoardFields) {
+    if (!task.notion_id || !this.tracker.properties) return
+    try {
+      const { skipped } = await this.tracker.properties(task.notion_id, fields)
+      if (skipped.length) console.error(`[v2 board] ${task.id}: ${skipped.join('; ')}`)
+    } catch (error) { console.error(`[v2 board] ${task.id}: ${redact((error as Error).message)}`) }
   }
   async update(c: Conversation, args: { task_id: string; section: string; md: string; questions?: string[] }) {
     return this.exclusive(c.key, async () => {
@@ -155,9 +165,12 @@ export class Tasks {
       const result = await this.changes.publish(c.key, args, Boolean(task && task.size !== 'S'), signal)
       if ('refused' in result) return result
       await this.output.notice(c, `PR: ${result.url}`)
+      const boardRepo = ownerRepoOf(this.changes.get(c.key, args.repo).origin)
+      const board: BoardFields = { repo: boardRepo ? `https://github.com/${boardRepo}` : undefined, pr: result.url }
       if (task) {
         const prs = this.store.db.prepare('SELECT p.url FROM prs p JOIN worktrees w ON w.id=p.worktree_id WHERE w.conversation_key=? ORDER BY p.url').all(c.key)
         await this.writeSection(task, 'implementation', prs.map(p => `- ${p.url}`).join('\n'))
+        await this.setProperties(task, board)
       } else {
         if (this.config.policy.track_small_fixes === 'digest' && this.config.slack.digest_channel) {
           await this.effects.once(`fix-digest:${result.url}`, async () => { await this.output.notice({ ...c, channel: this.config.slack.digest_channel!, thread: null }, `${args.title}: ${result.url}`); return true }, async () => undefined)
@@ -169,6 +182,7 @@ export class Tasks {
           this.store.db.prepare('UPDATE tasks SET notion_id=?,url=? WHERE id=?').run(page.id, page.url, id)
           this.store.db.prepare('UPDATE conversations SET task_id=? WHERE key=?').run(id, c.key)
           await this.writeSection(this.get(id), 'implementation', `${args.body_md}\n\n${result.url}`)
+          await this.setProperties(this.get(id), { ...board, size: 'S', owner: c.author })
         }
       }
       return result

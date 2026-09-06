@@ -9,6 +9,7 @@ import { Store } from '../src/v2/store.ts'
 import { ConfigSchema } from '../src/v2/config.ts'
 import { Changes, command, parseNumstat, smallFix } from '../src/v2/changes.ts'
 import { Tasks } from '../src/v2/tasks.ts'
+import { NotionTracker } from '../src/v2/tracker.ts'
 import { Effects } from '../src/v2/effects.ts'
 import { Core } from '../src/v2/core.ts'
 import { createHttp } from '../src/v2/http.ts'
@@ -396,6 +397,29 @@ try {
     assert.equal(blocks.get(anchor).length, 1)
     assert.ok(blocks.get('page').some(b => b.id === 'human'))
     assert.equal(await upsertPlan(notion, 'page', 'Plan 1'), await upsertPlan(notion, 'page', 'Plan 2'))
+  })
+  await check('board properties: typed url/select/people, and missing or unmapped columns skip loudly', async () => {
+    const updates = []
+    const client = {
+      dataSources: { async retrieve() { return { properties: {
+        Name: { type: 'title' }, Status: { type: 'status', status: { options: [{ name: 'Backlog' }] } },
+        Repo: { type: 'url' }, PR: { type: 'url' },
+        Estimacion: { type: 'select', select: { options: [{ name: 'Small' }, { name: 'Large' }] } },
+        Owner: { type: 'people' },
+      } } } },
+      pages: { async update(args) { updates.push(args) } },
+    }
+    const config = ConfigSchema.parse({ auth: { mode: 'indie' }, repos: { path: root }, slack: { workspace_team_id: 'T1', allowed_users: ['U1'] },
+      notion: { properties: { status: 'Status', repo: 'Repo', pr: 'PR', estimation: 'Estimacion', owner: 'Owner' }, people: { U1: 'notion-user-1' }, estimation_values: { S: 'Small', M: 'Medium' } } })
+    const tracker = new NotionTracker(config, client, 'source')
+    const ok = await tracker.properties('page', { repo: 'https://github.com/o/r', pr: 'https://github.com/o/r/pull/2', size: 'S', owner: 'U1' })
+    assert.deepEqual(ok.skipped, [])
+    assert.deepEqual(updates[0].properties, { Repo: { url: 'https://github.com/o/r' }, PR: { url: 'https://github.com/o/r/pull/2' },
+      Estimacion: { select: { name: 'Small' } }, Owner: { people: [{ object: 'user', id: 'notion-user-1' }] } })
+    // size M -> 'Medium' is not a board option; U2 has no Notion mapping: both are reported, neither is written.
+    const partial = await tracker.properties('page', { size: 'M', owner: 'U2' })
+    assert.ok(partial.skipped.some(s => /estimation/.test(s)) && partial.skipped.some(s => /owner/.test(s)))
+    assert.equal(updates.length, 1)
   })
 } finally { fs.rmSync(root, { recursive: true, force: true }) }
 if (failed) process.exitCode = 1
