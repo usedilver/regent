@@ -27,8 +27,10 @@ export function denial(input, env = process.env) {
         if (relative.startsWith('..') || path.isAbsolute(relative)) return 'git -C debe consultar un repo dentro del workspace.'
         index += 2
       }
-      if (!['log', 'show', 'blame', 'status', 'diff', 'ls-files', 'ls-tree'].includes(words[index])) return 'Usa las tools del core para modificar git.'
-      if (words.some(w => /^--(?:output|ext-diff|textconv|no-index|exec|config)/.test(w))) return 'Opcion git no permitida en una consulta de lectura.'
+      const readOnly = ['log', 'show', 'blame', 'status', 'diff', 'ls-files', 'ls-tree', 'rev-parse', 'grep', 'show-ref', 'cat-file', 'describe', 'rev-list', 'shortlog']
+      if (!readOnly.includes(words[index])) return 'Usa las tools del core para modificar git.'
+      // -O/--open-files-in-pager (git grep) and the diff-driver/config options can execute a program.
+      if (words.some(w => /^--(?:output|open-files-in-pager|ext-diff|textconv|no-index|exec|config)/.test(w) || /^-O/.test(w))) return 'Opcion git no permitida en una consulta de lectura.'
       return null
     }
     if (words[0] === 'gh' && ['pr', 'issue', 'repo'].includes(words[1]) && ['view', 'list', 'diff'].includes(words[2]) && !words.some(w => /^--(?:web|template)/.test(w))) return null
