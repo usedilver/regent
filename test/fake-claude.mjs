@@ -6,7 +6,8 @@ const scenario = process.env.FAKE_CLAUDE_SCENARIO ?? 'success'
 const resume = process.argv.indexOf('--resume')
 const session = resume >= 0 ? process.argv[resume + 1] : randomUUID()
 emit({ type: 'system', subtype: 'init', session_id: session,
-  mcp_servers: [{ name: 'regent', status: scenario === 'mcp-error' ? 'failed' : 'connected' }] })
+  mcp_servers: [{ name: 'regent', status: scenario === 'mcp-error' ? 'failed' : 'connected' },
+    ...(scenario === 'mcp-degraded' ? [{ name: 'telescope-prod', status: 'failed' }] : [])] })
 if (scenario === 'malformed') process.stdout.write('not json\n')
 if (scenario === 'hang' || scenario === 'ignore-signals') {
   process.on('SIGINT', () => { if (scenario !== 'ignore-signals') process.exit(130) })

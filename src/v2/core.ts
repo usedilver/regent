@@ -140,6 +140,7 @@ export class Core {
         if (event.kind === 'tool_use') active.lastTool = event.name
         if (event.kind === 'text_delta') this.publish(active, () => this.output.delta(conversation, run, event.text))
         if (event.kind === 'api_retry') this.publish(active, () => this.output.notice(conversation, 'Claude esta reintentando por un limite de tasa o error del proveedor.'))
+        if (event.kind === 'mcp_degraded') this.publish(active, () => this.output.notice(conversation, `Algunos MCP externos no conectaron: ${event.servers.join(', ')}. Continuo sin ellos.`))
         if (event.kind === 'tool_result' && event.error) this.publish(active, () => this.output.notice(conversation, `La herramienta fallo: ${redact(JSON.stringify(event.content)).slice(0, 1000)}`))
         if (event.kind === 'result' && event.denials.length) this.publish(active, () => this.output.notice(conversation, `Permisos denegados: ${redact(JSON.stringify(event.denials)).slice(0, 1500)}`))
       }

@@ -70,11 +70,14 @@ export function startRunner(options: RunnerOptions): { done: Promise<RunnerResul
   const emit = (event: RunnerEvent) => {
     options.onEvent(event)
     if (event.kind === 'init') {
-      const failed = (event.mcpServers ?? []).filter((s: any) => s.status && s.status !== 'connected')
-      if ((Array.isArray(event.errors) ? event.errors.length : Object.keys(event.errors ?? {}).length) || failed.length) {
-        throw new Error(`MCP no disponible: ${JSON.stringify(event.errors)} ${failed.map((s: any) => s.name).join(', ')}`)
-      }
       if (!event.sessionId) throw new Error('Claude no devolvio session_id.')
+      const errorNames = (Array.isArray(event.errors) ? event.errors.map((e: any) => typeof e === 'string' ? e : e?.name ?? '') : Object.keys(event.errors ?? {})).filter(Boolean)
+      const failed = (event.mcpServers ?? []).filter((s: any) => s.status && s.status !== 'connected').map((s: any) => s.name)
+      const degraded = [...new Set([...errorNames, ...failed])]
+      // The internal 'regent' server (see runnerArgs) carries every core tool: its failure is fatal.
+      // Servers from the user's or repo's own .mcp.json are optional here — report, don't abort.
+      if (degraded.includes('regent')) throw new Error(`El MCP interno de regent no arranco: ${JSON.stringify(event.errors)} ${failed.join(', ')}`)
+      if (degraded.length) options.onEvent({ kind: 'mcp_degraded', servers: degraded })
     }
     if (event.kind === 'text_delta') streamed += event.text
     if (event.kind === 'result') result = event

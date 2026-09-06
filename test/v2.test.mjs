@@ -104,6 +104,13 @@ try {
       assert.equal(result.state, 'failed', scenario); assert.ok(result.error)
     }
   })
+  await check('runner: an external MCP that fails is reported but never aborts the run', async () => {
+    const events = []
+    const result = await startRunner(runnerOptions({ env: { FAKE_CLAUDE_SCENARIO: 'mcp-degraded' }, onEvent: e => events.push(e) })).done
+    assert.equal(result.state, 'completed')
+    const degraded = events.find(e => e.kind === 'mcp_degraded')
+    assert.ok(degraded && degraded.servers.includes('telescope-prod') && !degraded.servers.includes('regent'))
+  })
   await check('runner: stop, timeout, stall and escalation even when signals are ignored', async () => {
     const controller = startRunner(runnerOptions({ env: { FAKE_CLAUDE_SCENARIO: 'hang' } }))
     controller.cancel()
