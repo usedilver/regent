@@ -172,10 +172,12 @@ export class Tasks {
         await this.writeSection(task, 'implementation', prs.map(p => `- ${p.url}`).join('\n'))
         await this.setProperties(task, board)
       } else {
-        if (this.config.policy.track_small_fixes === 'digest' && this.config.slack.digest_channel) {
+        // room: always attaches every unit of work to a room, which needs a card to anchor to.
+        const roomAlways = this.config.policy.room === 'always' && Boolean(this.rooms) && c.adapter === 'slack'
+        if (this.config.policy.track_small_fixes === 'digest' && this.config.slack.digest_channel && !roomAlways) {
           await this.effects.once(`fix-digest:${result.url}`, async () => { await this.output.notice({ ...c, channel: this.config.slack.digest_channel!, thread: null }, `${args.title}: ${result.url}`); return true }, async () => undefined)
         }
-        if (this.config.policy.track_small_fixes === 'card') {
+        if (this.config.policy.track_small_fixes === 'card' || roomAlways) {
           const id = hash(`small:${c.key}`).slice(0, 32)
           this.store.db.prepare("INSERT OR IGNORE INTO tasks(id,conversation_key,title,size,impact,state,created_at) VALUES(?,?,?,'S','low','awaiting_merge',?)").run(id, c.key, args.title, Date.now())
           const page = await this.effects.once(`task:${id}`, () => this.tracker.create(id, args.title), () => this.tracker.find(id, args.title))
@@ -183,6 +185,12 @@ export class Tasks {
           this.store.db.prepare('UPDATE conversations SET task_id=? WHERE key=?').run(id, c.key)
           await this.writeSection(this.get(id), 'implementation', `${args.body_md}\n\n${result.url}`)
           await this.setProperties(this.get(id), { ...board, size: 'S', owner: c.author })
+          if (roomAlways && !this.get(id).room) {
+            const name = `task-${id.slice(0, 20)}`
+            const room = await this.effects.once(`room:${id}`, () => this.rooms!.create(name, c.author, `${args.title}\n${this.get(id).url}`), () => this.rooms!.find(name))
+            this.store.db.prepare('UPDATE tasks SET room=?,room_thread=? WHERE id=?').run(room.channel, room.thread, id)
+            await this.output.notice(this.destination(this.get(id), c), `PR: ${result.url}`)
+          }
         }
       }
       return result

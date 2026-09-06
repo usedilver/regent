@@ -421,5 +421,29 @@ try {
     assert.ok(partial.skipped.some(s => /estimation/.test(s)) && partial.skipped.some(s => /owner/.test(s)))
     assert.equal(updates.length, 1)
   })
+  await check('room: always gives an untasked patch a traceability card and a room', async () => {
+    const f = fixture()
+    try {
+      f.config.policy.room = 'always'
+      const created = []
+      f.tasks.rooms = {
+        async create(name, author, text) { created.push({ name, author, text }); return { channel: 'ROOM1', thread: 'r1' } },
+        async find() { return undefined },
+        async history() { return 'conversation digest' },
+        async archive() {},
+      }
+      const w = await f.open()
+      fs.writeFileSync(path.join(w.dir, 'answer.mjs'), 'export const answer = () => 2;\n')
+      await f.changes.tests(key, '.')
+      const result = await f.tasks.openPr(f.c, { repo: '.', title: 'Roomed fix', body_md: 'Fix' })
+      assert.match(result.url, /pull\/1$/)
+      assert.equal(created.length, 1)
+      assert.equal(f.tasks.of(key).room, 'ROOM1')
+      assert.ok(f.notices.includes(`PR: ${result.url}`))
+      f.prs.get(result.url).state = 'MERGED'
+      await f.tasks.poll()
+      assert.equal(f.tasks.of(key).state, 'completed')
+    } finally { f.close() }
+  })
 } finally { fs.rmSync(root, { recursive: true, force: true }) }
 if (failed) process.exitCode = 1

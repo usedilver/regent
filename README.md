@@ -84,8 +84,12 @@ Node >=22.20 y un Claude Code que soporte `--permission-prompts` son necesarios.
 Para tareas, configura `NOTION_TOKEN`, `DATA_SOURCE_ID` y los estados/propiedades de
 `notion` en el YAML. El manifiesto incluye permisos para salas privadas. Las tareas
 M/L requieren plan aprobado; QA se solicita después de publicar todos sus PRs.
-Un cambio S sin tarea usa `policy.small_fix` y `track_small_fixes`; `fast_track` es
-opcional y está desactivado por defecto. Para tests fuera de `package.json`, declara
+El card recibe las columnas que el board tenga: `Repo`/`PR` (url), estimación por
+`notion.estimation_values` y responsable por `notion.people` (mapeo Slack→Notion);
+la columna que falte o no se pueda mapear se omite y se registra, no rompe el flujo.
+Un cambio S sin tarea usa `policy.small_fix` y `track_small_fixes`; con `policy.room:
+always` también abre una sala para el parche a través de su card de trazabilidad.
+`fast_track` es opcional y está desactivado por defecto. Para tests fuera de `package.json`, declara
 `repos.test_commands: { mi-repo: ["pytest", "-q"] }` (clave `.` para el repo raíz).
 La instalación automática solo admite proyectos Node con lockfile.
 
