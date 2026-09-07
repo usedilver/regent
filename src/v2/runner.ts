@@ -8,6 +8,7 @@ export interface RunnerResult { state: 'completed' | 'failed' | 'interrupted'; t
 export interface RunnerOptions {
   cwd: string; prompt: string; runId: string; sessionId?: string | null; model?: string | null
   env?: NodeJS.ProcessEnv; toolsUrl: string; token: string; readonlyMcp: string[]
+  additionalDirectories?: string[]
   timeoutMs: number; stallMs: number; graceMs: number; maxCost?: number
   command?: string; prefixArgs?: string[]; onEvent(event: RunnerEvent): void
 }
@@ -17,6 +18,7 @@ export function runnerArgs(options: RunnerOptions): string[] {
     '--permission-mode', 'default', '--permission-prompts', 'none',
     '--setting-sources', 'user,project,local',
     '--allowedTools', 'mcp__regent__*,Edit,Write,MultiEdit',
+    ...(options.additionalDirectories ?? []).flatMap(dir => ['--add-dir', dir]),
     '--append-system-prompt-file', path.join(BRIDGE_DIR, 'plugin/colleague.md'),
     '--plugin-dir', path.join(BRIDGE_DIR, 'plugin'),
     '--mcp-config', JSON.stringify({ mcpServers: { regent: { type: 'http', url: options.toolsUrl, headers: { Authorization: `Bearer ${options.token}` } } } }),

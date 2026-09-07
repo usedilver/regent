@@ -33,6 +33,7 @@ function fixture(extra = {}) {
   const messages = []
   const output = Object.fromEntries(['notice', 'status', 'delta', 'finish'].map(kind => [kind, async (...args) => { messages.push({ kind, args }) }]))
   const core = new Core({ store, config, output, cwd: tmp, runnerOverrides: { command: process.execPath, prefixArgs: [fake] }, ...extra })
+  core.changes.directory = fs.mkdtempSync(path.join(tmp, 'worktrees-'))
   return { store, core, messages, async close() { await core.close(); store.close() } }
 }
 
@@ -81,7 +82,7 @@ try {
   })
   await check('runner: stream-json, --resume and result costs', async () => {
     const events = []
-    const options = runnerOptions({ sessionId: 'existing', onEvent: e => events.push(e) })
+    const options = runnerOptions({ sessionId: 'existing', additionalDirectories: [path.join(tmp, 'own worktree')], onEvent: e => events.push(e) })
     const result = await startRunner(options).done
     assert.equal(result.state, 'completed'); assert.equal(result.cost, 0.02)
     assert.equal(events[0].sessionId, 'existing'); assert.ok(events.some(e => e.kind === 'text_delta'))
@@ -92,6 +93,7 @@ try {
     assert.ok(!args.includes('bypassPermissions'))
     assert.ok(!args.includes('--strict-mcp-config'))
     assert.equal(args[args.indexOf('--allowedTools') + 1], 'mcp__regent__*,Edit,Write,MultiEdit')
+    assert.equal(args[args.indexOf('--add-dir') + 1], path.join(tmp, 'own worktree'))
   })
   await check('runtime lease rejects a second writer and permits read-only inspection', () => {
     const file = path.join(tmp, 'lease.sqlite')
@@ -142,6 +144,10 @@ try {
       await f.core.submit(input('fourth', 'slack:C3:1'))
       await until(() => !f.core.active.size)
       assert.equal(starts.length, 4); assert.equal(max, 2)
+      assert.ok(starts.every(s => s.additionalDirectories.length && s.additionalDirectories.every(d => fs.existsSync(d))))
+      const dirs = name => starts.find(s => s.prompt.endsWith(`\n${name}`)).additionalDirectories
+      assert.deepEqual(dirs('first'), dirs('second'))
+      assert.notDeepEqual(dirs('first'), dirs('third'))
       assert.ok(starts.find(s => s.prompt.includes('second')).sessionId)
       assert.equal(f.store.db.prepare("SELECT COUNT(*) AS n FROM runs WHERE state='completed'").get().n, 4)
       assert.ok(f.messages.some(m => m.kind === 'notice' && m.args[1].includes('En cola')))

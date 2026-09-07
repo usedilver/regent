@@ -77,6 +77,18 @@ export class Changes {
     return current
   }
   list(key: string): Worktree[] { return this.store.db.prepare("SELECT * FROM worktrees WHERE conversation_key=? AND state='active'").all(key) as unknown as Worktree[] }
+  conversationDirectory(key: string): string {
+    fs.mkdirSync(this.directory, { recursive: true })
+    const root = fs.realpathSync(this.directory)
+    const dir = path.join(root, hash(key))
+    fs.mkdirSync(dir, { recursive: true })
+    if (fs.realpathSync(dir) !== dir) throw new Error('El directorio de la conversacion no puede ser un enlace simbolico.')
+    return dir
+  }
+  accessDirectories(key: string): string[] {
+    // Include exact legacy worktrees without granting access to sibling sessions.
+    return [...new Set([this.conversationDirectory(key), ...this.list(key).filter(w => fs.existsSync(w.dir)).map(w => fs.realpathSync(w.dir))])]
+  }
   testCommand(repo: string): string[] | undefined {
     return this.config.repos.test_commands[path.relative(this.root, repo) || '.'] ?? this.config.repos.test_commands[path.basename(repo)]
   }
@@ -118,9 +130,7 @@ export class Changes {
       const base = resolveBaseBranch(target, { default_base_branch: this.config.repos.default_base_branch, repo_base_branches: this.config.repos.base_branches })
       const baseSha = (await this.cmd('git', ['rev-parse', `refs/remotes/origin/${base}`], target, signal)).trim()
       const origin = (await this.cmd('git', ['remote', 'get-url', 'origin'], target, signal)).trim()
-      fs.mkdirSync(this.directory, { recursive: true })
-      this.directory = fs.realpathSync(this.directory)
-      const dir = path.join(this.directory, id), branch = `agent/${hash(key).slice(0, 12)}-${hash(target).slice(0, 8)}`
+      const dir = path.join(this.conversationDirectory(key), id), branch = `agent/${hash(key).slice(0, 12)}-${hash(target).slice(0, 8)}`
       let exists = false
       try { await this.cmd('git', ['show-ref', '--verify', `refs/heads/${branch}`], target, signal); exists = true } catch { /* new branch */ }
       if (!fs.existsSync(dir)) await this.cmd('git', ['worktree', 'add', ...(exists ? [] : ['-b', branch]), dir, exists ? branch : baseSha], target, signal)
