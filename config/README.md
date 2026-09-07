@@ -1,5 +1,25 @@
 # config/ — tu instancia
 
+## v2
+
+`regent.yaml` configura la instancia actual. Para mantener acceso a otros repos
+pero iniciar conversaciones nuevas con el contexto del repo principal:
+
+```yaml
+repos:
+  path: ~/Projects
+  workspace_root: null
+  default_repo: talently/talently-code
+```
+
+`default_repo` es relativo al workspace efectivo (`path` + `workspace_root`).
+Debe existir, contener `.git` y permanecer dentro del workspace. No es un mapa de
+dominios: esa resolucion pertenece al contexto, reglas y skills del repositorio.
+Las conversaciones existentes conservan su directorio y sesion; prueba el cambio
+en un hilo nuevo. Los MCP externos siguen sujetos a `repos.readonly_mcp`.
+
+## Configuracion historica v1
+
 Todo lo que hay en esta carpeta es **tuyo**: describe TU board y TU proceso, no el
 producto. Git la ignora (salvo este README) — edítala con libertad, nada se pisa
 al actualizar regent.
