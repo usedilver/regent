@@ -125,7 +125,8 @@ export class Core {
     active.conversation = conversation
     let heartbeat: NodeJS.Timeout | undefined
     try {
-      const env = { ...process.env, ...loadAgentEnv(agentEnvFiles(this.config.repos.agent_env_files, this.cwd)).vars }
+      // Load the repo's own .env (like the repo's `talently claude` wrapper) so its .mcp.json ${VARS} resolve.
+      const env = { ...process.env, ...loadAgentEnv(agentEnvFiles(this.config.repos.agent_env_files, conversation.cwd)).vars }
       // Repo env files may supply MCP variables, never replace the operator's API identity.
       if (process.env.ANTHROPIC_API_KEY) env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
       else delete env.ANTHROPIC_API_KEY

@@ -558,5 +558,25 @@ try {
       assert.equal(degraded.length, 1)
     } finally { await f.close() }
   })
+  await check('agent env: the default repo .env is loaded so its MCP ${VARS} resolve', async () => {
+    const ws = fs.mkdtempSync(path.join(tmp, 'ws-'))
+    const app = path.join(ws, 'app')
+    fs.mkdirSync(path.join(app, '.git'), { recursive: true })
+    fs.writeFileSync(path.join(app, '.env'), 'MYSQL_PROD_HOST=db.internal\nREPO_ONLY_TOKEN=secret-xyz\n')
+    fs.writeFileSync(path.join(ws, '.env'), 'WORKSPACE_ONLY=nope\n')
+    const cfg = ConfigSchema.parse({ auth: { mode: 'indie' }, repos: { path: ws, default_repo: 'app' }, slack: { workspace_team_id: 'T1', allowed_users: ['U1'] } })
+    const store = new Store(':memory:')
+    let captured
+    const core = new Core({ store, config: cfg, output: Object.fromEntries(['notice','status','delta','finish'].map(k => [k, async () => {}])), cwd: fs.realpathSync(ws),
+      runner: (opts) => { captured = opts; return { done: Promise.resolve({ state: 'completed', text: 'ok', error: '', cost: 0, usage: {} }), cancel() {} } } })
+    try {
+      await core.submit({ adapter: 'slack', eventId: 'e1', key: 'slack:C1:1', author: 'U1', text: 'consulta', channel: 'C1', thread: '1', team: 'T1' })
+      while (core.active.size) await Promise.allSettled([...core.active.values()].map(a => a.done))
+      assert.equal(captured.cwd, fs.realpathSync(app))
+      assert.equal(captured.env.REPO_ONLY_TOKEN, 'secret-xyz')
+      assert.equal(captured.env.MYSQL_PROD_HOST, 'db.internal')
+      assert.equal(captured.env.WORKSPACE_ONLY, undefined)
+    } finally { await core.close(); store.close() }
+  })
 } finally { fs.rmSync(tmp, { recursive: true, force: true }) }
 if (failed) process.exitCode = 1
