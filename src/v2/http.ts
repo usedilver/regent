@@ -75,6 +75,7 @@ export function createHttp(core: Core, health: () => Record<string, unknown>, on
         regent_run_tests: { repo: z.string().min(1) },
         regent_install: { repo: z.string().min(1) },
         regent_open_pr: { repo: z.string().min(1), title: z.string().min(1).max(200), body_md: z.string().min(1).max(50000), size_claim: z.enum(['S', 'M', 'L']).optional() },
+        regent_close_pr: { repo: z.string().min(1) },
         regent_create_task: { title: z.string().min(1).max(200), summary_md: z.string().min(1).max(50000), plan_md: z.string().max(50000).optional(), size: z.enum(['S', 'M', 'L']), impact: z.enum(['low', 'medium', 'high']) },
         regent_update_task: { task_id: z.string().min(1), section: z.enum(['summary', 'plan', 'implementation', 'qa']), md: z.string().min(1).max(50000), questions: z.array(z.string().max(1000)).max(20).optional() },
         regent_request_qa: {},

@@ -27,6 +27,7 @@ export class SlackOutput implements Output {
   api: Api
   streams = new Map<string, Stream>()
   flushMs: number
+  animates = true // Agent messaging shows the native "está trabajando…" indicator.
   constructor(api: Api, flushMs = 3000) { this.api = api; this.flushMs = flushMs }
   async question(c: Conversation, question: { id: string; text: string; options: string[] }): Promise<void> {
     if (!question.options.length) return this.notice(c, question.text)

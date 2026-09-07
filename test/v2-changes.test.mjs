@@ -49,6 +49,7 @@ function fixture() {
     }
     if (args[1] === 'edit') { prs.get(args[2]).headRefOid = git(cwd, 'rev-parse', 'HEAD'); return '' }
     if (args[1] === 'view') return JSON.stringify(prs.get(args[2]))
+    if (args[1] === 'close') { const pr = prs.get(args[2]); if (!pr) throw new Error('no pr'); pr.state = 'CLOSED'; return '' }
     throw new Error(`Unexpected gh ${args.join(' ')}`)
   }
   const changes = new Changes(store, config, repo, path.join(dir, 'worktrees'), cmd)
@@ -519,6 +520,22 @@ try {
       const gate = f.gates[f.gates.length - 1]
       assert.equal(gate.c.channel, 'ROOM1'); assert.equal(gate.c.thread, null)
     } finally { await core.close(); f.close() }
+  })
+  await check('close_pr abandons the conversation PR without merging, once', async () => {
+    const f = fixture()
+    try {
+      const w = await f.open()
+      fs.writeFileSync(path.join(w.dir, 'answer.mjs'), 'export const answer = () => 2;\n')
+      await f.changes.tests(key, '.')
+      const result = await f.tasks.openPr(f.c, { repo: '.', title: 'Fix', body_md: 'Fix' })
+      const closed = await f.changes.closePr(key, '.')
+      assert.equal(closed.url, result.url)
+      assert.equal(f.prs.get(result.url).state, 'CLOSED')
+      assert.equal(f.store.db.prepare('SELECT state FROM prs').get().state, 'CLOSED')
+      await f.changes.closePr(key, '.')
+      assert.equal(f.calls.filter(c => c[1] === 'close').length, 1)
+      await assert.rejects(() => f.tasks.openPr(f.c, { repo: '.', title: 'Fix', body_md: 'Fix' }), /cerrado/)
+    } finally { f.close() }
   })
 } finally { fs.rmSync(root, { recursive: true, force: true }) }
 if (failed) process.exitCode = 1

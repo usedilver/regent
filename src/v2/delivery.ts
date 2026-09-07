@@ -7,6 +7,7 @@ export class DurableOutput implements Output {
   inflight = new Map<string, Promise<void>>()
   timer?: NodeJS.Timeout
   constructor(store: Store, delegate: Output) { this.store = store; this.delegate = delegate }
+  get animates(): boolean | undefined { return this.delegate.animates }
   start(): void {
     this.timer = setInterval(() => { void this.flush() }, 5000)
     void this.flush()

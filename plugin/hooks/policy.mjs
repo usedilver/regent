@@ -12,7 +12,7 @@ export function denial(input, env = process.env) {
     if (/\.credentials\.json|\.env(?:\b|$)|\.claude\.json/.test(JSON.stringify(paths))) return 'No leer archivos de credenciales; consulta codigo sin secretos.'
     return null
   }
-  if (['status', 'ask_human', 'cancel', 'worktree', 'install', 'run_tests', 'open_pr', 'create_task', 'update_task', 'request_qa'].some(tool => name === `mcp__regent__regent_${tool}`)) return null
+  if (['status', 'ask_human', 'cancel', 'worktree', 'install', 'run_tests', 'open_pr', 'close_pr', 'create_task', 'update_task', 'request_qa'].some(tool => name === `mcp__regent__regent_${tool}`)) return null
   if (name === 'Bash') {
     const command = args.command ?? ''
     const words = literalCommand(command)

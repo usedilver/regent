@@ -533,5 +533,16 @@ try {
     }
     store.close()
   })
+  await check('mcp_degraded notice appears once per conversation, not on every message', async () => {
+    const f = fixture({ runnerOverrides: { command: process.execPath, prefixArgs: [fake], env: { FAKE_CLAUDE_SCENARIO: 'mcp-degraded' } } })
+    try {
+      for (const id of ['deg-1', 'deg-2']) {
+        await f.core.submit({ adapter: 'slack', eventId: id, key: 'slack:C7:7', author: 'U1', text: 'hola', channel: 'C7', thread: '7', team: 'T1' })
+        while (f.core.active.size) await Promise.allSettled([...f.core.active.values()].map(a => a.done))
+      }
+      const degraded = f.messages.filter(m => m.kind === 'notice' && String(m.args[1]).includes('MCP externos'))
+      assert.equal(degraded.length, 1)
+    } finally { await f.close() }
+  })
 } finally { fs.rmSync(tmp, { recursive: true, force: true }) }
 if (failed) process.exitCode = 1

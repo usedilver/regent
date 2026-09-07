@@ -29,6 +29,7 @@ export class Core {
   store: Store; config: Config; output: Output; cwd: string; toolsUrl = ''
   active = new Map<string, Active>()
   preparing = new Set<string>()
+  degradedNotified = new Map<string, string>()
   stopping = false
   runner: typeof startRunner
   runnerOverrides: Partial<RunnerOptions>
@@ -139,7 +140,8 @@ export class Core {
         if (spent >= this.config.budget.max_cost_usd_per_user_day * 0.8) this.publish(active, () => this.output.notice(conversation, 'Ya usaste al menos el 80% del presupuesto diario.'))
       }
       this.publish(active, () => this.output.status(conversation, 'processing'))
-      heartbeat = setInterval(() => {
+      // With a native working indicator the periodic text heartbeat is just noise.
+      if (!this.output.animates) heartbeat = setInterval(() => {
         if (!active.waiting) this.publish(active, () => this.output.notice(conversation, progressText(active.lastTool)))
       }, 45000)
       const onEvent = (event: RunnerEvent) => {
@@ -148,7 +150,14 @@ export class Core {
         if (event.kind === 'tool_use') active.lastTool = event.name
         if (event.kind === 'text_delta') this.publish(active, () => this.output.delta(conversation, run, event.text))
         if (event.kind === 'api_retry') this.publish(active, () => this.output.notice(conversation, 'Claude esta reintentando por un limite de tasa o error del proveedor.'))
-        if (event.kind === 'mcp_degraded') this.publish(active, () => this.output.notice(conversation, `Algunos MCP externos no conectaron: ${event.servers.join(', ')}. Continuo sin ellos.`))
+        if (event.kind === 'mcp_degraded') {
+          // Once per conversation and per degraded set: repeating it on every message is noise.
+          const summary = event.servers.join(', ')
+          if (this.degradedNotified.get(conversation.key) !== summary) {
+            this.degradedNotified.set(conversation.key, summary)
+            this.publish(active, () => this.output.notice(conversation, `Algunos MCP externos no conectaron: ${summary}. Continuo sin ellos; avisare si la tarea los necesita.`))
+          }
+        }
         // Tool failures remain in the event log and model context; the final reply
         // reports unresolved blockers instead of broadcasting every retry.
       }
@@ -243,6 +252,11 @@ export class Core {
       return name === 'regent_run_tests' ? this.changes.tests(conversation.key, args.repo, active.abort.signal) : this.changes.install(conversation.key, args.repo, active.abort.signal)
     }
     if (name === 'regent_open_pr') return this.tasks.openPr(conversation, args as any, active.abort.signal)
+    if (name === 'regent_close_pr') {
+      const result = await this.changes.closePr(conversation.key, args.repo, active.abort.signal)
+      await this.output.notice(conversation, `PR cerrado sin integrar: ${result.url}`)
+      return result
+    }
     if (name === 'regent_create_task') {
       this.store.db.prepare("UPDATE runs SET intent='task' WHERE id=?").run(active.run.id)
       active.controller.setTimeoutMs?.(this.config.limits.max_run_sec.task * 1000)

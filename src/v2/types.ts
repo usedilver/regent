@@ -43,6 +43,8 @@ export interface Run {
 }
 
 export interface Output {
+  /** The surface already animates a native "working…" indicator: skip periodic heartbeat notices. */
+  animates?: boolean
   question?(conversation: Conversation, question: { id: string; text: string; options: string[] }): Promise<void>
   notice(conversation: Conversation, text: string): Promise<void>
   status(conversation: Conversation, status: 'processing' | 'active' | 'suspended'): Promise<void>

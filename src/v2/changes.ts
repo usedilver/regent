@@ -231,6 +231,20 @@ export class Changes {
       return { url, head, branch: w.branch }
     })
   }
+  /** Abandon the conversation's PR for a repo without merging; the branch and worktree stay. */
+  async closePr(key: string, repo: string, signal?: AbortSignal) {
+    const w = this.get(key, repo)
+    return this.exclusive(w.id, async () => {
+      const pr = this.store.db.prepare('SELECT url,state FROM prs WHERE worktree_id=?').get(w.id) as { url: string; state: string } | undefined
+      if (!pr) throw new Error('Esta conversacion no tiene un PR en ese repo.')
+      if (pr.state === 'MERGED') throw new Error('El PR ya fue integrado; no se puede cerrar.')
+      if (pr.state !== 'CLOSED') {
+        await this.cmd('gh', ['pr', 'close', pr.url, '--repo', ownerRepoOf(w.origin)!], w.dir, signal)
+        this.store.db.prepare("UPDATE prs SET state='CLOSED' WHERE worktree_id=?").run(w.id)
+      }
+      return { closed: true, url: pr.url, note: 'La rama conserva el PR cerrado; un cambio nuevo requiere otra conversacion.' }
+    })
+  }
   async merged(w: Worktree, url: string): Promise<boolean> {
     const pr = JSON.parse(await this.cmd('gh', ['pr', 'view', url, '--repo', ownerRepoOf(w.origin)!, '--json', 'state,headRefOid,baseRefName,headRefName'], w.dir))
     const stored = this.store.db.prepare('SELECT head FROM prs WHERE worktree_id=?').get(w.id)

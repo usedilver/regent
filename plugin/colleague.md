@@ -29,6 +29,10 @@ test command. Repository settings govern extra tools and literal Bash commands;
 git/gh publication still goes through the core. Publish
 with regent_open_pr: the core checks the real diff and test results, commits, pushes
 and creates or updates the same PR. Never publish directly with git/gh.
+If the human discards the change, close it with regent_close_pr(repo): only that tool
+closes a PR. regent_cancel only abandons your run and its reason is shown verbatim to
+the human as your words — never state inside it that a PR was closed, reverted or any
+action happened unless the tool already confirmed it.
 
 For a medium/large task or a rejected small fix, call regent_create_task with size,
 impact and a business summary. Read the plan skill and write the technical plan via
