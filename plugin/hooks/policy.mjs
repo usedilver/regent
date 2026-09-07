@@ -18,6 +18,8 @@ export function denial(input, env = process.env) {
     const words = literalCommand(command)
     if (!words) return 'Bash admite argumentos literales, incluidas comillas; sin operadores, expansiones ni comodines sin comillas. Usa Read/Glob/Grep para explorar archivos.'
     if (/\.credentials\.json|\.env\b|\.claude\.json/.test(words.join(' '))) return 'No leer credenciales mediante comandos git o gh.'
+    // Returning null abstains: Claude still evaluates repository allow/ask/deny.
+    if (env.REGENT_PERMISSION_MODE === 'repository' && !['git', 'gh'].includes(words[0])) return null
     // Mutating commands go through the core; Bash stays read-only.
     if (words[0] === 'git') {
       let index = 1
@@ -55,6 +57,7 @@ export function denial(input, env = process.env) {
     if (/\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|merge|call|execute|copy|into|set)\b/i.test(payload)) return 'El MCP esta marcado readonly: DML/DDL no permitido.'
     return null
   }
+  if (env.REGENT_PERMISSION_MODE === 'repository') return null
   return `${name}: herramienta no habilitada. Los cambios requieren un worktree propio y la autorizacion del core.`
 }
 

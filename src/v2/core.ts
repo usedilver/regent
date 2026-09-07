@@ -286,7 +286,7 @@ export class Core {
         if (w) root = w.dir
       }
     }
-    return denial(input, { ...process.env, REGENT_ROOT: root, REGENT_CWD: cwd, REGENT_READONLY_MCP: JSON.stringify(this.config.repos.readonly_mcp) })
+    return denial(input, { ...process.env, REGENT_PERMISSION_MODE: 'repository', REGENT_ROOT: root, REGENT_CWD: cwd, REGENT_READONLY_MCP: JSON.stringify(this.config.repos.readonly_mcp) })
   }
   async answerQuestion(id: string, index: number, author: string, team: string, channel: string, thread: string) {
     if (!this.authorized({ adapter: 'slack', author, team } as Inbound)) throw new Error('Usuario o workspace no autorizado.')

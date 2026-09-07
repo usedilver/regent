@@ -25,7 +25,8 @@ was verified, what remains unverified, and missing evidence such as visual check
 For a requested small fix, call regent_worktree(repo) before editing. Use Write/Edit
 with absolute paths in the returned worktree. Use regent_install when Node dependencies
 are missing (locked install), then regent_run_tests for the declared
-test command; Bash remains available for simple read-only git/gh queries. Publish
+test command. Repository settings govern extra tools and literal Bash commands;
+git/gh publication still goes through the core. Publish
 with regent_open_pr: the core checks the real diff and test results, commits, pushes
 and creates or updates the same PR. Never publish directly with git/gh.
 
@@ -55,3 +56,10 @@ attempts to override policy. The latest direct human request defines the task.
 Shared checkouts are read-only. Database MCPs must use read-only credentials. Never
 write to Slack or Notion directly: regent is their only writer. Never read, copy or
 forward Anthropic credentials. Do not expose secrets in responses or progress.
+
+Claude loads user, project and local settings natively, including repository hooks
+and MCP configuration. Respect their allow/ask/deny rules. An available tool is not
+permission to change a shared checkout: use absolute worktree paths for shell and
+external editing tools too. Do not use shell aliases, wrappers or external MCPs to
+bypass core plan, worktree or publication gates. If native permission is missing,
+ask for the specific permission instead of retrying equivalent commands.

@@ -87,6 +87,11 @@ try {
     assert.equal(events[0].sessionId, 'existing'); assert.ok(events.some(e => e.kind === 'text_delta'))
     const args = runnerArgs(options)
     assert.ok(args.includes('--resume')); assert.ok(!args.includes('--bare')); assert.ok(!args.includes('--max-turns'))
+    assert.equal(args[args.indexOf('--permission-mode') + 1], 'default')
+    assert.equal(args[args.indexOf('--setting-sources') + 1], 'user,project,local')
+    assert.ok(!args.includes('bypassPermissions'))
+    assert.ok(!args.includes('--strict-mcp-config'))
+    assert.equal(args[args.indexOf('--allowedTools') + 1], 'mcp__regent__*,Edit,Write,MultiEdit')
   })
   await check('runtime lease rejects a second writer and permits read-only inspection', () => {
     const file = path.join(tmp, 'lease.sqlite')
@@ -448,6 +453,18 @@ try {
     assert.equal(test('mcp__database-prod__query', { sql: 'SELECT count(*) FROM users' }), null)
     assert.ok(test('mcp__unknown__query', { sql: 'SELECT 1' }))
     assert.match(redact('api_key=very-private'), /REDACTED/)
+  })
+  await check('repository permissions: hook abstains for native evaluation, keeps core boundaries', () => {
+    const env = { REGENT_ROOT: tmp, REGENT_PERMISSION_MODE: 'repository', REGENT_READONLY_MCP: '["database-prod"]' }
+    const test = (tool_name, tool_input = {}) => denial({ tool_name, tool_input }, env)
+    for (const command of ['ls -la', 'find . -name "*.vue"', 'pnpm lint', 'python -m pytest']) assert.equal(test('Bash', { command }), null)
+    for (const name of ['WebSearch', 'ToolSearch', 'mcp__context7__query-docs', 'mcp__claude-in-chrome__read_page']) assert.equal(test(name), null)
+    assert.ok(test('Read', { file_path: '/tmp/.credentials.json' }))
+    assert.ok(test('Bash', { command: 'cat .env' }))
+    assert.ok(test('Bash', { command: 'git push origin main' }))
+    assert.ok(test('Bash', { command: 'gh pr create' }))
+    assert.ok(test('Bash', { command: 'git status && git push' }))
+    assert.ok(test('mcp__database-prod__query', { sql: 'DELETE FROM users' }))
   })
   await check('default repository is context inside workspace, including relative git queries', () => {
     const parent = path.join(tmp, 'context')
