@@ -112,7 +112,7 @@ try {
     assert.equal(store.conversation(key).session_id, 'old-session')
     assert.equal(store.run(accepted.runId).state, 'queued')
     assert.equal(store.run(accepted.runId).intent, 'ask')
-    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 3)
+    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 4)
     store.close()
   })
   await check('publish: tests tied to final tree, commit/push and idempotent PR', async () => {
@@ -490,6 +490,56 @@ try {
       assert.equal(f.calls.filter(c => c[1] === 'close').length, 1)
       await assert.rejects(() => f.tasks.openPr(f.c, { repo: '.', title: 'Fix', body_md: 'Fix' }), /cerrado/)
     } finally { f.close() }
+  })
+  await check('exceptional approvals: one-shot exact command with dedupe, reject, replay and expiry', async () => {
+    const f = fixture()
+    let finish
+    const core = new Core({ store: f.store, config: f.config, output: f.output, cwd: f.repo,
+      runner: () => ({ done: new Promise(resolve => { finish = resolve }), cancel: () => finish({ state: 'interrupted', text: '', error: 'cancelled', cost: 0, usage: {} }) }) })
+    core.changes = f.changes; core.tasks = f.tasks
+    const posted = []
+    f.output.approval = async (c, r) => { posted.push({ channel: c.channel, id: r.id, command: r.command }) }
+    try {
+      await core.submit({ adapter: 'slack', eventId: 'apr', key, author: 'U1', text: 'build', channel: 'C1', thread: '1', team: 'T1' })
+      const active = [...core.active.values()][0]
+      const perm = cmd => core.permission(active.token, { tool_name: 'Bash', tool_input: { command: cmd } })
+      const rows = () => f.store.db.prepare('SELECT * FROM approvals ORDER BY created_at').all()
+      // Elegible: crea UNA solicitud y avisa; repetir no duplica.
+      assert.match(perm('npm run build'), /solicitud/)
+      assert.match(perm('npm run build'), /Ya pedi/)
+      assert.equal(rows().length, 1)
+      // No elegible: git/gh y credenciales no generan solicitud.
+      assert.doesNotMatch(perm('git push origin main') ?? '', /solicitud/)
+      assert.doesNotMatch(perm('cat .env') ?? '', /solicitud/)
+      assert.equal(rows().length, 1)
+      const first = rows()[0].id
+      // Otro workspace no decide.
+      await assert.rejects(() => core.decideApproval(first, 'approve', 'U1', 'T-otro'), /autorizado/)
+      // Aprobar: reanuda la conversacion con el comando y permite exactamente una vez.
+      await core.decideApproval(first, 'approve', 'U1', 'T1', 'C1')
+      assert.ok(f.store.db.prepare("SELECT 1 FROM runs WHERE state='queued' AND prompt LIKE '%npm run build%'").get())
+      assert.notEqual(perm('npm run buildx'), null)
+      assert.equal(perm('npm run build'), null)
+      assert.equal(f.store.db.prepare('SELECT state FROM approvals WHERE id=?').get(first).state, 'consumed')
+      assert.match(perm('npm run build'), /solicitud/)
+      // Boton viejo: duplicado, sin re-ejecutar.
+      assert.equal((await core.decideApproval(first, 'approve', 'U1', 'T1', 'C1')).duplicate, true)
+      // Rechazo: sigue denegado.
+      const second = rows().find(r => r.state === 'pending').id
+      await core.decideApproval(second, 'reject', 'U1', 'T1', 'C1')
+      assert.match(perm('npm run build'), /solicitud/)
+      // Expiracion de una aprobada sin usar.
+      const third = rows().find(r => r.state === 'pending').id
+      await core.decideApproval(third, 'approve', 'U1', 'T1', 'C1')
+      f.store.db.prepare('UPDATE approvals SET decided_at=? WHERE id=?').run(Date.now() - 16 * 60000, third)
+      assert.match(perm('npm run build'), /solicitud/)
+      assert.equal(f.store.db.prepare('SELECT state FROM approvals WHERE id=?').get(third).state, 'expired')
+      // Reinicio: otra instancia decide sobre la misma base.
+      const fourth = rows().find(r => r.state === 'pending').id
+      const core2 = new Core({ store: f.store, config: f.config, output: f.output, cwd: f.repo })
+      assert.equal((await core2.decideApproval(fourth, 'reject', 'U1', 'T1', 'C1')).decision, 'reject')
+      await core2.close()
+    } finally { await core.close(); f.close() }
   })
 } finally { fs.rmSync(root, { recursive: true, force: true }) }
 if (failed) process.exitCode = 1

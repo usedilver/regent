@@ -316,7 +316,7 @@ try {
     store.db.prepare("INSERT INTO gates(conversation_key,question,state) VALUES(?,?,'pending')").run(input('x').key, 'Pregunta anterior')
     store.db.exec('DROP INDEX gates_question_id; ALTER TABLE gates DROP COLUMN question_id; ALTER TABLE gates DROP COLUMN options; ALTER TABLE gates DROP COLUMN destination; PRAGMA user_version=2;')
     store.close(); store = new Store(file)
-    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 3)
+    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 4)
     assert.equal(store.conversation(input('x').key).session_id, 'session-before-upgrade')
     assert.equal(store.run(accepted.runId).state, 'queued')
     assert.equal(store.db.prepare('SELECT question FROM gates').get().question, 'Pregunta anterior')
@@ -462,7 +462,12 @@ try {
     assert.ok(test('Write', { file_path: '/shared/code' }))
     assert.ok(test('mcp__database-prod__query', { sql: 'DELETE FROM users' }))
     assert.equal(test('mcp__database-prod__query', { sql: 'SELECT count(*) FROM users' }), null)
-    assert.ok(test('mcp__unknown__query', { sql: 'SELECT 1' }))
+    // Los MCPs del repo/usuario son contexto confiable: permitidos salvo que readonly_mcp los marque.
+    assert.equal(test('mcp__claude_ai_Notion__notion-fetch', { id: 'x' }), null)
+    assert.equal(test('mcp__unknown__query', { sql: 'SELECT 1' }), null)
+    assert.equal(test('Task', { prompt: 'explora' }), null)
+    assert.equal(test('WebFetch', { url: 'https://example.com' }), null)
+    assert.ok(test('NotebookEdit', { notebook_path: '/x.ipynb' }))
     assert.match(redact('api_key=very-private'), /REDACTED/)
   })
   await check('repository permissions: hook abstains for native evaluation, keeps core boundaries', () => {

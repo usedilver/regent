@@ -23,7 +23,7 @@ export class Store {
     this.db = new DatabaseSync(file)
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;')
     const version = this.db.prepare('PRAGMA user_version').get()!.user_version as number
-    if (version > 3) throw new Error(`Esquema SQLite ${version} mas nuevo que este servidor.`)
+    if (version > 4) throw new Error(`Esquema SQLite ${version} mas nuevo que este servidor.`)
     this.transaction(() => {
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS conversations (
@@ -101,6 +101,14 @@ export class Store {
         ALTER TABLE gates ADD COLUMN destination TEXT;
         CREATE UNIQUE INDEX gates_question_id ON gates(question_id);
         PRAGMA user_version=3;
+      `)
+      if (version < 4) this.db.exec(`
+        CREATE TABLE IF NOT EXISTS approvals (
+          id TEXT PRIMARY KEY, conversation_key TEXT NOT NULL, command TEXT NOT NULL, cwd TEXT NOT NULL,
+          state TEXT NOT NULL DEFAULT 'pending', requested_by TEXT NOT NULL, actor TEXT,
+          conversation TEXT NOT NULL, created_at INTEGER NOT NULL, decided_at INTEGER
+        );
+        PRAGMA user_version=4;
       `)
     })
   }

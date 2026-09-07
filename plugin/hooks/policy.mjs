@@ -57,6 +57,10 @@ export function denial(input, env = process.env) {
     if (/\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|merge|call|execute|copy|into|set)\b/i.test(payload)) return 'El MCP esta marcado readonly: DML/DDL no permitido.'
     return null
   }
+  // El repo es la fuente de verdad: sus MCPs (y los del usuario) son contexto confiable.
+  // Los servidores marcados en readonly_mcp ya quedaron restringidos arriba.
+  if (name.startsWith('mcp__')) return null
+  if (['Task', 'WebFetch', 'WebSearch', 'TodoWrite'].includes(name)) return null
   if (env.REGENT_PERMISSION_MODE === 'repository') return null
   return `${name}: herramienta no habilitada. Los cambios requieren un worktree propio y la autorizacion del core.`
 }

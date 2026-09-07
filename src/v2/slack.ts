@@ -40,6 +40,16 @@ export class SlackOutput implements Output {
           text: { type: 'plain_text', text: `Opcion ${i + 1}` }, action_id: `regent_question_${i}`, value: question.id })) },
       ] })
   }
+  async approval(c: Conversation, request: { id: string; command: string; cwd: string }): Promise<void> {
+    const body = `El agente pide aprobacion para ejecutar UNA sola vez:\n\`\`\`\n${redact(request.command).slice(0, 1500)}\n\`\`\`\nEn: ${request.cwd}`
+    await this.api('chat.postMessage', { channel: c.channel, thread_ts: this.anchor(c), text: redact(body), unfurl_links: false, blocks: [
+      { type: 'section', text: { type: 'mrkdwn', text: redact(body).slice(0, 3000) } },
+      { type: 'actions', elements: [
+        { type: 'button', text: { type: 'plain_text', text: 'Aprobar comando' }, style: 'primary', action_id: 'regent_cmd_approve', value: request.id },
+        { type: 'button', text: { type: 'plain_text', text: 'Rechazar' }, style: 'danger', action_id: 'regent_cmd_reject', value: request.id },
+      ] },
+    ] })
+  }
   async gate(c: Conversation, gate: { id: string; kind: string; questions: string[] }, text: string): Promise<void> {
     const choices = [
       ...(!gate.questions.length ? [{ label: gate.kind === 'plan' ? 'Aprobar plan' : 'Probado', decision: 'approve', style: 'primary' }] : []),
@@ -278,6 +288,14 @@ export function createSlack(config: Config) {
       const result = await core.answerQuestion(action.value, Number(action.action_id.replace('regent_question_', '')),
         body.user.id, body.team?.id, body.channel?.id, body.message?.thread_ts ?? body.message?.ts)
       await respond({ text: result.duplicate ? 'La pregunta ya fue respondida.' : 'Respuesta registrada.', replace_original: false, response_type: 'ephemeral' })
+    } catch (error) { await respond({ text: redact((error as Error).message), replace_original: false, response_type: 'ephemeral' }) }
+  })
+  app.action(/^regent_cmd_(approve|reject)$/, async ({ ack, body, action, respond }: any) => {
+    await ack()
+    try {
+      if (body.user?.team_id && body.user.team_id !== config.slack.workspace_team_id) throw new Error('Usuario de otro workspace.')
+      const result = await core.decideApproval(action.value, action.action_id.replace('regent_cmd_', ''), body.user.id, body.team?.id, body.channel?.id)
+      await respond({ text: result.duplicate ? 'La solicitud ya fue decidida.' : 'Decision registrada.', replace_original: false, response_type: 'ephemeral' })
     } catch (error) { await respond({ text: redact((error as Error).message), replace_original: false, response_type: 'ephemeral' }) }
   })
   app.action(/^regent_gate_(approve|changes|cancel)$/, async ({ ack, body, action, respond }: any) => {

@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { Config } from './config.ts'
@@ -12,6 +12,9 @@ import { Tasks } from './tasks.ts'
 import { denial } from '../../plugin/hooks/policy.mjs'
 import { literalCommand } from '../../plugin/hooks/command.mjs'
 import { progressText } from './progress.ts'
+
+/** Una aprobacion vive 15 minutos: pendiente sin decidir o aprobada sin ejecutar, expira. */
+const APPROVAL_TTL_MS = 15 * 60000
 
 interface Active {
   run: Run; token: string; controller?: ReturnType<typeof startRunner>; done?: Promise<void>
@@ -315,7 +318,62 @@ export class Core {
         if (w) root = w.dir
       }
     }
-    return denial(input, { ...process.env, REGENT_PERMISSION_MODE: 'repository', REGENT_ROOT: root, REGENT_CWD: cwd, REGENT_READONLY_MCP: JSON.stringify(this.config.repos.readonly_mcp) })
+    const reason = denial(input, { ...process.env, REGENT_PERMISSION_MODE: this.config.permission_mode === 'native' ? 'repository' : '', REGENT_ROOT: root, REGENT_CWD: cwd, REGENT_READONLY_MCP: JSON.stringify(this.config.repos.readonly_mcp) })
+    if (reason && input.tool_name === 'Bash' && this.config.permission_mode !== 'native') {
+      const outcome = this.commandApproval(active, String(input.tool_input?.command ?? ''), cwd, reason)
+      if (outcome !== undefined) return outcome
+    }
+    return reason
+  }
+  /** Comando Bash denegado: ofrece una aprobacion humana de un solo uso, ligada al comando exacto. */
+  commandApproval(active: Active, command: string, cwd: string, reason: string): string | null | undefined {
+    const word = (command.trim().match(/^\S+/) ?? [''])[0]
+    if (!command.trim() || command.length > 2000) return undefined
+    if (['git', 'gh', 'ncard'].includes(word)) return undefined // publicacion y tracker van por tools del core
+    if (/\.credentials\.json|\.env\b|\.claude\.json/.test(command)) return undefined // secretos: nunca
+    const key = active.run.conversation_key
+    const now = Date.now()
+    const approved = this.store.db.prepare("SELECT * FROM approvals WHERE conversation_key=? AND command=? AND state='approved'").get(key, command) as any
+    if (approved) {
+      if (now - (approved.decided_at as number) <= APPROVAL_TTL_MS) {
+        this.store.db.prepare("UPDATE approvals SET state='consumed' WHERE id=?").run(approved.id)
+        return null
+      }
+      this.store.db.prepare("UPDATE approvals SET state='expired' WHERE id=?").run(approved.id)
+    }
+    const pending = this.store.db.prepare("SELECT * FROM approvals WHERE conversation_key=? AND command=? AND state='pending'").get(key, command) as any
+    if (pending && now - (pending.created_at as number) <= APPROVAL_TTL_MS) {
+      return `${reason} Ya pedi al humano aprobar este comando exacto (solicitud ${String(pending.id).slice(0, 8)}); espera su decision o continua con otra cosa.`
+    }
+    if (pending) this.store.db.prepare("UPDATE approvals SET state='expired' WHERE id=?").run(pending.id)
+    const c = { ...this.store.conversation(key)!, author: active.run.author, thread: active.run.reply_thread }
+    c.channel = active.run.reply_channel ?? c.channel
+    const id = randomUUID()
+    this.store.db.prepare('INSERT INTO approvals(id,conversation_key,command,cwd,requested_by,conversation,created_at) VALUES(?,?,?,?,?,?,?)')
+      .run(id, key, command, cwd, active.run.author, JSON.stringify(c), now)
+    const request = { id, command: redact(command), cwd }
+    this.publish(active, () => this.output.approval ? this.output.approval(c, request) : this.output.notice(c, `Comando pendiente de aprobacion (${id.slice(0, 8)}):\n${request.command}\nEn: ${cwd}`))
+    return `${reason} Pedi al humano aprobar exactamente este comando, un solo uso (solicitud ${id.slice(0, 8)}). Continua con otra cosa o termina el turno; si lo aprueban, la sesion se reanuda para ejecutarlo.`
+  }
+  async decideApproval(id: string, decision: string, author: string, team: string, channel?: string) {
+    if (!this.authorized({ adapter: 'slack', team, author } as Inbound)) throw new Error('Usuario no autorizado para esta aprobacion.')
+    if (!['approve', 'reject'].includes(decision)) throw new Error('Decision invalida.')
+    const row = this.store.db.prepare('SELECT * FROM approvals WHERE id=?').get(id) as any
+    if (!row) throw new Error('Solicitud inexistente.')
+    const c = JSON.parse(row.conversation) as Conversation
+    if (channel && channel !== c.channel) throw new Error('La solicitud pertenece a otra conversacion.')
+    if (row.state !== 'pending') return { duplicate: true, state: row.state as string }
+    if (Date.now() - (row.created_at as number) > APPROVAL_TTL_MS) {
+      this.store.db.prepare("UPDATE approvals SET state='expired' WHERE id=?").run(id)
+      throw new Error('La solicitud expiro; pide al agente que lo intente de nuevo.')
+    }
+    this.store.db.prepare('UPDATE approvals SET state=?,actor=?,decided_at=? WHERE id=?').run(decision === 'approve' ? 'approved' : 'rejected', author, Date.now(), id)
+    const text = decision === 'approve'
+      ? `Aprobe ejecutar exactamente este comando, un solo uso (valido 15 minutos):\n${row.command}\nEjecutalo ahora y continua.`
+      : `Rechace ejecutar este comando:\n${row.command}\nNo lo reintentes; busca una alternativa o explica el bloqueo.`
+    await this.submit({ adapter: c.adapter as Inbound['adapter'], eventId: `approval:${id}:${decision}`, key: c.key, channel: c.channel,
+      thread: c.thread ?? undefined, replyThread: c.thread ?? undefined, team, author, text })
+    return { duplicate: false, decision }
   }
   async answerQuestion(id: string, index: number, author: string, team: string, channel: string, thread: string) {
     if (!this.authorized({ adapter: 'slack', author, team } as Inbound)) throw new Error('Usuario o workspace no autorizado.')
