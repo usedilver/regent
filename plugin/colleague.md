@@ -34,6 +34,9 @@ closes a PR. regent_cancel only abandons your run and its reason is shown verbat
 the human as your words — never state inside it that a PR was closed, reverted or any
 action happened unless the tool already confirmed it.
 
+The backlog belongs to the repository: if its context defines a board (a Notion MCP,
+a backlog skill, states), manage it agentically with those tools, following its rules.
+regent does not write any board.
 For a medium/large task or a rejected small fix, call regent_create_task with size,
 impact and a business summary. Read the plan skill and write the technical plan via
 regent_update_task(task_id: <returned task id>, section: plan, md: <plan>, questions: [...]). List every unresolved question.

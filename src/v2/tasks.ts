@@ -4,8 +4,6 @@ import type { Conversation, Output } from './types.ts'
 import { Store, redact } from './store.ts'
 import { Changes, hash, type Worktree } from './changes.ts'
 import { Effects } from './effects.ts'
-import { ownerRepoOf } from '../workspace.ts'
-import type { BoardFields, Tracker } from './tracker.ts'
 import { hasOpenQuestions } from '../router.ts'
 
 export interface Rooms {
@@ -21,11 +19,11 @@ export interface Task {
 export interface Gate { id: string; task_id: string; kind: string; revision: string; state: string; conversation: string; questions: string; actor: string | null; dispatched: number }
 
 export class Tasks {
-  store: Store; config: Config; changes: Changes; tracker: Tracker; output: Output; effects: Effects; rooms?: Rooms
+  store: Store; config: Config; changes: Changes; output: Output; effects: Effects; rooms?: Rooms
   locks = new Map<string, Promise<any>>()
   adapter?: string
-  constructor(store: Store, config: Config, changes: Changes, tracker: Tracker, output: Output, rooms?: Rooms) {
-    this.store = store; this.config = config; this.changes = changes; this.tracker = tracker; this.output = output; this.rooms = rooms; this.effects = new Effects(store)
+  constructor(store: Store, config: Config, changes: Changes, output: Output, rooms?: Rooms) {
+    this.store = store; this.config = config; this.changes = changes; this.output = output; this.rooms = rooms; this.effects = new Effects(store)
   }
   exclusive<T>(key: string, operation: () => Promise<T>): Promise<T> {
     const previous = this.locks.get(key) ?? Promise.resolve()
@@ -65,35 +63,19 @@ export class Tasks {
         this.store.db.prepare('INSERT OR IGNORE INTO tasks(id,conversation_key,title,size,impact,created_at) VALUES(?,?,?,?,?,?)').run(id, c.key, args.title, args.size, args.impact, Date.now())
         this.store.db.prepare('UPDATE conversations SET task_id=? WHERE key=?').run(id, c.key)
       })
-      const page = await this.effects.once(`task:${id}`, () => this.tracker.create(id, args.title), () => this.tracker.find(id, args.title))
-      this.store.db.prepare('UPDATE tasks SET notion_id=?,url=? WHERE id=?').run(page.id, page.url, id)
-      await this.writeSection(this.get(id), 'summary', args.summary_md)
-      if (args.plan_md) await this.writeSection(this.get(id), 'plan', args.plan_md)
-      await this.setProperties(this.get(id), { size: args.size, owner: c.author })
+      this.writeSection(this.get(id), 'summary', args.summary_md)
+      if (args.plan_md) this.writeSection(this.get(id), 'plan', args.plan_md)
       if (this.config.policy.room !== 'never' && this.rooms && c.adapter === 'slack') {
         const name = `task-${id.slice(0, 20)}`
-        const room = await this.effects.once(`room:${id}`, () => this.rooms!.create(name, c.author, `${args.title}\n${page.url}`), () => this.rooms!.find(name))
+        const room = await this.effects.once(`room:${id}`, () => this.rooms!.create(name, c.author, args.title), () => this.rooms!.find(name))
         this.store.db.prepare('UPDATE tasks SET room=?,room_thread=? WHERE id=?').run(room.channel, room.thread, id)
       }
       return this.get(id)
     })
   }
-  async writeSection(task: Task, section: string, md: string) {
-    if (!task.notion_id) throw new Error('La creacion de la tarea sigue pendiente.')
-    const revision = hash(md)
-    const previous = this.store.db.prepare('SELECT * FROM sections WHERE task_id=? AND section=?').get(task.id, section)
-    if (previous?.state === 'done' && previous.revision === revision) return
-    this.store.db.prepare("INSERT INTO sections(task_id,section,md,revision) VALUES(?,?,?,?) ON CONFLICT(task_id,section) DO UPDATE SET md=excluded.md,revision=excluded.revision,state='pending'").run(task.id, section, redact(md), revision)
-    await this.tracker.section(task.notion_id, section, redact(md))
-    this.store.db.prepare("UPDATE sections SET state='done' WHERE task_id=? AND section=? AND revision=?").run(task.id, section, revision)
-  }
-  /** Best-effort board columns: metadata never blocks the flow, and skips are logged, not silenced. */
-  async setProperties(task: Task, fields: BoardFields) {
-    if (!task.notion_id || !this.tracker.properties) return
-    try {
-      const { skipped } = await this.tracker.properties(task.notion_id, fields)
-      if (skipped.length) console.error(`[v2 board] ${task.id}: ${skipped.join('; ')}`)
-    } catch (error) { console.error(`[v2 board] ${task.id}: ${redact((error as Error).message)}`) }
+  /** Registro local: el backlog en si es del repo (su MCP de Notion, sus skills), no de regent. */
+  writeSection(task: Task, section: string, md: string): void {
+    this.store.db.prepare("INSERT INTO sections(task_id,section,md,revision,state) VALUES(?,?,?,?,'done') ON CONFLICT(task_id,section) DO UPDATE SET md=excluded.md,revision=excluded.revision,state='done'").run(task.id, section, redact(md), hash(md))
   }
   async update(c: Conversation, args: { task_id: string; section: string; md: string; questions?: string[] }) {
     return this.exclusive(c.key, async () => {
@@ -105,7 +87,7 @@ export class Tasks {
         this.store.db.prepare("UPDATE tasks SET state='planning' WHERE id=?").run(task.id)
         this.store.db.prepare("UPDATE task_gates SET state='superseded' WHERE task_id=? AND state='pending'").run(task.id)
       }
-      await this.writeSection(task, args.section, args.md)
+      this.writeSection(task, args.section, args.md)
       if (args.section !== 'plan') return { updated: true }
       const questions = args.questions?.length ? args.questions : hasOpenQuestions(args.md) || /[?\u00bf]/.test(args.md) ? ['Responde las preguntas abiertas del plan antes de aprobar.'] : []
       if (this.config.policy.fast_track && task.size === 'S' && task.impact === 'low' && !questions.length) {
@@ -166,33 +148,27 @@ export class Tasks {
       const result = await this.changes.publish(c.key, args, Boolean(task && task.size !== 'S'), signal)
       if ('refused' in result) return result
       await this.output.notice(c, `PR: ${result.url}`)
-      const boardRepo = ownerRepoOf(this.changes.get(c.key, args.repo).origin)
-      const board: BoardFields = { repo: boardRepo ? `https://github.com/${boardRepo}` : undefined, pr: result.url }
       const roomAlways = this.config.policy.room === 'always' && Boolean(this.rooms) && c.adapter === 'slack'
       if (task) {
         const prs = this.store.db.prepare('SELECT p.url FROM prs p JOIN worktrees w ON w.id=p.worktree_id WHERE w.conversation_key=? ORDER BY p.url').all(c.key)
-        await this.writeSection(task, 'implementation', prs.map(p => `- ${p.url}`).join('\n'))
-        await this.setProperties(task, board)
+        this.writeSection(task, 'implementation', prs.map(p => `- ${p.url}`).join('\n'))
       } else {
-        // room: always attaches every unit of work to a room, which needs a card to anchor to.
         if (this.config.policy.track_small_fixes === 'digest' && this.config.slack.digest_channel && !roomAlways) {
           await this.effects.once(`fix-digest:${result.url}`, async () => { await this.output.notice({ ...c, channel: this.config.slack.digest_channel!, thread: null }, `${args.title}: ${result.url}`); return true }, async () => undefined)
         }
-        if (this.config.policy.track_small_fixes === 'card' || roomAlways) {
+        // room: always anchors every unit of work to a local task row and its room.
+        if (roomAlways) {
           const id = hash(`small:${c.key}`).slice(0, 32)
           this.store.db.prepare("INSERT OR IGNORE INTO tasks(id,conversation_key,title,size,impact,state,created_at) VALUES(?,?,?,'S','low','awaiting_merge',?)").run(id, c.key, args.title, Date.now())
-          const page = await this.effects.once(`task:${id}`, () => this.tracker.create(id, args.title), () => this.tracker.find(id, args.title))
-          this.store.db.prepare('UPDATE tasks SET notion_id=?,url=? WHERE id=?').run(page.id, page.url, id)
           this.store.db.prepare('UPDATE conversations SET task_id=? WHERE key=?').run(id, c.key)
-          await this.writeSection(this.get(id), 'implementation', `${args.body_md}\n\n${result.url}`)
-          await this.setProperties(this.get(id), { ...board, size: 'S', owner: c.author })
+          this.writeSection(this.get(id), 'implementation', `${args.body_md}\n\n${result.url}`)
         }
       }
       // The card may already be linked after an interrupted room creation.
       const linked = this.of(c.key)
       if (roomAlways && linked && !linked.room) {
         const name = `task-${linked.id.slice(0, 20)}`
-        const room = await this.effects.once(`room:${linked.id}`, () => this.rooms!.create(name, c.author, `${linked.title}\n${linked.url}`), () => this.rooms!.find(name))
+        const room = await this.effects.once(`room:${linked.id}`, () => this.rooms!.create(name, c.author, linked.title), () => this.rooms!.find(name))
         this.store.db.prepare('UPDATE tasks SET room=?,room_thread=? WHERE id=?').run(room.channel, room.thread, linked.id)
         await this.output.notice(this.destination(this.get(linked.id), c), `PR: ${result.url}`)
       }
@@ -225,10 +201,6 @@ export class Tasks {
           this.store.db.prepare("UPDATE prs SET state='MERGED' WHERE worktree_id=?").run(w.id)
         }
         const c = task ? this.destination(task) : this.store.conversation(key)!
-        if (task && task.notion_id) {
-          if (task.room && this.rooms) await this.writeSection(task, 'digest', await this.rooms.history(task.room))
-          await this.tracker.done(task.notion_id)
-        }
         const completedText = 'Todos los PRs fueron integrados. Tarea completada.'
         await this.effects.once(`merged:${key}`, async () => { await this.output.notice(c, completedText); return true }, async () => {
           const delivered = this.store.db.prepare("SELECT args FROM deliveries WHERE conversation_key=? AND kind='notice'").all(key)

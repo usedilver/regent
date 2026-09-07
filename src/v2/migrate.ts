@@ -13,9 +13,6 @@ export function migrateConfig(legacy: any, env: NodeJS.ProcessEnv) {
     repos: { path: env.REPO_PATH, workspace_root: legacy.workspace_root, default_base_branch: legacy.default_base_branch,
       base_branches: legacy.repo_base_branches, agent_env_files: legacy.agent_env_files },
     slack: { workspace_team_id: env.SLACK_TEAM_ID || 'CONFIGURE_SLACK_TEAM_ID', allowed_users: users },
-    notion: { board_triggers: false, landing_status: legacy.intake?.landing_status ?? legacy.states?.[0]?.name ?? 'Backlog',
-      pr_merged_moves_to: legacy.pr_merged_moves_to ?? 'Done', properties: { status: legacy.status_property ?? 'Status',
-        repo: legacy.repo_property ?? 'Repo', pr: legacy.pr_property ?? 'PR', estimation: legacy.estimation_property, owner: legacy.owner_property } },
   })
 }
 

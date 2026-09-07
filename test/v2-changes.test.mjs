@@ -9,7 +9,6 @@ import { Store } from '../src/v2/store.ts'
 import { ConfigSchema } from '../src/v2/config.ts'
 import { Changes, command, parseNumstat, smallFix } from '../src/v2/changes.ts'
 import { Tasks } from '../src/v2/tasks.ts'
-import { NotionTracker } from '../src/v2/tracker.ts'
 import { Effects } from '../src/v2/effects.ts'
 import { Core } from '../src/v2/core.ts'
 import { createHttp } from '../src/v2/http.ts'
@@ -34,8 +33,8 @@ function fixture() {
   const store = new Store(':memory:')
   const c = { adapter: 'slack', eventId: 'initial', key, author: 'U1', text: 'fix', channel: 'C1', thread: '1', team: 'T1' }
   const run = store.accept(c, repo, 24); store.finish(run.runId, 'completed')
-  const prs = new Map(), calls = [], pages = new Map(), sections = new Map(), notices = [], gates = []
-  let prNumber = 0, pageNumber = 0, lostCreate = false
+  const prs = new Map(), calls = [], notices = [], gates = []
+  let prNumber = 0, lostCreate = false
   const cmd = async (name, args, cwd, signal) => {
     if (name !== 'gh') return command(name, args, cwd, signal)
     calls.push(args)
@@ -53,20 +52,15 @@ function fixture() {
     throw new Error(`Unexpected gh ${args.join(' ')}`)
   }
   const changes = new Changes(store, config, repo, path.join(dir, 'worktrees'), cmd)
-  const tracker = {
-    async create(id, title) { const page = { id: `page-${++pageNumber}`, url: `https://notion.so/page-${pageNumber}`, title }; pages.set(id, page); return page },
-    async find(id) { return pages.get(id) },
-    async section(id, section, md) { sections.set(`${id}:${section}`, md) },
-    async done(id) { notices.push(`done:${id}`) },
-  }
   const output = { async notice(c, text) { notices.push(text) }, async status() {}, async delta() {}, async finish() {}, async gate(c, gate, text) { gates.push({ c, gate, text }) } }
-  const tasks = new Tasks(store, config, changes, tracker, output)
+  const tasks = new Tasks(store, config, changes, output)
   const open = async () => {
     const w = await changes.open(key, '.')
     store.db.prepare('UPDATE worktrees SET origin=? WHERE id=?').run('https://github.com/fixture/repo.git', w.id)
     return changes.get(key, '.')
   }
-  return { dir, repo, remote, config, store, changes, tasks, tracker, output, pages, sections, notices, gates, prs, calls, open,
+  const section = (taskId, name) => store.db.prepare('SELECT md FROM sections WHERE task_id=? AND section=?').get(taskId, name)?.md
+  return { dir, repo, remote, config, store, changes, tasks, output, section, notices, gates, prs, calls, open,
     c: store.conversation(key), lostCreate() { lostCreate = true }, close() { store.close() } }
 }
 
@@ -168,13 +162,14 @@ try {
     try {
       const args = { title: 'Task', summary_md: 'Business summary', size: 'M', impact: 'medium' }
       const task = await f.tasks.create(f.c, args)
-      assert.equal((await f.tasks.create(f.c, args)).id, task.id); assert.equal(f.pages.size, 1)
+      assert.equal((await f.tasks.create(f.c, args)).id, task.id)
+      assert.equal(f.store.db.prepare('SELECT COUNT(*) AS n FROM tasks').get().n, 1)
       assert.equal(f.tasks.canWrite(key), false)
       const plan = await f.tasks.update(f.c, { task_id: task.id, section: 'plan', md: 'Implement the change and test it.', questions: [] })
       f.tasks.decide(plan.gate_id, 'approve', 'U1', 'C1')
       assert.equal(f.tasks.canWrite(key), true)
       await f.tasks.create(f.c, { ...args, plan_md: 'Unreviewed replacement' })
-      assert.equal(f.sections.get(`${task.notion_id}:plan`), 'Implement the change and test it.')
+      assert.equal(f.section(task.id, 'plan'), 'Implement the change and test it.')
       const changed = await f.tasks.update(f.c, { task_id: task.id, section: 'plan', md: 'Alternative plan.', questions: [] })
       assert.equal(f.tasks.canWrite(key), false)
       f.tasks.decide(plan.gate_id, 'approve', 'U1', 'C1')
@@ -296,23 +291,6 @@ try {
       assert.ok(fs.existsSync(path.join(w.dir, 'unsaved.txt')))
     } finally { f.close() }
   })
-  await check('small-fix card policy creates one traceability card and closes it on merge', async () => {
-    const f = fixture()
-    try {
-      f.config.policy.track_small_fixes = 'card'
-      const w = await f.open()
-      fs.writeFileSync(path.join(w.dir, 'answer.mjs'), 'export const answer = () => 2;\n')
-      await f.changes.tests(key, '.')
-      const args = { repo: '.', title: 'Small', body_md: 'Traceable fix' }
-      const result = await f.tasks.openPr(f.c, args)
-      await f.tasks.openPr(f.c, args)
-      assert.equal(f.pages.size, 1)
-      assert.equal(f.tasks.of(key).size, 'S')
-      f.prs.get(result.url).state = 'MERGED'
-      await f.tasks.poll()
-      assert.equal(f.tasks.of(key).state, 'completed')
-    } finally { f.close() }
-  })
   await check('all PRs must merge before a multi-repo task closes', async () => {
     const f = fixture()
     try {
@@ -411,29 +389,6 @@ try {
     assert.ok(blocks.get('page').some(b => b.id === 'human'))
     assert.equal(await upsertPlan(notion, 'page', 'Plan 1'), await upsertPlan(notion, 'page', 'Plan 2'))
   })
-  await check('board properties: typed url/select/people, and missing or unmapped columns skip loudly', async () => {
-    const updates = []
-    const client = {
-      dataSources: { async retrieve() { return { properties: {
-        Name: { type: 'title' }, Status: { type: 'status', status: { options: [{ name: 'Backlog' }] } },
-        Repo: { type: 'url' }, PR: { type: 'url' },
-        Estimacion: { type: 'select', select: { options: [{ name: 'Small' }, { name: 'Large' }] } },
-        Owner: { type: 'people' },
-      } } } },
-      pages: { async update(args) { updates.push(args) } },
-    }
-    const config = ConfigSchema.parse({ auth: { mode: 'indie' }, repos: { path: root }, slack: { workspace_team_id: 'T1', allowed_users: ['U1'] },
-      notion: { properties: { status: 'Status', repo: 'Repo', pr: 'PR', estimation: 'Estimacion', owner: 'Owner' }, people: { U1: 'notion-user-1' }, estimation_values: { S: 'Small', M: 'Medium' } } })
-    const tracker = new NotionTracker(config, client, 'source')
-    const ok = await tracker.properties('page', { repo: 'https://github.com/o/r', pr: 'https://github.com/o/r/pull/2', size: 'S', owner: 'U1' })
-    assert.deepEqual(ok.skipped, [])
-    assert.deepEqual(updates[0].properties, { Repo: { url: 'https://github.com/o/r' }, PR: { url: 'https://github.com/o/r/pull/2' },
-      Estimacion: { select: { name: 'Small' } }, Owner: { people: [{ object: 'user', id: 'notion-user-1' }] } })
-    // size M -> 'Medium' is not a board option; U2 has no Notion mapping: both are reported, neither is written.
-    const partial = await tracker.properties('page', { size: 'M', owner: 'U2' })
-    assert.ok(partial.skipped.some(s => /estimation/.test(s)) && partial.skipped.some(s => /owner/.test(s)))
-    assert.equal(updates.length, 1)
-  })
   await check('room: always gives an untasked patch a traceability card and a room', async () => {
     const f = fixture()
     try {
@@ -475,7 +430,7 @@ try {
       await assert.rejects(() => f.tasks.openPr(f.c, args), /lost room response/)
       const taskId = f.tasks.of(key).id
       assert.equal(f.tasks.of(key).room, null)
-      const recovered = new Tasks(f.store, f.config, f.changes, f.tracker, f.output, rooms)
+      const recovered = new Tasks(f.store, f.config, f.changes, f.output, rooms)
       await assert.rejects(() => recovered.openPr(f.c, args), /no se repetira/)
       visible = true
       await recovered.openPr(f.c, args)
@@ -484,7 +439,6 @@ try {
       assert.equal(recovered.of(key).room, 'RECOVERED')
       assert.equal(creates, 1)
       assert.equal(finds, 2)
-      assert.equal(f.pages.size, 1)
       assert.equal(f.prs.size, 1)
     } finally { f.close() }
   })

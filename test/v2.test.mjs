@@ -88,12 +88,17 @@ try {
     assert.equal(events[0].sessionId, 'existing'); assert.ok(events.some(e => e.kind === 'text_delta'))
     const args = runnerArgs(options)
     assert.ok(args.includes('--resume')); assert.ok(!args.includes('--bare')); assert.ok(!args.includes('--max-turns'))
-    assert.equal(args[args.indexOf('--permission-mode') + 1], 'default')
+    // bypass (default): the hooks are the guard; every repo MCP and tool stays usable headless.
+    assert.equal(args[args.indexOf('--permission-mode') + 1], 'bypassPermissions')
     assert.equal(args[args.indexOf('--setting-sources') + 1], 'user,project,local')
-    assert.ok(!args.includes('bypassPermissions'))
+    assert.ok(!args.includes('--allowedTools'))
     assert.ok(!args.includes('--strict-mcp-config'))
-    assert.equal(args[args.indexOf('--allowedTools') + 1], 'mcp__regent__*,Edit,Write,MultiEdit')
     assert.equal(args[args.indexOf('--add-dir') + 1], path.join(tmp, 'own worktree'))
+    // native: honor repo allow/ask/deny; only core tools and edits are pre-allowed.
+    const native = runnerArgs(runnerOptions({ permissionMode: 'native' }))
+    assert.equal(native[native.indexOf('--permission-mode') + 1], 'default')
+    assert.ok(!native.includes('bypassPermissions'))
+    assert.equal(native[native.indexOf('--allowedTools') + 1], 'mcp__regent__*,Edit,Write,MultiEdit')
   })
   await check('runtime lease rejects a second writer and permits read-only inspection', () => {
     const file = path.join(tmp, 'lease.sqlite')
@@ -497,7 +502,6 @@ try {
     assert.equal(migrateConfig({ chat: { invite_users: ['U1', 'U2'] } }, { REPO_PATH: tmp }).auth.mode, 'team')
     const migrated = migrateConfig({ name: 'Test', workspace_root: 'mono', repo_base_branches: { api: 'master' }, chat: { invite_users: ['U1'] }, states: [{ name: 'Inbox' }] }, { REPO_PATH: tmp, SLACK_TEAM_ID: 'T1' })
     assert.equal(migrated.auth.mode, 'indie'); assert.equal(migrated.repos.base_branches.api, 'master')
-    assert.equal(migrated.notion.landing_status, 'Inbox')
     const dir = path.join(tmp, 'legacy'); fs.mkdirSync(dir)
     fs.writeFileSync(path.join(dir, 'threads.json'), JSON.stringify({ 'C1:1': 'page-1' }))
     fs.writeFileSync(path.join(dir, 'rooms.json'), JSON.stringify({ 'page-1': { channelId: 'C2', tabRefs: ['old-terminal'] } }))

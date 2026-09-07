@@ -83,6 +83,13 @@ suscribe `agent_session_stopped`; la [migración de Slack es irreversible](https
 No expongas `/tools`, `/tool-policy` ni `/hook-denial` mediante el túnel. `/healthz` incluye conexión,
 cola y entregas pendientes; `/metrics` expone runs por estado.
 
+El repositorio clonado es la fuente de verdad: sus MCPs, skills, reglas y
+credenciales aplican tal cual. Los permisos son bypass por defecto, sin nada que
+configurar; la guarda son los hooks duros de regent (git/gh de escritura, tracker,
+secretos, worktree/plan) y las credenciales de solo lectura que el propio repo usa
+en sus bases. `readonly_mcp` y `permission_mode: native` existen como endurecimiento
+opcional para entornos no confiables — no son parte del setup normal.
+
 Los hooks permiten Edit/Write dentro del worktree propio, y exigen aprobación del
 plan cuando hay tarea. Bash conserva solo consultas simples de git/gh; instalar,
 ejecutar tests y publicar un PR se hace mediante las tools del core. También admite
@@ -91,15 +98,13 @@ MCPs deben usar credenciales de base de datos de solo lectura: el filtro de coma
 no reemplaza los permisos de la base. `agent_env_files` conserva el contexto del repo.
 Node >=22.20 y un Claude Code que soporte `--permission-prompts` son necesarios.
 
-Para tareas, configura `NOTION_TOKEN`, `DATA_SOURCE_ID` y los estados/propiedades de
-`notion` en el YAML. El manifiesto incluye permisos para salas privadas. Las tareas
-M/L requieren plan aprobado; QA se solicita después de publicar todos sus PRs.
-El card recibe las columnas que el board tenga: `Repo`/`PR` (url), estimación por
-`notion.estimation_values` y responsable por `notion.people` (mapeo Slack→Notion);
-la columna que falte o no se pueda mapear se omite y se registra, no rompe el flujo.
-Un cambio S sin tarea usa `policy.small_fix` y `track_small_fixes`; con `policy.room:
-always` también abre una sala para el parche a través de su card de trazabilidad.
-`fast_track` es opcional y está desactivado por defecto. Para tests fuera de `package.json`, declara
+El backlog es del repo, no de regent: si el proyecto define un MCP de Notion, una
+skill de backlog o sus propios estados, el agente los usa de forma 100% agéntica.
+regent solo registra la tarea localmente y gobierna lo humano: sala, compuertas de
+plan/QA con botones, y seguimiento de PRs hasta el merge. Las tareas M/L requieren
+plan aprobado; QA se solicita después de publicar todos sus PRs. Un cambio S sin
+tarea usa `policy.small_fix` y `track_small_fixes` (`digest`); `fast_track` es
+opcional y está desactivado por defecto. Para tests fuera de `package.json`, declara
 `repos.test_commands: { mi-repo: ["pytest", "-q"] }` (clave `.` para el repo raíz).
 La instalación automática solo admite proyectos Node con lockfile.
 
@@ -107,8 +112,7 @@ El servidor verifica merges cada 60 segundos. Opcionalmente expón **solo**
 `POST /webhooks/github` y configura `GITHUB_WEBHOOK_SECRET` para recibir eventos
 `pull_request`; el webhook valida firma y deduplica, y el core confirma el merge con
 `gh` antes de cerrar la tarea. `pnpm regent sync` revisa las tareas de la CLI;
-las compuertas de Slack se responden en Slack. No apuntes aún el webhook de Notion
-a v2: la entrada board-first y la migración completa de tareas v1 siguen pendientes.
+las compuertas de Slack se responden en Slack.
 
 Un resultado remoto incierto se reconcilia antes de repetir una creación. Si no puede
 reconciliarse, se detiene con aviso para revisión operativa; no se garantiza

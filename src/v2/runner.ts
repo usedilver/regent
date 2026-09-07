@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { StringDecoder } from 'node:string_decoder'
 import path from 'node:path'
 import { BRIDGE_DIR } from '../env.ts'
+import { ensureTrusted, ensureBypassAccepted } from '../claude-settings.ts'
 
 export interface RunnerEvent { kind: string; [key: string]: any }
 export interface RunnerResult { state: 'completed' | 'failed' | 'interrupted'; text: string; error: string; cost: number; usage: unknown }
@@ -9,15 +10,20 @@ export interface RunnerOptions {
   cwd: string; prompt: string; runId: string; sessionId?: string | null; model?: string | null
   env?: NodeJS.ProcessEnv; toolsUrl: string; token: string; readonlyMcp: string[]
   additionalDirectories?: string[]
+  /** bypass (default): hooks are the only guard — a headless run cannot answer prompts, so every
+   * repo MCP and tool works and datos quedan disponibles. native: honor repo allow/ask/deny;
+   * anything unanswered is auto-denied until per-command approvals from chat exist. */
+  permissionMode?: 'bypass' | 'native'
   timeoutMs: number; stallMs: number; graceMs: number; maxCost?: number
   command?: string; prefixArgs?: string[]; onEvent(event: RunnerEvent): void
 }
 
 export function runnerArgs(options: RunnerOptions): string[] {
+  const native = options.permissionMode === 'native'
   return ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
-    '--permission-mode', 'default', '--permission-prompts', 'none',
+    '--permission-mode', native ? 'default' : 'bypassPermissions', '--permission-prompts', 'none',
     '--setting-sources', 'user,project,local',
-    '--allowedTools', 'mcp__regent__*,Edit,Write,MultiEdit',
+    ...(native ? ['--allowedTools', 'mcp__regent__*,Edit,Write,MultiEdit'] : []),
     ...(options.additionalDirectories ?? []).flatMap(dir => ['--add-dir', dir]),
     '--append-system-prompt-file', path.join(BRIDGE_DIR, 'plugin/colleague.md'),
     '--plugin-dir', path.join(BRIDGE_DIR, 'plugin'),
@@ -42,13 +48,17 @@ export function normalizeEvent(raw: any): RunnerEvent[] {
 }
 
 export function startRunner(options: RunnerOptions): { done: Promise<RunnerResult>; cancel(reason?: string): void; setTimeoutMs?(ms: number): void } {
+  const native = options.permissionMode === 'native'
+  if (!native && !options.command) { ensureTrusted(options.cwd); ensureBypassAccepted() }
   const env = { ...process.env, ...options.env, REGENT_RUN_ID: options.runId, REGENT_RUN_TOKEN: options.token,
     REGENT_TOOLS_URL: options.toolsUrl, REGENT_READONLY_MCP: JSON.stringify(options.readonlyMcp), REGENT_ROOT: options.cwd,
-    REGENT_PERMISSION_MODE: 'repository',
+    ...(native ? { REGENT_PERMISSION_MODE: 'repository' } : {}),
     GIT_PAGER: 'cat', GH_PAGER: 'cat', GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' }
   // Do not inherit a parent interactive session or alternate subscription tokens.
   delete env.CLAUDECODE
   delete env.CLAUDE_CODE_OAUTH_TOKEN
+  // In bypass the hook is the only guard: never let an inherited var make it abstain.
+  if (!native) delete env.REGENT_PERMISSION_MODE
   const child = spawn(options.command ?? 'claude', [...(options.prefixArgs ?? []), ...runnerArgs(options)], {
     cwd: options.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32',
   })

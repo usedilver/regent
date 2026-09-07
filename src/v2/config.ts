@@ -8,6 +8,9 @@ const positive = z.number().positive().finite()
 export const ConfigSchema = z.object({
   name: z.string().min(1).default('Regent'),
   auth: z.object({ mode: z.enum(['indie', 'team']) }),
+  // bypass (default): un agente con todas las herramientas del repo; los hooks duros son la guarda.
+  // native: respeta allow/ask/deny del repo — en headless lo no permitido se auto-deniega.
+  permission_mode: z.enum(['bypass', 'native']).default('bypass'),
   repos: z.object({
     path: z.string().min(1),
     workspace_root: z.string().min(1).nullable().default(null),
@@ -33,17 +36,11 @@ export const ConfigSchema = z.object({
   budget: z.object({ max_cost_usd_per_run: positive.default(8), max_cost_usd_per_user_day: positive.default(25) }).prefault({}),
   session: z.object({ idle_reset_hours: positive.default(24) }).prefault({}),
   models: z.object({ ask: z.string().nullable().default(null), patch: z.string().nullable().default(null), task: z.string().nullable().default(null), project: z.string().nullable().default(null) }).prefault({}),
-  notion: z.object({
-    board_triggers: z.boolean().default(false),
-    landing_status: z.string().default('Backlog'),
-    pr_merged_moves_to: z.string().default('Done'),
-    properties: z.object({ status: z.string().default('Status'), repo: z.string().default('Repo'), pr: z.string().default('PR'), estimation: z.string().nullable().optional(), owner: z.string().nullable().optional() }).prefault({}),
-    people: z.record(z.string(), z.string()).default({}),                 // Slack user id -> Notion user id (owner)
-    estimation_values: z.record(z.string(), z.string()).default({}),      // size S/M/L -> board option name
-  }).prefault({}),
+  // Legado, ignorado: el backlog es del repo (su MCP de Notion, sus skills), no de regent.
+  notion: z.record(z.string(), z.unknown()).default({}),
   policy: z.object({
     room: z.enum(['never', 'on_task', 'always']).default('on_task'),
-    track_small_fixes: z.enum(['none', 'digest', 'card']).default('digest'),
+    track_small_fixes: z.enum(['none', 'digest']).default('digest'),
     fast_track: z.boolean().default(false),
     small_fix: z.object({
       max_files: z.number().int().positive().default(5), max_lines: z.number().int().positive().default(150),

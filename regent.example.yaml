@@ -1,4 +1,8 @@
 name: Regent
+# bypass (default): el agente usa todas las herramientas y MCPs del repo; los hooks
+# duros de regent son la guarda (git/gh de escritura, tracker, secretos, readonly_mcp).
+# native: respeta allow/ask/deny del repo; en headless lo no permitido se auto-deniega.
+permission_mode: bypass
 auth:
   # Pro/Max personal via Claude Code. Compartir la cuenta puede causar suspension/baneo.
   mode: indie
@@ -26,19 +30,9 @@ models:
   ask: null
   patch: null
   task: null
-notion:
-  board_triggers: false # Entrada board-first todavia no implementada en v2.
-  landing_status: Backlog
-  pr_merged_moves_to: Done
-  # status es obligatorio; el resto se escribe solo si el board tiene esa columna con el tipo correcto.
-  properties: { status: Status, repo: Repo, pr: PR } # estimation: Estimacion, owner: Owner
-  # owner es una propiedad people: sin mapeo Slack->Notion se omite (no falla en silencio).
-  people: {} # { U_SLACK: notion-user-uuid }
-  # estimation (select): mapea el tamano al nombre exacto de la opcion del board; sin mapeo se omite.
-  estimation_values: {} # { S: Small, M: Medium, L: Large }
 policy:
   room: on_task # always tambien abre sala para un parche sin tarea (via su card de trazabilidad).
-  track_small_fixes: digest # Requiere slack.digest_channel para publicar el digest.
+  track_small_fixes: digest # none|digest; digest requiere slack.digest_channel.
   fast_track: false
   small_fix:
     max_files: 5
