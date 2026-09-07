@@ -4,7 +4,7 @@ description: Investigate a regent task and prepare its technical plan for human 
 ---
 
 Read the repository and the task summary. Separate effort (S/M/L) from impact.
-Explain the cause, affected repos, proposed change and verification. Keep the card
+Explain the cause, affected repos, proposed change and verification. Keep the
 summary readable by nontechnical participants; put technical detail in the plan.
 State observable acceptance criteria. When alternatives have meaningful tradeoffs,
 compare them briefly, recommend one and explain why it addresses the root cause.
