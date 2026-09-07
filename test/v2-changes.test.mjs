@@ -100,12 +100,13 @@ try {
     const accepted = store.accept({ adapter: 'slack', eventId: 'old', key, author: 'U1', text: 'queued before upgrade', channel: 'C1' }, root, 24)
     store.session(key, 'old-session')
     store.db.exec(`DROP TABLE task_gates; DROP TABLE sections; DROP TABLE tasks; DROP TABLE prs; DROP TABLE worktrees; DROP TABLE effects;
+      DROP INDEX gates_question_id; ALTER TABLE gates DROP COLUMN question_id; ALTER TABLE gates DROP COLUMN options; ALTER TABLE gates DROP COLUMN destination;
       ALTER TABLE runs DROP COLUMN reply_channel; ALTER TABLE runs DROP COLUMN intent; PRAGMA user_version=1;`)
     store.close(); store = new Store(file)
     assert.equal(store.conversation(key).session_id, 'old-session')
     assert.equal(store.run(accepted.runId).state, 'queued')
     assert.equal(store.run(accepted.runId).intent, 'ask')
-    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 2)
+    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 3)
     store.close()
   })
   await check('publish: tests tied to final tree, commit/push and idempotent PR', async () => {

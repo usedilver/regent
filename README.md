@@ -36,7 +36,7 @@ revisa su autenticación para usar tu suscripción.
 
 regent es un colega en el chat: le hablas por Slack (DM o mención), lee tus repos y
 datos con contexto por conversación, responde en streaming, parcha lo chico y abre un
-PR, y sube tarea a Notion solo cuando vale la pena. `ask` (Slack + PR) está validado
+PR, y sube tarea a Notion solo cuando vale la pena. `ask` y `patch` (Slack + PR) están validados
 en real; el flujo de tarea y el soak siguen pendientes. Detalle en [docs/v2.md](docs/v2.md).
 
 ```sh
@@ -52,6 +52,13 @@ pnpm regent gate <gate_id> approve
 pnpm regent sync
 pnpm regent tail <run_id> --follow
 ```
+
+Cuando Regent necesita una decisión, puede mostrar hasta cinco opciones con botones
+en el hilo. También puedes responder con tus propias palabras. La respuesta continúa
+la misma conversación; un botón ya respondido o de una pregunta reemplazada no vuelve
+a ejecutar trabajo. Elegir una alternativa no reemplaza la aprobación del plan o QA.
+En CLI las opciones se muestran como texto. El arranque actualiza SQLite al esquema 3
+y conserva las sesiones y preguntas pendientes de versiones anteriores.
 
 Antes de iniciar: copia `regent.example.yaml` a `config/regent.yaml` y completa
 `auth.mode`, `slack.workspace_team_id` y `slack.allowed_users`. Necesita
@@ -103,4 +110,3 @@ exactly-once para mensajes de Slack ni atomicidad al reemplazar una sección de 
 
 `REGENT_SMOKE=1 pnpm smoke` prueba una consulta con Claude real y una base temporal;
 puede consumir saldo. La suite normal usa procesos falsos y no necesita tokens.
-

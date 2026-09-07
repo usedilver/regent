@@ -24,6 +24,13 @@ export class DurableOutput implements Output {
           const args = JSON.parse(row.args as string)
           if (row.kind === 'notice') await this.delegate.notice(args[0], args[1])
           else if (row.kind === 'status') await this.delegate.status(args[0], args[1])
+          else if (row.kind === 'question') {
+            const current = this.store.db.prepare('SELECT state FROM gates WHERE question_id=?').get(args[1].id)
+            if (current?.state === 'pending') {
+              if (this.delegate.question) await this.delegate.question(args[0], args[1])
+              else await this.delegate.notice(args[0], [args[1].text, ...args[1].options.map((o: string, i: number) => `${i + 1}. ${o}`)].join('\n'))
+            }
+          }
           else if (row.kind === 'gate') {
             if (this.delegate.gate) await this.delegate.gate(args[0], args[1], args[2])
             else await this.delegate.notice(args[0], `${args[2]}\nCompuerta: ${args[1].id}`)
@@ -48,5 +55,6 @@ export class DurableOutput implements Output {
   delta(c: Conversation, run: Run, text: string) { return this.delegate.delta(c, run, text) }
   finish(c: Conversation, run: Run, text: string) { return this.enqueue('finish', [c, run, text], c.key) }
   gate(c: Conversation, gate: { id: string; kind: string; questions: string[] }, text: string) { return this.enqueue('gate', [c, gate, text], c.key) }
+  question(c: Conversation, question: { id: string; text: string; options: string[] }) { return this.enqueue('question', [c, question], c.key) }
   async close(): Promise<void> { clearInterval(this.timer); await Promise.allSettled(this.inflight.values()) }
 }

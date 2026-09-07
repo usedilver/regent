@@ -7,7 +7,8 @@ export function denial(input, env = process.env) {
   const args = input.tool_input ?? {}
   if (name === 'Skill') return null
   if (['Read', 'Glob', 'Grep'].includes(name)) {
-    if (/\.credentials\.json|\.env(?:\b|$)|\.claude\.json/.test(JSON.stringify(args))) return 'No leer archivos de credenciales; consulta codigo sin secretos.'
+    const paths = [args.file_path, args.path, name === 'Glob' ? args.pattern : null, args.glob].filter(Boolean)
+    if (/\.credentials\.json|\.env(?:\b|$)|\.claude\.json/.test(JSON.stringify(paths))) return 'No leer archivos de credenciales; consulta codigo sin secretos.'
     return null
   }
   if (['status', 'ask_human', 'cancel', 'worktree', 'install', 'run_tests', 'open_pr', 'create_task', 'update_task', 'request_qa'].some(tool => name === `mcp__regent__regent_${tool}`)) return null
@@ -22,13 +23,14 @@ export function denial(input, env = process.env) {
       if (words[index] === '-C') {
         const root = fs.realpathSync(env.REGENT_ROOT)
         let dir
-        try { dir = fs.realpathSync(path.resolve(root, words[index + 1] ?? '')) } catch { return 'Directorio git inexistente.' }
+        try { dir = fs.realpathSync(path.resolve(env.REGENT_CWD ?? root, words[index + 1] ?? '')) } catch { return 'Directorio git inexistente.' }
         const relative = path.relative(root, dir)
         if (relative.startsWith('..') || path.isAbsolute(relative)) return 'git -C debe consultar un repo dentro del workspace.'
         index += 2
       }
       const readOnly = ['log', 'show', 'blame', 'status', 'diff', 'ls-files', 'ls-tree', 'rev-parse', 'grep', 'show-ref', 'cat-file', 'describe', 'rev-list', 'shortlog']
-      if (!readOnly.includes(words[index])) return 'Usa las tools del core para modificar git.'
+      if (words[index] === 'submodule' && words[index + 1] === 'status' && words.slice(index + 2).every(w => ['--recursive', '--cached'].includes(w))) return null
+      if (!readOnly.includes(words[index])) return 'Subcomando git no habilitado para lectura. Usa git status/log/diff/ls-files o git submodule status; para cambios y publicacion usa las tools del core.'
       // Restrict cat-file to raw object inspection; filter options can spawn processes.
       if (words[index] === 'cat-file') {
         const [mode, object, ...extra] = words.slice(index + 1)

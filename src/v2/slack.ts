@@ -14,6 +14,17 @@ export class SlackOutput implements Output {
   streams = new Map<string, Stream>()
   flushMs: number
   constructor(api: Api, flushMs = 3000) { this.api = api; this.flushMs = flushMs }
+  async question(c: Conversation, question: { id: string; text: string; options: string[] }): Promise<void> {
+    if (!question.options.length) return this.notice(c, question.text)
+    const options = question.options.map((o, i) => `${i + 1}. ${redact(o)}`).join('\n')
+    await this.api('chat.postMessage', { channel: c.channel, thread_ts: c.thread ?? undefined,
+      text: `${redact(question.text)}\n${options}`, unfurl_links: false, blocks: [
+        { type: 'section', text: { type: 'plain_text', text: redact(question.text) } },
+        { type: 'section', text: { type: 'plain_text', text: options } },
+        { type: 'actions', elements: question.options.map((_, i) => ({ type: 'button',
+          text: { type: 'plain_text', text: `Opcion ${i + 1}` }, action_id: `regent_question_${i}`, value: question.id })) },
+      ] })
+  }
   async gate(c: Conversation, gate: { id: string; kind: string; questions: string[] }, text: string): Promise<void> {
     const choices = [
       ...(!gate.questions.length ? [{ label: gate.kind === 'plan' ? 'Aprobar plan' : 'Probado', decision: 'approve', style: 'primary' }] : []),
@@ -224,6 +235,15 @@ export function createSlack(config: Config) {
     const key = task?.conversation_key as string ?? (event.channel.startsWith('D') ? `slack:${event.channel}` : `slack:${event.channel}:${event.thread_ts}`)
     const input = { adapter: 'slack' as const, key, eventId: body.event_id, channel: event.channel, thread: event.channel.startsWith('D') ? undefined : event.thread_ts, team: body.team_id, author: event.user, text: 'stop' }
     if (core.authorized(input)) await core.submit(input)
+  })
+  app.action(/^regent_question_([0-4])$/, async ({ ack, body, action, respond }: any) => {
+    await ack()
+    try {
+      if (body.user?.team_id && body.user.team_id !== config.slack.workspace_team_id) throw new Error('Usuario de otro workspace.')
+      const result = await core.answerQuestion(action.value, Number(action.action_id.replace('regent_question_', '')),
+        body.user.id, body.team?.id, body.channel?.id, body.message?.thread_ts ?? body.message?.ts)
+      await respond({ text: result.duplicate ? 'La pregunta ya fue respondida.' : 'Respuesta registrada.', replace_original: false, response_type: 'ephemeral' })
+    } catch (error) { await respond({ text: redact((error as Error).message), replace_original: false, response_type: 'ephemeral' }) }
   })
   app.action(/^regent_gate_(approve|changes|cancel)$/, async ({ ack, body, action, respond }: any) => {
     await ack()

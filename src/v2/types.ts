@@ -43,6 +43,7 @@ export interface Run {
 }
 
 export interface Output {
+  question?(conversation: Conversation, question: { id: string; text: string; options: string[] }): Promise<void>
   notice(conversation: Conversation, text: string): Promise<void>
   status(conversation: Conversation, status: 'processing' | 'active' | 'suspended'): Promise<void>
   delta(conversation: Conversation, run: Run, text: string): Promise<void>

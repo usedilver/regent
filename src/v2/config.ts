@@ -11,6 +11,7 @@ export const ConfigSchema = z.object({
   repos: z.object({
     path: z.string().min(1),
     workspace_root: z.string().min(1).nullable().default(null),
+    default_repo: z.string().min(1).nullable().default(null),
     default_base_branch: z.string().nullable().default('develop'),
     base_branches: z.record(z.string(), z.string()).default({}),
     agent_env_files: z.array(z.string()).default([]),
@@ -82,5 +83,16 @@ export function workspaceDir(config: Config): string {
   const dir = fs.realpathSync(path.resolve(root, config.repos.workspace_root ?? '.'))
   const relative = path.relative(root, dir)
   if (relative.startsWith('..') || path.isAbsolute(relative) || !fs.statSync(dir).isDirectory()) throw new Error('workspace_root debe ser una carpeta dentro de repos.path.')
+  return dir
+}
+
+export function defaultRepoDir(config: Config, workspace: string): string {
+  if (!config.repos.default_repo) return workspace
+  const root = fs.realpathSync(workspace)
+  const dir = fs.realpathSync(path.resolve(root, config.repos.default_repo))
+  const relative = path.relative(root, dir)
+  if (relative.startsWith('..') || path.isAbsolute(relative) || !fs.statSync(dir).isDirectory() || !fs.existsSync(path.join(dir, '.git'))) {
+    throw new Error('repos.default_repo debe ser un repo dentro del workspace.')
+  }
   return dir
 }
