@@ -290,9 +290,9 @@ export class Core {
     const active = this.byToken(token)
     if (!active || active.waiting || active.cancelled || active.abort.signal.aborted) return 'El run no admite mas herramientas.'
     const worktrees = this.changes.list(active.run.conversation_key)
-    if (['Write', 'Edit', 'MultiEdit'].includes(input.tool_name)) {
+    if (['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(input.tool_name)) {
       if (!this.tasks.canWrite(active.run.conversation_key)) return 'Falta aprobar la version actual del plan.'
-      const file = input.tool_input?.file_path
+      const file = input.tool_input?.file_path ?? input.tool_input?.notebook_path
       if (typeof file !== 'string' || !path.isAbsolute(file)) return 'Usa la ruta absoluta del archivo dentro de tu worktree.'
       let parent = file
       const exists = (candidate: string) => { try { fs.lstatSync(candidate); return true } catch { return false } }

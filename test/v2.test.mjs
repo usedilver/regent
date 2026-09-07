@@ -470,6 +470,7 @@ try {
     // Los MCPs del repo/usuario son contexto confiable: permitidos salvo que readonly_mcp los marque.
     assert.equal(test('mcp__claude_ai_Notion__notion-fetch', { id: 'x' }), null)
     assert.equal(test('mcp__unknown__query', { sql: 'SELECT 1' }), null)
+    assert.equal(test('ToolSearch', { query: 'select:mcp__database-prod__execute_sql' }), null) // loads deferred repo MCP tools
     assert.equal(test('Task', { prompt: 'explora' }), null)
     assert.equal(test('WebFetch', { url: 'https://example.com' }), null)
     assert.ok(test('NotebookEdit', { notebook_path: '/x.ipynb' }))

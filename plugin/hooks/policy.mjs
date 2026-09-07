@@ -12,6 +12,9 @@ export function denial(input, env = process.env) {
     if (/\.credentials\.json|\.env(?:\b|$)|\.claude\.json/.test(JSON.stringify(paths))) return 'No leer archivos de credenciales; consulta codigo sin secretos.'
     return null
   }
+  // Escrituras: el core las gatea (worktree propio + plan). El hook las niega por defensa
+  // cuando actua solo (el core responde antes en el flujo normal).
+  if (['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(name)) return 'Las escrituras pasan por el core: worktree propio y plan aprobado.'
   if (['status', 'ask_human', 'cancel', 'worktree', 'install', 'run_tests', 'open_pr', 'close_pr', 'create_task', 'update_task', 'request_qa'].some(tool => name === `mcp__regent__regent_${tool}`)) return null
   if (name === 'Bash') {
     const command = args.command ?? ''
@@ -75,10 +78,11 @@ export function denial(input, env = process.env) {
   }
   // El repo es la fuente de verdad: sus MCPs (y los del usuario) son contexto confiable.
   // Los servidores marcados en readonly_mcp ya quedaron restringidos arriba.
-  if (name.startsWith('mcp__')) return null
-  if (['Task', 'WebFetch', 'WebSearch', 'TodoWrite'].includes(name)) return null
-  if (env.REGENT_PERMISSION_MODE === 'repository') return null
-  return `${name}: herramienta no habilitada. Los cambios requieren un worktree propio y la autorizacion del core.`
+  // Repo/user MCP tools and every built-in meta tool (ToolSearch loads deferred MCP tools,
+  // Task/WebFetch/WebSearch/TodoWrite, etc.) are the repo's context, not a threat. The real
+  // guards are above: credentials, git/gh writes, readonly MCP DML, and worktree-scoped edits
+  // (core enforces those for Write/Edit). Abstain here: bypass runs it, native lets the repo decide.
+  return null
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
