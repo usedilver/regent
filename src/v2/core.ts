@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { Config } from './config.ts'
 import { assertAuth, defaultRepoDir } from './config.ts'
-import { agentEnvFiles, loadAgentEnv } from '../env.ts'
+import { agentEnvFiles, loadAgentEnv, ownEnvKeys } from '../env.ts'
 import { startRunner, type RunnerEvent, type RunnerOptions } from './runner.ts'
 import { Store, redact } from './store.ts'
 import type { Conversation, Inbound, Output, Run } from './types.ts'
@@ -29,6 +29,7 @@ export class Core {
   active = new Map<string, Active>()
   preparing = new Set<string>()
   degradedNotified = new Map<string, string>()
+  secretKeys: string[] = ownEnvKeys()
   stopping = false
   runner: typeof startRunner
   runnerOverrides: Partial<RunnerOptions>
@@ -126,8 +127,13 @@ export class Core {
     let heartbeat: NodeJS.Timeout | undefined
     try {
       // Load the repo's own .env (like the repo's `talently claude` wrapper) so its .mcp.json ${VARS} resolve.
-      const env = { ...process.env, ...loadAgentEnv(agentEnvFiles(this.config.repos.agent_env_files, conversation.cwd)).vars }
-      // Repo env files may supply MCP variables, never replace the operator's API identity.
+      const repoVars = loadAgentEnv(agentEnvFiles(this.config.repos.agent_env_files, conversation.cwd)).vars
+      const env: NodeJS.ProcessEnv = { ...process.env }
+      // Regent's own service secrets (its Slack/Notion/GitHub tokens) never reach the agent,
+      // unless the repo re-provides that exact key in its own .env.
+      for (const key of this.secretKeys) if (!(key in repoVars)) delete env[key]
+      Object.assign(env, repoVars)
+      // The operator's API identity is regent's, not the repo's: keep it from process.env only.
       if (process.env.ANTHROPIC_API_KEY) env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
       else delete env.ANTHROPIC_API_KEY
       assertAuth(this.config, env)

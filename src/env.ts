@@ -20,6 +20,11 @@ export function parseEnvFile(envPath: string): Record<string, string> {
   return out
 }
 
+/** Keys defined in regent's own .env (its Slack/Notion/GitHub secrets): never handed to the agent. */
+export function ownEnvKeys(file: string = path.join(BRIDGE_DIR, '.env')): string[] {
+  return Object.keys(parseEnvFile(file))
+}
+
 export function loadEnv(): void {
   for (const [key, val] of Object.entries(parseEnvFile(path.join(BRIDGE_DIR, '.env')))) {
     if (!(key in process.env)) process.env[key] = val

@@ -576,6 +576,14 @@ try {
       assert.equal(captured.env.REPO_ONLY_TOKEN, 'secret-xyz')
       assert.equal(captured.env.MYSQL_PROD_HOST, 'db.internal')
       assert.equal(captured.env.WORKSPACE_ONLY, undefined)
+      // Regent's own service secret must not leak into the agent env.
+      process.env.REGENT_LEAK_TOKEN = 'do-not-share'
+      core.secretKeys = ['REGENT_LEAK_TOKEN']
+      await core.submit({ adapter: 'slack', eventId: 'e2', key: 'slack:C1:1', author: 'U1', text: 'otra', channel: 'C1', thread: '1', team: 'T1' })
+      while (core.active.size) await Promise.allSettled([...core.active.values()].map(a => a.done))
+      assert.equal(captured.env.REGENT_LEAK_TOKEN, undefined)
+      assert.equal(captured.env.REPO_ONLY_TOKEN, 'secret-xyz')
+      delete process.env.REGENT_LEAK_TOKEN
     } finally { await core.close(); store.close() }
   })
 } finally { fs.rmSync(tmp, { recursive: true, force: true }) }
