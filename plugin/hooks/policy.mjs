@@ -15,38 +15,54 @@ export function denial(input, env = process.env) {
   if (['status', 'ask_human', 'cancel', 'worktree', 'install', 'run_tests', 'open_pr', 'close_pr', 'create_task', 'update_task', 'request_qa'].some(tool => name === `mcp__regent__regent_${tool}`)) return null
   if (name === 'Bash') {
     const command = args.command ?? ''
-    const words = literalCommand(command)
-    if (!words) return 'Bash admite argumentos literales, incluidas comillas; sin operadores, expansiones ni comodines sin comillas. Usa Read/Glob/Grep para explorar archivos.'
-    if (/\.credentials\.json|\.env\b|\.claude\.json/.test(words.join(' '))) return 'No leer credenciales mediante comandos git o gh.'
-    // Returning null abstains: Claude still evaluates repository allow/ask/deny.
-    if (env.REGENT_PERMISSION_MODE === 'repository' && !['git', 'gh'].includes(words[0])) return null
-    // Mutating commands go through the core; Bash stays read-only.
-    if (words[0] === 'git') {
-      let index = 1
-      if (words[index] === '-C') {
-        const root = fs.realpathSync(env.REGENT_ROOT)
-        let dir
-        try { dir = fs.realpathSync(path.resolve(env.REGENT_CWD ?? root, words[index + 1] ?? '')) } catch { return 'Directorio git inexistente.' }
-        const relative = path.relative(root, dir)
-        if (relative.startsWith('..') || path.isAbsolute(relative)) return 'git -C debe consultar un repo dentro del workspace.'
-        index += 2
-      }
-      const readOnly = ['log', 'show', 'blame', 'status', 'diff', 'ls-files', 'ls-tree', 'rev-parse', 'grep', 'show-ref', 'cat-file', 'describe', 'rev-list', 'shortlog']
-      if (words[index] === 'submodule' && words[index + 1] === 'status' && words.slice(index + 2).every(w => ['--recursive', '--cached'].includes(w))) return null
-      if (!readOnly.includes(words[index])) return 'Subcomando git no habilitado para lectura. Usa git status/log/diff/ls-files o git submodule status; para cambios y publicacion usa las tools del core.'
-      // Restrict cat-file to raw object inspection; filter options can spawn processes.
-      if (words[index] === 'cat-file') {
-        const [mode, object, ...extra] = words.slice(index + 1)
-        if (!['-p', '-t', '-s', '-e', 'blob', 'tree', 'commit', 'tag'].includes(mode) || !object || object.startsWith('-') || extra.length) {
-          return 'cat-file solo admite inspeccion directa: -p, -t, -s, -e o tipo de objeto, seguido de un objeto; sin filtros ni modos batch.'
-        }
-      }
-      // -O/--open-files-in-pager (git grep) and the diff-driver/config options can execute a program.
-      if (words.some(w => /^--(?:output|open-files-in-pager|ext-diff|textconv|no-index|exec|config)/.test(w) || /^-O/.test(w))) return 'Opcion git no permitida en una consulta de lectura.'
-      return null
+    const native = env.REGENT_PERMISSION_MODE === 'repository'
+    // Security floor (both modes): never read credentials, never pipe a download into an interpreter,
+    // never recursively delete an absolute or home path (a worktree rm is fine).
+    if (/\.credentials\.json|\.env(?:\b|$)|\.claude\.json/.test(command)) return 'No leer archivos de credenciales.'
+    if (/\b(?:curl|wget|fetch)\b[\s\S]*\|\s*(?:sudo\s+)?(?:sh|bash|zsh|ash|dash|python[0-9.]*|node|perl|ruby)\b/.test(command)) return 'No canalizar una descarga a un interprete.'
+    const rmMatch = command.match(/(?:^|[;&|]\s*|\s)rm\s+([^;&|]+)/)
+    if (rmMatch) {
+      const parts = rmMatch[1].trim().split(/\s+/)
+      const flags = parts.filter(a => a.startsWith('-')).join('')
+      const targets = parts.filter(a => !a.startsWith('-'))
+      if (/r/i.test(flags) && /f/i.test(flags) && targets.some(t => /^(?:\/|~|\$HOME|\$\{HOME\})/.test(t))) return 'No borrar recursivamente rutas absolutas o del home.'
     }
-    if (words[0] === 'gh' && ['pr', 'issue', 'repo'].includes(words[1]) && ['view', 'list', 'diff'].includes(words[2]) && !words.some(w => /^--(?:web|template)/.test(w))) return null
-    return 'Bash solo admite git y gh de lectura; usa las tools del core para instalar, verificar y publicar.'
+    const words = literalCommand(command)
+    const first = words ? words[0] : (command.trim().match(/^[^\s|&;<>()`$]+/) ?? [''])[0]
+    // Tracker and worktree publication go through the core tools, never direct.
+    if (['ncard', 'regent-wt'].includes(first)) return 'ncard y regent-wt van por las tools del core, no por Bash.'
+    // git/gh: reads allowed in both modes; writes go through the core publication tools.
+    if (first === 'git' || first === 'gh') {
+      if (!words) return 'Para git/gh usa un comando literal de lectura, sin operadores; la publicacion va por las tools del core.'
+      if (/\.credentials\.json|\.env\b|\.claude\.json/.test(words.join(' '))) return 'No leer credenciales mediante git o gh.'
+      if (first === 'git') {
+        let index = 1
+        if (words[index] === '-C') {
+          const root = fs.realpathSync(env.REGENT_ROOT)
+          let dir
+          try { dir = fs.realpathSync(path.resolve(env.REGENT_CWD ?? root, words[index + 1] ?? '')) } catch { return 'Directorio git inexistente.' }
+          const relative = path.relative(root, dir)
+          if (relative.startsWith('..') || path.isAbsolute(relative)) return 'git -C debe consultar un repo dentro del workspace.'
+          index += 2
+        }
+        const readOnly = ['log', 'show', 'blame', 'status', 'diff', 'ls-files', 'ls-tree', 'rev-parse', 'grep', 'show-ref', 'cat-file', 'describe', 'rev-list', 'shortlog']
+        if (words[index] === 'submodule' && words[index + 1] === 'status' && words.slice(index + 2).every(w => ['--recursive', '--cached'].includes(w))) return null
+        if (!readOnly.includes(words[index])) return 'Subcomando git de escritura: usa las tools del core para publicar.'
+        if (words[index] === 'cat-file') {
+          const [mode, object, ...extra] = words.slice(index + 1)
+          if (!['-p', '-t', '-s', '-e', 'blob', 'tree', 'commit', 'tag'].includes(mode) || !object || object.startsWith('-') || extra.length) {
+            return 'cat-file solo admite inspeccion directa: -p, -t, -s, -e o tipo de objeto, seguido de un objeto; sin filtros ni modos batch.'
+          }
+        }
+        if (words.some(w => /^--(?:output|open-files-in-pager|ext-diff|textconv|no-index|exec|config)/.test(w) || /^-O/.test(w))) return 'Opcion git no permitida en una consulta de lectura.'
+        return null
+      }
+      if (['pr', 'issue', 'repo'].includes(words[1]) && ['view', 'list', 'diff'].includes(words[2]) && !words.some(w => /^--(?:web|template)/.test(w))) return null
+      return 'gh de escritura: usa las tools del core para publicar.'
+    }
+    // Any other command: bypass runs it (this hook is the guard); native lets the repo settings decide.
+    void native
+    return null
   }
   let servers = []
   try { servers = JSON.parse(env.REGENT_READONLY_MCP ?? '[]') } catch { return 'Configuracion readonly_mcp invalida.' }

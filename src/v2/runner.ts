@@ -12,7 +12,7 @@ export interface RunnerOptions {
   additionalDirectories?: string[]
   /** bypass (default): hooks are the only guard — a headless run cannot answer prompts, so every
    * repo MCP and tool works and datos quedan disponibles. native: honor repo allow/ask/deny;
-   * anything unanswered is auto-denied until per-command approvals from chat exist. */
+   * anything unanswered is auto-denied (native is for untrusted repos only). */
   permissionMode?: 'bypass' | 'native'
   timeoutMs: number; stallMs: number; graceMs: number; maxCost?: number
   command?: string; prefixArgs?: string[]; onEvent(event: RunnerEvent): void

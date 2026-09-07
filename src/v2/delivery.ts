@@ -32,14 +32,7 @@ export class DurableOutput implements Output {
               else await this.delegate.notice(args[0], [args[1].text, ...args[1].options.map((o: string, i: number) => `${i + 1}. ${o}`)].join('\n'))
             }
           }
-          else if (row.kind === 'approval') {
-            const current = this.store.db.prepare('SELECT state FROM approvals WHERE id=?').get(args[1].id)
-            if (current?.state === 'pending') {
-              if (this.delegate.approval) await this.delegate.approval(args[0], args[1])
-              else await this.delegate.notice(args[0], `Comando pendiente de aprobacion (${String(args[1].id).slice(0, 8)}):\n${args[1].command}`)
-            }
-          }
-                    else if (row.kind === 'gate') {
+          else if (row.kind === 'gate') {
             if (this.delegate.gate) await this.delegate.gate(args[0], args[1], args[2])
             else await this.delegate.notice(args[0], `${args[2]}\nCompuerta: ${args[1].id}`)
           }
@@ -65,6 +58,5 @@ export class DurableOutput implements Output {
   gate(c: Conversation, gate: { id: string; kind: string; questions: string[] }, text: string) { return this.enqueue('gate', [c, gate, text], c.key) }
   question(c: Conversation, question: { id: string; text: string; options: string[] }) { return this.enqueue('question', [c, question], c.key) }
   moved(run: Run) { return this.delegate.moved?.(run) ?? Promise.resolve() }
-  approval(c: Conversation, request: { id: string; command: string; cwd: string }) { return this.enqueue('approval', [c, request], c.key) }
   async close(): Promise<void> { clearInterval(this.timer); await Promise.allSettled(this.inflight.values()) }
 }

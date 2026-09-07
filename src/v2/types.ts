@@ -53,6 +53,4 @@ export interface Output {
   gate?(conversation: Conversation, gate: { id: string; kind: string; questions: string[] }, text: string): Promise<void>
   /** The conversation re-anchored (task room): close any in-flight stream where it was. */
   moved?(run: Run): Promise<void>
-  /** One-shot human approval request for an exact denied command. */
-  approval?(conversation: Conversation, request: { id: string; command: string; cwd: string }): Promise<void>
 }
