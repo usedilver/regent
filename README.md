@@ -65,6 +65,12 @@ Antes de iniciar: copia `regent.example.yaml` a `config/regent.yaml` y completa
 `SLACK_BOT_TOKEN` y `SLACK_APP_TOKEN` de una app con `slack-manifest-v2.json`
 (Agent messaging), y `NOTION_TOKEN`/`DATA_SOURCE_ID` para tareas.
 
+En canales y salas el bot actúa solo con @mención; sin mención acepta únicamente
+la respuesta del autor cuando el bot le preguntó algo (o los comandos exactos
+`stop`/`para`/`reset`/`nuevo`). En un DM todo se procesa. Al crear una tarea con
+sala, la conversación se muda a la sala y conversa a raíz de canal; el hilo de
+origen recibe solo el puntero.
+
 `pnpm start` usa `REGENT_PORT=8788`, `REGENT_DB=log/v2.sqlite` y escucha solo en
 `127.0.0.1`. `REGENT_CONFIG` permite elegir otro YAML. La CLI y el servidor no deben
 ejecutar agentes simultáneamente sobre la misma base: el bloqueo de runtime lo impide.
