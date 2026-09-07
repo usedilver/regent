@@ -57,16 +57,13 @@ export function createHttp(core: Core, health: () => Record<string, unknown>, on
         const input = z.object({ tool_name: z.string(), tool_input: z.record(z.string(), z.unknown()).optional() }).parse(payload)
         const reason = core.permission(token, input)
         if (reason) {
-          core.store.event(active.run.id, 'permission_denied', { reason })
-          const c = { ...core.store.conversation(active.run.conversation_key)!, channel: active.run.reply_channel ?? core.store.conversation(active.run.conversation_key)!.channel, thread: active.run.reply_thread }
-          core.publish(active, () => core.output.notice(c, `Accion denegada: ${reason}`))
+          core.store.event(active.run.id, 'permission_denied', { reason, tool: input.tool_name })
         }
         return send(200, { reason })
       }
       if (request.url === '/hook-denial') {
         const { reason } = z.object({ reason: z.string().max(4000) }).parse(payload)
         core.store.event(active.run.id, 'permission_denied', { reason })
-        core.publish(active, () => core.output.notice(core.store.conversation(active.run.conversation_key)!, `Accion denegada: ${reason}`))
         return send(200, { ok: true })
       }
       const server = new McpServer({ name: 'regent', version: '0.2.0' })

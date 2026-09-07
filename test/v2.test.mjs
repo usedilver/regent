@@ -12,6 +12,7 @@ import { SlackOutput, gatherThread, readSlackFile } from '../src/v2/slack.ts'
 import { DurableOutput } from '../src/v2/delivery.ts'
 import { migrateConfig, importLegacy } from '../src/v2/migrate.ts'
 import { denial } from '../plugin/hooks/policy.mjs'
+import { progressText } from '../src/v2/progress.ts'
 
 let failed = 0
 const check = async (name, fn) => {
@@ -140,6 +141,24 @@ try {
       assert.equal(f.store.db.prepare("SELECT COUNT(*) AS n FROM runs WHERE state='completed'").get().n, 4)
       assert.ok(f.messages.some(m => m.kind === 'notice' && m.args[1].includes('En cola')))
     } finally { await f.close() }
+  })
+  await check('progress keeps internal failures in events and exposes terminal failures', async () => {
+    for (const state of ['completed', 'failed']) {
+      const f = fixture({ runner: options => {
+        options.onEvent({ kind: 'tool_result', error: true, content: 'internal tool error' })
+        options.onEvent({ kind: 'result', denials: [{ tool_name: 'Bash' }] })
+        return { cancel() {}, done: Promise.resolve({ state, text: 'Resultado verificado', error: state === 'failed' ? 'No se pudo completar la verificacion' : '', cost: 0, usage: {} }) }
+      } })
+      try {
+        await f.core.submit(input(`progress-${state}`))
+        await until(() => !f.core.active.size)
+        assert.equal(f.store.db.prepare("SELECT count(*) AS n FROM events WHERE kind IN ('tool_result','result')").get().n, 2)
+        assert.ok(!f.messages.some(m => m.kind === 'notice' && /internal tool error|Permisos denegados/.test(m.args[1])))
+        assert.ok(f.messages.some(m => m.kind === 'finish' && m.args[2].includes(state === 'failed' ? 'No se pudo completar' : 'Resultado verificado')))
+      } finally { await f.close() }
+    }
+    assert.equal(progressText('mcp__regent__regent_run_tests'), 'Estoy ejecutando las verificaciones.')
+    assert.ok(!progressText('mcp__unknown__query').includes('mcp__'))
   })
   await check('core: stop pauses follow-ups until a new human message', async () => {
     const f = fixture({ runnerOverrides: { command: process.execPath, prefixArgs: [fake], env: { FAKE_CLAUDE_SCENARIO: 'hang' } } })

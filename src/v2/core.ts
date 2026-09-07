@@ -12,6 +12,7 @@ import { Tasks } from './tasks.ts'
 import { NotionTracker } from './tracker.ts'
 import { denial } from '../../plugin/hooks/policy.mjs'
 import { literalCommand } from '../../plugin/hooks/command.mjs'
+import { progressText } from './progress.ts'
 
 interface Active {
   run: Run; token: string; controller?: ReturnType<typeof startRunner>; done?: Promise<void>
@@ -136,7 +137,9 @@ export class Core {
         if (spent >= this.config.budget.max_cost_usd_per_user_day * 0.8) this.publish(active, () => this.output.notice(conversation, 'Ya usaste al menos el 80% del presupuesto diario.'))
       }
       this.publish(active, () => this.output.status(conversation, 'processing'))
-      heartbeat = setInterval(() => this.publish(active, () => this.output.notice(conversation, `Sigo trabajando: ${active.lastTool}.`)), 45000)
+      heartbeat = setInterval(() => {
+        if (!active.waiting) this.publish(active, () => this.output.notice(conversation, progressText(active.lastTool)))
+      }, 45000)
       const onEvent = (event: RunnerEvent) => {
         this.store.event(run.id, event.kind, event.kind === 'text_delta' ? { characters: event.text.length } : event)
         if (event.kind === 'init') this.store.session(conversation.key, event.sessionId)
@@ -144,8 +147,8 @@ export class Core {
         if (event.kind === 'text_delta') this.publish(active, () => this.output.delta(conversation, run, event.text))
         if (event.kind === 'api_retry') this.publish(active, () => this.output.notice(conversation, 'Claude esta reintentando por un limite de tasa o error del proveedor.'))
         if (event.kind === 'mcp_degraded') this.publish(active, () => this.output.notice(conversation, `Algunos MCP externos no conectaron: ${event.servers.join(', ')}. Continuo sin ellos.`))
-        if (event.kind === 'tool_result' && event.error) this.publish(active, () => this.output.notice(conversation, `La herramienta fallo: ${redact(JSON.stringify(event.content)).slice(0, 1000)}`))
-        if (event.kind === 'result' && event.denials.length) this.publish(active, () => this.output.notice(conversation, `Permisos denegados: ${redact(JSON.stringify(event.denials)).slice(0, 1500)}`))
+        // Tool failures remain in the event log and model context; the final reply
+        // reports unresolved blockers instead of broadcasting every retry.
       }
       const task = this.tasks.of(conversation.key)
       const intent = task ? 'task' : run.intent
