@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { literalCommand } from './command.mjs'
 
 export function denial(input, env = process.env) {
   const name = input.tool_name ?? ''
@@ -14,10 +15,10 @@ export function denial(input, env = process.env) {
   if (['status', 'ask_human', 'cancel', 'worktree', 'install', 'run_tests', 'open_pr', 'create_task', 'update_task', 'request_qa'].some(tool => name === `mcp__regent__regent_${tool}`)) return null
   if (name === 'Bash') {
     const command = args.command ?? ''
-    if (/\.credentials\.json|\.env\b|\.claude\.json/.test(command)) return 'No leer credenciales mediante comandos git o gh.'
+    const words = literalCommand(command)
+    if (!words) return 'Bash admite argumentos literales, incluidas comillas; sin operadores, expansiones ni comodines sin comillas. Usa Read/Glob/Grep para explorar archivos.'
+    if (/\.credentials\.json|\.env\b|\.claude\.json/.test(words.join(' '))) return 'No leer credenciales mediante comandos git o gh.'
     // Mutating commands go through the core; Bash stays read-only.
-    if (!/^[a-zA-Z0-9_./:@%+=, \-]+$/.test(command)) return 'Bash admite comandos simples de lectura, sin operadores de shell.'
-    const words = command.trim().split(/\s+/)
     if (words[0] === 'git') {
       let index = 1
       if (words[index] === '-C') {

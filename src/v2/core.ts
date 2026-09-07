@@ -11,6 +11,7 @@ import { Changes } from './changes.ts'
 import { Tasks } from './tasks.ts'
 import { NotionTracker } from './tracker.ts'
 import { denial } from '../../plugin/hooks/policy.mjs'
+import { literalCommand } from '../../plugin/hooks/command.mjs'
 
 interface Active {
   run: Run; token: string; controller?: ReturnType<typeof startRunner>; done?: Promise<void>
@@ -275,9 +276,9 @@ export class Core {
     let root = this.cwd
     const cwd = this.store.conversation(active.run.conversation_key)?.cwd ?? this.defaultCwd
     if (input.tool_name === 'Bash') {
-      const match = input.tool_input?.command?.match(/^git\s+-C\s+(\S+)\s+/)
-      if (match) {
-        const target = path.resolve(cwd, match[1])
+      const words = literalCommand(input.tool_input?.command)
+      if (words?.[0] === 'git' && words[1] === '-C' && words[2]) {
+        const target = path.resolve(cwd, words[2])
         const w = worktrees.find(w => target === w.dir || target.startsWith(w.dir + path.sep))
         if (w) root = w.dir
       }

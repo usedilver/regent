@@ -17,6 +17,7 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@notionhq/client": "^5.24.0",
     "@slack/bolt": "^5.0.0",
+    "shell-quote": "^1.10.0",
     "yaml": "^2.9.0",
     "zod": "^4.5.2"
   },
