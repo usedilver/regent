@@ -29,6 +29,13 @@ export function denial(input, env = process.env) {
       }
       const readOnly = ['log', 'show', 'blame', 'status', 'diff', 'ls-files', 'ls-tree', 'rev-parse', 'grep', 'show-ref', 'cat-file', 'describe', 'rev-list', 'shortlog']
       if (!readOnly.includes(words[index])) return 'Usa las tools del core para modificar git.'
+      // Restrict cat-file to raw object inspection; filter options can spawn processes.
+      if (words[index] === 'cat-file') {
+        const [mode, object, ...extra] = words.slice(index + 1)
+        if (!['-p', '-t', '-s', '-e', 'blob', 'tree', 'commit', 'tag'].includes(mode) || !object || object.startsWith('-') || extra.length) {
+          return 'cat-file solo admite inspeccion directa: -p, -t, -s, -e o tipo de objeto, seguido de un objeto; sin filtros ni modos batch.'
+        }
+      }
       // -O/--open-files-in-pager (git grep) and the diff-driver/config options can execute a program.
       if (words.some(w => /^--(?:output|open-files-in-pager|ext-diff|textconv|no-index|exec|config)/.test(w) || /^-O/.test(w))) return 'Opcion git no permitida en una consulta de lectura.'
       return null

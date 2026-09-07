@@ -445,5 +445,35 @@ try {
       assert.equal(f.tasks.of(key).state, 'completed')
     } finally { f.close() }
   })
+  await check('room: always reconciles a lost response after restart without duplicating a room or card', async () => {
+    const f = fixture()
+    try {
+      f.config.policy.room = 'always'
+      let creates = 0, finds = 0, visible = false
+      const rooms = {
+        async create() { creates++; throw new Error('lost room response') },
+        async find() { finds++; return visible ? { channel: 'RECOVERED', thread: 'r1' } : undefined },
+      }
+      f.tasks.rooms = rooms
+      const w = await f.open()
+      fs.writeFileSync(path.join(w.dir, 'answer.mjs'), 'export const answer = () => 2;\n')
+      await f.changes.tests(key, '.')
+      const args = { repo: '.', title: 'Recover room', body_md: 'Fix' }
+      await assert.rejects(() => f.tasks.openPr(f.c, args), /lost room response/)
+      const taskId = f.tasks.of(key).id
+      assert.equal(f.tasks.of(key).room, null)
+      const recovered = new Tasks(f.store, f.config, f.changes, f.tracker, f.output, rooms)
+      await assert.rejects(() => recovered.openPr(f.c, args), /no se repetira/)
+      visible = true
+      await recovered.openPr(f.c, args)
+      await recovered.openPr(f.c, args)
+      assert.equal(recovered.of(key).id, taskId)
+      assert.equal(recovered.of(key).room, 'RECOVERED')
+      assert.equal(creates, 1)
+      assert.equal(finds, 2)
+      assert.equal(f.pages.size, 1)
+      assert.equal(f.prs.size, 1)
+    } finally { f.close() }
+  })
 } finally { fs.rmSync(root, { recursive: true, force: true }) }
 if (failed) process.exitCode = 1

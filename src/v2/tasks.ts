@@ -167,13 +167,13 @@ export class Tasks {
       await this.output.notice(c, `PR: ${result.url}`)
       const boardRepo = ownerRepoOf(this.changes.get(c.key, args.repo).origin)
       const board: BoardFields = { repo: boardRepo ? `https://github.com/${boardRepo}` : undefined, pr: result.url }
+      const roomAlways = this.config.policy.room === 'always' && Boolean(this.rooms) && c.adapter === 'slack'
       if (task) {
         const prs = this.store.db.prepare('SELECT p.url FROM prs p JOIN worktrees w ON w.id=p.worktree_id WHERE w.conversation_key=? ORDER BY p.url').all(c.key)
         await this.writeSection(task, 'implementation', prs.map(p => `- ${p.url}`).join('\n'))
         await this.setProperties(task, board)
       } else {
         // room: always attaches every unit of work to a room, which needs a card to anchor to.
-        const roomAlways = this.config.policy.room === 'always' && Boolean(this.rooms) && c.adapter === 'slack'
         if (this.config.policy.track_small_fixes === 'digest' && this.config.slack.digest_channel && !roomAlways) {
           await this.effects.once(`fix-digest:${result.url}`, async () => { await this.output.notice({ ...c, channel: this.config.slack.digest_channel!, thread: null }, `${args.title}: ${result.url}`); return true }, async () => undefined)
         }
@@ -185,13 +185,15 @@ export class Tasks {
           this.store.db.prepare('UPDATE conversations SET task_id=? WHERE key=?').run(id, c.key)
           await this.writeSection(this.get(id), 'implementation', `${args.body_md}\n\n${result.url}`)
           await this.setProperties(this.get(id), { ...board, size: 'S', owner: c.author })
-          if (roomAlways && !this.get(id).room) {
-            const name = `task-${id.slice(0, 20)}`
-            const room = await this.effects.once(`room:${id}`, () => this.rooms!.create(name, c.author, `${args.title}\n${this.get(id).url}`), () => this.rooms!.find(name))
-            this.store.db.prepare('UPDATE tasks SET room=?,room_thread=? WHERE id=?').run(room.channel, room.thread, id)
-            await this.output.notice(this.destination(this.get(id), c), `PR: ${result.url}`)
-          }
         }
+      }
+      // The card may already be linked after an interrupted room creation.
+      const linked = this.of(c.key)
+      if (roomAlways && linked && !linked.room) {
+        const name = `task-${linked.id.slice(0, 20)}`
+        const room = await this.effects.once(`room:${linked.id}`, () => this.rooms!.create(name, c.author, `${linked.title}\n${linked.url}`), () => this.rooms!.find(name))
+        this.store.db.prepare('UPDATE tasks SET room=?,room_thread=? WHERE id=?').run(room.channel, room.thread, linked.id)
+        await this.output.notice(this.destination(this.get(linked.id), c), `PR: ${result.url}`)
       }
       return result
     })
