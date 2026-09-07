@@ -46,9 +46,11 @@ export class SlackOutput implements Output {
       { label: gate.kind === 'plan' ? 'Pedir cambios' : 'Falla', decision: 'changes' },
       { label: 'Cancelar', decision: 'cancel', style: 'danger' },
     ]
-    const body = [text, ...gate.questions].join('\n')
-    await this.api('chat.postMessage', { channel: c.channel, thread_ts: c.thread ?? undefined, text: redact(body), blocks: [
-      { type: 'section', text: { type: 'mrkdwn', text: redact(body).slice(0, 3000) } },
+    const body = redact([text, ...gate.questions].join('\n'))
+    const sections = []
+    for (let offset = 0; offset < body.length; offset += 2900) sections.push({ type: 'section', text: { type: 'mrkdwn', text: body.slice(offset, offset + 2900) } })
+    await this.api('chat.postMessage', { channel: c.channel, thread_ts: c.thread ?? undefined, text: body.slice(0, 3500), blocks: [
+      ...sections,
       { type: 'actions', elements: choices.map(choice => ({ type: 'button', text: { type: 'plain_text', text: choice.label },
         action_id: `regent_gate_${choice.decision}`, value: gate.id, ...('style' in choice ? { style: choice.style } : {}) })) },
     ] })
@@ -276,7 +278,7 @@ export function createSlack(config: Config) {
     try {
       if (body.user?.team_id && body.user.team_id !== config.slack.workspace_team_id) throw new Error('Usuario de otro workspace.')
       const result = await core.answerQuestion(action.value, Number(action.action_id.replace('regent_question_', '')),
-        body.user.id, body.team?.id, body.channel?.id, body.message?.thread_ts ?? body.message?.ts)
+        body.user.id, body.team?.id, body.channel?.id, body.message?.thread_ts ?? null)
       await respond({ text: result.duplicate ? 'La pregunta ya fue respondida.' : 'Respuesta registrada.', replace_original: false, response_type: 'ephemeral' })
     } catch (error) { await respond({ text: redact((error as Error).message), replace_original: false, response_type: 'ephemeral' }) }
   })

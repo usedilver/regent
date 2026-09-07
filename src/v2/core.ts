@@ -324,7 +324,7 @@ export class Core {
     }
     return denial(input, { ...process.env, REGENT_PERMISSION_MODE: this.config.permission_mode === 'native' ? 'repository' : '', REGENT_ROOT: root, REGENT_CWD: cwd, REGENT_READONLY_MCP: JSON.stringify(this.config.repos.readonly_mcp) })
   }
-  async answerQuestion(id: string, index: number, author: string, team: string, channel: string, thread: string) {
+  async answerQuestion(id: string, index: number, author: string, team: string, channel: string, thread: string | null) {
     if (!this.authorized({ adapter: 'slack', author, team } as Inbound)) throw new Error('Usuario o workspace no autorizado.')
     const row = this.store.db.prepare('SELECT * FROM gates WHERE question_id=?').get(id)
     if (!row?.destination) throw new Error('Esta pregunta ya no esta vigente; responde la pregunta mas reciente.')
@@ -335,7 +335,7 @@ export class Core {
     if (row.state !== 'pending') return { duplicate: true }
     // submit persists the answer and inbound event synchronously before its first await.
     return this.submit({ adapter: 'slack', eventId: `question:${id}`, key: c.key, author, team, channel,
-      thread, replyThread: thread, text: `Respuesta a la pregunta "${row.question}": ${options[index]}` })
+      thread: thread ?? undefined, replyThread: thread ?? undefined, text: `Respuesta a la pregunta "${row.question}": ${options[index]}` })
   }
   async reviewGate(id: string, decision: string, author: string, team: string, channel?: string) {
     if (!this.authorized({ adapter: 'slack', team, author } as Inbound)) throw new Error('Usuario no autorizado para esta compuerta.')

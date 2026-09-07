@@ -166,6 +166,8 @@ try {
       assert.equal(f.store.db.prepare('SELECT COUNT(*) AS n FROM tasks').get().n, 1)
       assert.equal(f.tasks.canWrite(key), false)
       const plan = await f.tasks.update(f.c, { task_id: task.id, section: 'plan', md: 'Implement the change and test it.', questions: [] })
+      assert.ok(f.gates.at(-1).text.includes('Implement the change and test it.'))
+      assert.ok(f.gates.at(-1).text.includes(f.store.db.prepare("SELECT revision FROM sections WHERE task_id=? AND section='plan'").get(task.id).revision))
       f.tasks.decide(plan.gate_id, 'approve', 'U1', 'C1')
       assert.equal(f.tasks.canWrite(key), true)
       await f.tasks.create(f.c, { ...args, plan_md: 'Unreviewed replacement' })

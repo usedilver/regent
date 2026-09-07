@@ -38,6 +38,46 @@ function fixture(extra = {}) {
 }
 
 try {
+  await check('runner never reintroduces filtered process secrets', async () => {
+    const key = 'REGENT_TEST_FILTERED_SECRET', previous = process.env[key]
+    process.env[key] = 'synthetic-secret'
+    const script = `console.log(JSON.stringify({type:'result',is_error:false,result:process.env.${key} ?? 'absent'}))`
+    try {
+      for (const [env, expected] of [[{}, 'absent'], [{ [key]: 'repo-value' }, 'repo-value']]) {
+        const result = await startRunner(runnerOptions({ env, prefixArgs: ['-e', script, '--'] })).done
+        assert.equal(result.state, 'completed')
+        assert.equal(result.text, expected)
+      }
+    } finally { if (previous === undefined) delete process.env[key]; else process.env[key] = previous }
+  })
+  await check('room-root question choices preserve a null thread', async () => {
+    const f = fixture({ runnerOverrides: { command: process.execPath, prefixArgs: [fake], env: { FAKE_CLAUDE_SCENARIO: 'hang' } } })
+    try {
+      await f.core.submit({ ...input('room-choice'), thread: undefined, replyThread: undefined })
+      const active = [...f.core.active.values()][0]
+      await f.core.tool(active.token, 'regent_ask_human', { question: 'Elegir?', options: ['A', 'B'] })
+      await until(() => !f.core.active.size)
+      const row = f.store.db.prepare('SELECT question_id,destination FROM gates').get()
+      assert.equal(JSON.parse(row.destination).thread, null)
+      await assert.rejects(() => f.core.answerQuestion(row.question_id, 0, 'U1', 'T1', 'C1', 'wrong-thread'))
+      await assert.rejects(() => f.core.answerQuestion(row.question_id, 0, 'U1', 'T1', 'OTHER', null))
+      f.core.runnerOverrides.env = {}
+      await f.core.answerQuestion(row.question_id, 0, 'U1', 'T1', 'C1', null)
+      await until(() => !f.core.active.size)
+      assert.equal(f.store.conversation(input('x').key).thread, null)
+      assert.equal((await f.core.answerQuestion(row.question_id, 0, 'U1', 'T1', 'C1', null)).duplicate, true)
+    } finally { await f.close() }
+  })
+  await check('Slack approval includes the entire long plan before its buttons', async () => {
+    const calls = [], output = new SlackOutput(async (method, args) => { calls.push(args) })
+    const plan = 'Implementation details.\n'.repeat(2200)
+    await output.gate({ channel: 'C1', thread: null }, { id: 'gate', kind: 'plan', questions: [] }, plan)
+    const blocks = calls[0].blocks
+    assert.equal(blocks.slice(0, -1).map(b => b.text.text).join(''), plan)
+    assert.ok(blocks.length <= 50)
+    assert.ok(blocks.slice(0, -1).every(b => b.text.text.length <= 3000))
+    assert.equal(blocks.at(-1).type, 'actions')
+  })
   await check('config/auth: defaults, single indie human, team key, invalid limits', () => {
     assert.equal(config.limits.max_concurrent_runs, 3)
     assert.equal(config.limits.max_run_sec.ask, 600)

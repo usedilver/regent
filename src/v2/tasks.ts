@@ -99,7 +99,9 @@ export class Tasks {
     })
   }
   async planGate(task: Task, c: Conversation, revision: string, questions: string[]) {
-    return this.gate(task, c, 'plan', revision, questions, 'Revisa el plan tecnico antes de implementar.')
+    const section = this.store.db.prepare("SELECT md,revision FROM sections WHERE task_id=? AND section='plan'").get(task.id)
+    if (!section || section.revision !== revision) throw new Error('La version del plan no coincide con la seccion guardada.')
+    return this.gate(task, c, 'plan', revision, questions, `Plan: ${task.title}\nRevision: ${revision}\n\n${section.md}\n\nRevisa este plan antes de implementar.`)
   }
   async gate(task: Task, c: Conversation, kind: string, revision: string, questions: string[], text: string) {
     const old = this.store.db.prepare("SELECT * FROM task_gates WHERE task_id=? AND kind=? AND revision=? AND state='pending'").get(task.id, kind, revision) as unknown as Gate | undefined
