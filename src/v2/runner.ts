@@ -50,7 +50,7 @@ export function normalizeEvent(raw: any): RunnerEvent[] {
 export function startRunner(options: RunnerOptions): { done: Promise<RunnerResult>; cancel(reason?: string): void; setTimeoutMs?(ms: number): void } {
   const native = options.permissionMode === 'native'
   if (!native && !options.command) { ensureTrusted(options.cwd); ensureBypassAccepted() }
-  const env = { ...process.env, ...options.env, REGENT_RUN_ID: options.runId, REGENT_RUN_TOKEN: options.token,
+  const env = { ...(options.env ?? process.env), REGENT_RUN_ID: options.runId, REGENT_RUN_TOKEN: options.token,
     REGENT_TOOLS_URL: options.toolsUrl, REGENT_READONLY_MCP: JSON.stringify(options.readonlyMcp), REGENT_ROOT: options.cwd,
     ...(native ? { REGENT_PERMISSION_MODE: 'repository' } : {}),
     GIT_PAGER: 'cat', GH_PAGER: 'cat', GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' }
