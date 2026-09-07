@@ -7,7 +7,21 @@ import { redact } from './store.ts'
 import type { Rooms } from './tasks.ts'
 
 type Api = (method: string, args: Record<string, any>) => Promise<any>
-type Stream = { ts?: string; pending: string; sent: string; timer?: NodeJS.Timeout; chain: Promise<void>; failed?: boolean; thread: string }
+type Stream = { ts?: string; pending: string; sent: string; timer?: NodeJS.Timeout; chain: Promise<void>; failed?: boolean; channel: string; thread?: string }
+
+/**
+ * Regla de invocacion (codigo, no criterio del modelo): en canales, hilos y salas el
+ * bot solo actua con @mencion. Sin mencion se acepta unicamente al autor de la
+ * conversacion cuando el bot le pidio algo (waiting_human/interrupted) o para los
+ * comandos exactos de control. En DM todo se procesa: es un 1:1 con el bot.
+ */
+export function accepts(input: { dm: boolean; mention: boolean; author: string; text: string; conversation?: { author: string; state: string } | null }): boolean {
+  if (input.dm || input.mention) return true
+  const c = input.conversation
+  if (!c || c.author !== input.author) return false
+  if (['waiting_human', 'interrupted'].includes(c.state)) return true
+  return ['stop', 'para', 'reset', 'nuevo'].includes(input.text.trim().toLowerCase())
+}
 
 export class SlackOutput implements Output {
   api: Api
@@ -42,20 +56,24 @@ export class SlackOutput implements Output {
     text = redact(text)
     for (let offset = 0; offset < text.length; offset += 3500) await this.api('chat.postMessage', { channel: c.channel, thread_ts: c.thread ?? undefined, text: text.slice(offset, offset + 3500), unfurl_links: false })
   }
+  latestThread = new Map<string, string>()
+  /** DMs anchor each response to its request; a task room converses at channel root. */
+  anchor(c: Conversation): string | undefined {
+    return c.thread ?? (c.channel.startsWith('D') ? this.latestThread.get(c.key) : undefined)
+  }
   async status(c: Conversation, status: 'processing' | 'active' | 'suspended'): Promise<void> {
-    // DMs use one Claude session but each Slack response is anchored to its request.
-    const thread = c.thread ?? this.latestThread.get(c.key)
+    const thread = this.anchor(c)
     try { await this.api('agents.sessions.setStatus', { channel_id: c.channel, thread_ts: thread, status, initiator_user_id: c.author }) }
     catch (error) {
-      if (status === 'processing') await this.notice({ ...c, thread: thread ?? null }, `Recibido; estoy revisando. Estado nativo no disponible: ${(error as Error).message}`)
-      else await this.notice({ ...c, thread: thread ?? null }, `${status === 'suspended' ? 'Espero tu respuesta.' : 'Listo para el siguiente mensaje.'} No pude actualizar el estado nativo: ${(error as Error).message}`)
+      // Native status needs an agent session; elsewhere only the ack matters — the final text covers the rest.
+      console.error(`[slack v2] setStatus ${status}: ${redact((error as Error).message)}`)
+      if (status === 'processing') await this.notice({ ...c, thread: thread ?? null }, 'Recibido; estoy en ello.')
     }
   }
-  latestThread = new Map<string, string>()
   async delta(c: Conversation, run: Run, text: string): Promise<void> {
     let stream = this.streams.get(run.id)
     if (!stream) {
-      stream = { pending: '', sent: '', chain: Promise.resolve(), thread: c.thread ?? this.latestThread.get(c.key) ?? '' }
+      stream = { pending: '', sent: '', chain: Promise.resolve(), channel: c.channel, thread: this.anchor(c) }
       this.streams.set(run.id, stream)
     }
     stream.pending += text
@@ -72,32 +90,46 @@ export class SlackOutput implements Output {
     const raw = stream.pending.slice(0, end)
     const text = redact(raw)
     if (!stream.ts) {
-      const result = await this.api('chat.startStream', { channel: c.channel, thread_ts: stream.thread, recipient_user_id: run.author, recipient_team_id: c.team, markdown_text: text })
+      const result = await this.api('chat.startStream', { channel: stream.channel, thread_ts: stream.thread, recipient_user_id: run.author, recipient_team_id: c.team, markdown_text: text })
       if (!result.ts) throw new Error('Slack no devolvio ts del stream.')
       stream.ts = result.ts
-    } else await this.api('chat.appendStream', { channel: c.channel, ts: stream.ts, markdown_text: text })
+    } else await this.api('chat.appendStream', { channel: stream.channel, ts: stream.ts, markdown_text: text })
     stream.sent += text
     stream.pending = stream.pending.slice(raw.length)
   }
   async finish(c: Conversation, run: Run, text: string): Promise<void> {
     text = redact(text)
     const stream = this.streams.get(run.id)
-    if (!stream) return this.notice({ ...c, thread: c.thread ?? this.latestThread.get(c.key) ?? null }, text)
+    if (!stream) return this.notice({ ...c, thread: this.anchor(c) ?? null }, text)
     clearTimeout(stream.timer)
     await stream.chain
     try {
       if (stream.ts) {
-        await this.api('chat.stopStream', { channel: c.channel, ts: stream.ts })
+        await this.api('chat.stopStream', { channel: stream.channel, ts: stream.ts })
         // The authoritative result can differ from interim assistant messages.
-        if (text.length <= 3500) await this.api('chat.update', { channel: c.channel, ts: stream.ts, text: redact(text) })
+        if (text.length <= 3500) await this.api('chat.update', { channel: stream.channel, ts: stream.ts, text: redact(text) })
         else {
-          await this.api('chat.update', { channel: c.channel, ts: stream.ts, text: redact(text.slice(0, 3500)) })
-          await this.notice({ ...c, thread: stream.thread }, text.slice(3500))
+          await this.api('chat.update', { channel: stream.channel, ts: stream.ts, text: redact(text.slice(0, 3500)) })
+          await this.notice({ ...c, channel: stream.channel, thread: stream.thread ?? null }, text.slice(3500))
         }
-      } else await this.notice({ ...c, thread: stream.thread }, text)
+      } else await this.notice({ ...c, channel: stream.channel, thread: stream.thread ?? null }, text)
     } catch (error) {
-      await this.notice({ ...c, thread: stream.thread }, `${text}\n\nNo pude cerrar el stream: ${(error as Error).message}`)
+      await this.notice({ ...c, channel: stream.channel, thread: stream.thread ?? null }, `${text}\n\nNo pude cerrar el stream: ${(error as Error).message}`)
     } finally { this.streams.delete(run.id) }
+  }
+  /** The conversation moved to its task room: close the origin stream so the rest lands there. */
+  async moved(run: Run): Promise<void> {
+    const stream = this.streams.get(run.id)
+    if (!stream) return
+    this.streams.delete(run.id)
+    clearTimeout(stream.timer)
+    await stream.chain.catch(() => {})
+    if (stream.failed || !stream.ts) return
+    try {
+      const tail = redact(stream.pending)
+      if (tail.trim()) await this.api('chat.appendStream', { channel: stream.channel, ts: stream.ts, markdown_text: tail })
+      await this.api('chat.stopStream', { channel: stream.channel, ts: stream.ts })
+    } catch (error) { console.error(`[slack v2] cierre de stream al mover: ${redact((error as Error).message)}`) }
   }
 }
 
@@ -202,15 +234,17 @@ export function createSlack(config: Config) {
     if (event.bot_id || event.user === botId || (event.subtype && event.subtype !== 'file_share') || !event.user || !event.ts) return
     if (event.user_team && event.user_team !== config.slack.workspace_team_id) return
     const dm = event.channel_type === 'im' || event.channel.startsWith('D')
-    const thread = dm ? undefined : event.thread_ts ?? event.ts
-    const task = core.store.db.prepare('SELECT conversation_key,room_thread FROM tasks WHERE room=?').get(event.channel)
-    const key = task?.conversation_key as string ?? (dm ? `slack:${event.channel}` : `slack:${event.channel}:${thread}`)
-    if (!task && !dm && !mention && (!event.thread_ts || !core.store.conversation(key))) return
+    const task = core.store.db.prepare('SELECT conversation_key FROM tasks WHERE room=?').get(event.channel)
+    const room = Boolean(task)
+    // A task room converses at channel root; elsewhere the thread anchors the conversation.
+    const thread = dm ? undefined : room ? event.thread_ts : event.thread_ts ?? event.ts
+    const key = task?.conversation_key as string ?? (dm ? `slack:${event.channel}` : `slack:${event.channel}:${event.thread_ts ?? event.ts}`)
     // app_mention and message may have different event IDs for the same message.
     if (!mention && !dm && (event.text ?? '').includes(`<@${botId}>`)) return
     const text = messageBody(event).replaceAll(`<@${botId}>`, '').trim()
+    if (!accepts({ dm, mention, author: event.user, text, conversation: core.store.conversation(key) })) return
     const input = { adapter: 'slack' as const, eventId: body.event_id ?? `${event.channel}:${event.ts}`, key, channel: event.channel,
-      thread, replyThread: event.thread_ts ?? event.ts, team: body.team_id, author: event.user, text: text || 'Revisa el contexto de este hilo.' }
+      thread, replyThread: event.thread_ts ?? (room ? undefined : event.ts), team: body.team_id, author: event.user, text: text || 'Revisa el contexto de este hilo.' }
     if (!core.authorized(input)) return
     if (!config.slack.allowed_users.length) {
       let entry = membership.get(event.user)

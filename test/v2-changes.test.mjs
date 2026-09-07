@@ -487,5 +487,38 @@ try {
       assert.equal(f.prs.size, 1)
     } finally { f.close() }
   })
+  await check('create_task re-anchors the conversation to its room; origin keeps only the pointer', async () => {
+    const f = fixture()
+    let finish
+    const core = new Core({ store: f.store, config: f.config, output: f.output, cwd: f.repo,
+      runner: () => ({ done: new Promise(resolve => { finish = resolve }), cancel: () => finish({ state: 'interrupted', text: '', error: 'cancelled', cost: 0, usage: {} }) }) })
+    core.changes = f.changes; core.tasks = f.tasks
+    f.config.policy.room = 'on_task'
+    f.tasks.rooms = {
+      async create() { return { channel: 'ROOM1', thread: 'r1' } },
+      async find() { return undefined },
+      async history() { return 'digest' },
+      async archive() {},
+    }
+    const routed = []
+    f.output.notice = async (c, text) => { routed.push({ channel: c.channel, thread: c.thread ?? null, text }) }
+    try {
+      await core.submit({ adapter: 'slack', eventId: 'room-run', key, author: 'U1', text: 'crea la tarea', channel: 'C1', thread: '1', team: 'T1' })
+      const active = [...core.active.values()][0]
+      await core.tool(active.token, 'regent_create_task', { title: 'Tarea con sala', summary_md: 'Resumen de negocio', size: 'M', impact: 'medium' })
+      const pointer = routed.find(r => r.text.includes('Sala'))
+      assert.equal(pointer.channel, 'C1'); assert.equal(pointer.thread, '1')
+      assert.equal(f.store.conversation(key).channel, 'ROOM1')
+      assert.equal(f.store.conversation(key).thread, null)
+      assert.equal(f.store.db.prepare("SELECT reply_channel FROM runs WHERE state='running'").get().reply_channel, 'ROOM1')
+      await core.tool(active.token, 'regent_status', { text: 'avanzando' })
+      const status = routed[routed.length - 1]
+      assert.equal(status.channel, 'ROOM1'); assert.equal(status.thread, null)
+      const task = f.tasks.of(key)
+      await core.tool(active.token, 'regent_update_task', { task_id: task.id, section: 'plan', md: 'Plan para revisar.' })
+      const gate = f.gates[f.gates.length - 1]
+      assert.equal(gate.c.channel, 'ROOM1'); assert.equal(gate.c.thread, null)
+    } finally { await core.close(); f.close() }
+  })
 } finally { fs.rmSync(root, { recursive: true, force: true }) }
 if (failed) process.exitCode = 1

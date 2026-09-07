@@ -52,7 +52,8 @@ export class Tasks {
   }
   destination(task: Task, fallback?: Conversation): Conversation {
     const c = fallback ?? this.store.conversation(task.conversation_key)!
-    return task.room ? { ...c, channel: task.room, thread: task.room_thread } : c
+    // The room is exclusive to the task: converse at channel root, not under the seed message.
+    return task.room ? { ...c, channel: task.room, thread: null } : c
   }
   async create(c: Conversation, args: { title: string; summary_md: string; size: string; impact: string; plan_md?: string }) {
     return this.exclusive(c.key, async () => {

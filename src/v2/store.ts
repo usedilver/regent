@@ -136,7 +136,9 @@ export class Store {
       this.db.prepare('INSERT OR IGNORE INTO conversations(key,adapter,channel,thread,team,author,cwd,updated_at) VALUES(?,?,?,?,?,?,?,?)')
         .run(input.key, input.adapter, input.channel, input.thread ?? null, input.team ?? null, input.author, cwd, now)
       const conversation = this.conversation(input.key)!
-      if (conversation.state === 'idle' && !input.thread && now - conversation.updated_at > idleHours * 3600000) {
+      // Idle reset applies to DMs and CLI only: a task room writes at channel root but keeps its session.
+      const resettable = input.adapter === 'cli' || /^slack:D[^:]*$/.test(input.key)
+      if (conversation.state === 'idle' && !input.thread && resettable && now - conversation.updated_at > idleHours * 3600000) {
         this.db.prepare('UPDATE conversations SET session_id=NULL WHERE key=?').run(input.key)
       }
       const text = input.text.trim().toLowerCase()

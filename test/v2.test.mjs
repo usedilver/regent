@@ -8,7 +8,7 @@ import { Store, redact } from '../src/v2/store.ts'
 import { Core } from '../src/v2/core.ts'
 import { startRunner, runnerArgs } from '../src/v2/runner.ts'
 import { createHttp } from '../src/v2/http.ts'
-import { SlackOutput, gatherThread, readSlackFile } from '../src/v2/slack.ts'
+import { SlackOutput, accepts, gatherThread, readSlackFile } from '../src/v2/slack.ts'
 import { DurableOutput } from '../src/v2/delivery.ts'
 import { migrateConfig, importLegacy } from '../src/v2/migrate.ts'
 import { denial } from '../plugin/hooks/policy.mjs'
@@ -505,6 +505,32 @@ try {
     assert.equal(importLegacy(store, dir), 2); assert.equal(importLegacy(store, dir), 0)
     assert.equal(store.conversation('slack:C1:1').task_id, 'page-1')
     assert.equal(store.conversation('slack:C1:1').session_id, null)
+    store.close()
+  })
+  await check('mention rule: channels only listen when asked; DMs and commands are the exception', () => {
+    const base = { dm: false, mention: false, author: 'U1', text: 'hola equipo' }
+    assert.equal(accepts({ ...base, dm: true, conversation: null }), true)
+    assert.equal(accepts({ ...base, mention: true, conversation: null }), true)
+    assert.equal(accepts({ ...base, conversation: null }), false)
+    assert.equal(accepts({ ...base, conversation: { author: 'U2', state: 'waiting_human' } }), false)
+    assert.equal(accepts({ ...base, conversation: { author: 'U1', state: 'waiting_human' } }), true)
+    assert.equal(accepts({ ...base, conversation: { author: 'U1', state: 'interrupted' } }), true)
+    assert.equal(accepts({ ...base, conversation: { author: 'U1', state: 'running' } }), false)
+    assert.equal(accepts({ ...base, conversation: { author: 'U1', state: 'idle' } }), false)
+    assert.equal(accepts({ ...base, text: '  STOP ', conversation: { author: 'U1', state: 'running' } }), true)
+    assert.equal(accepts({ ...base, text: 'para', conversation: { author: 'U1', state: 'queued' } }), true)
+    assert.equal(accepts({ ...base, text: 'stop now', conversation: { author: 'U1', state: 'running' } }), false)
+  })
+  await check('idle reset spares task rooms: only DMs and CLI drop a stale session', () => {
+    const store = new Store(':memory:')
+    for (const [key, adapter, kept] of [['slack:C9:9', 'slack', true], ['slack:D9', 'slack', false], ['cli:U1:x', 'cli', false]]) {
+      const first = store.accept({ adapter, eventId: key + ':a', key, author: 'U1', text: 'hola', channel: key.split(':')[1] }, tmp, 24)
+      store.finish(first.runId, 'completed')
+      store.session(key, 'session-' + key)
+      store.db.prepare('UPDATE conversations SET updated_at=? WHERE key=?').run(Date.now() - 25 * 3600000, key)
+      store.accept({ adapter, eventId: key + ':b', key, author: 'U1', text: 'sigo', channel: key.split(':')[1] }, tmp, 24)
+      assert.equal(store.conversation(key).session_id, kept ? 'session-' + key : null, key)
+    }
     store.close()
   })
 } finally { fs.rmSync(tmp, { recursive: true, force: true }) }

@@ -16,6 +16,7 @@ import { progressText } from './progress.ts'
 
 interface Active {
   run: Run; token: string; controller?: ReturnType<typeof startRunner>; done?: Promise<void>
+  conversation?: Conversation
   waiting: boolean; cancelled: boolean; reserved: number; lastTool: string
   output: Promise<void>
   lastStatusAt: number
@@ -121,6 +122,7 @@ export class Core {
     const firstTurn = !sessionId
     conversation.thread = run.reply_thread ?? conversation.thread
     conversation.channel = run.reply_channel ?? conversation.channel
+    active.conversation = conversation
     let heartbeat: NodeJS.Timeout | undefined
     try {
       const env = { ...process.env, ...loadAgentEnv(agentEnvFiles(this.config.repos.agent_env_files, this.cwd)).vars }
@@ -180,6 +182,16 @@ export class Core {
       this.publish(active, () => this.output.status(conversation, 'active'))
     } finally { active.abort.abort(); await Promise.allSettled(active.operations); clearInterval(heartbeat); await active.output }
   }
+  /** Re-anchor a conversation to its task room: the origin keeps the pointer, everything else continues there. */
+  async moveToRoom(active: Active, room: string): Promise<void> {
+    const key = active.run.conversation_key
+    this.store.db.prepare('UPDATE conversations SET channel=?, thread=NULL WHERE key=?').run(room, key)
+    this.store.db.prepare("UPDATE runs SET reply_channel=?, reply_thread=NULL WHERE conversation_key=? AND state IN ('queued','running')").run(room, key)
+    active.run.reply_channel = room
+    active.run.reply_thread = null
+    if (active.conversation) { active.conversation.channel = room; active.conversation.thread = null }
+    if (this.output.moved) await this.output.moved(active.run).catch(error => console.error(`[v2] mover stream: ${redact((error as Error).message)}`))
+  }
   tool(token: string, name: string, args: Record<string, any>): Promise<unknown> {
     const active = this.byToken(token)
     const operation = this.dispatchTool(token, name, args)
@@ -235,7 +247,8 @@ export class Core {
       this.store.db.prepare("UPDATE runs SET intent='task' WHERE id=?").run(active.run.id)
       active.controller.setTimeoutMs?.(this.config.limits.max_run_sec.task * 1000)
       const task = await this.tasks.create(conversation, args as any)
-      await this.output.notice(conversation, `Tarea: ${task.url}${task.room ? `\nSala: <#${task.room}>` : ''}`)
+      await this.output.notice(conversation, `Tarea: ${task.url}${task.room ? `\nSala: <#${task.room}> — la conversacion sigue alla.` : ''}`)
+      if (task.room) await this.moveToRoom(active, task.room)
       return task
     }
     if (name === 'regent_update_task' || name === 'regent_request_qa') {

@@ -49,4 +49,6 @@ export interface Output {
   delta(conversation: Conversation, run: Run, text: string): Promise<void>
   finish(conversation: Conversation, run: Run, text: string): Promise<void>
   gate?(conversation: Conversation, gate: { id: string; kind: string; questions: string[] }, text: string): Promise<void>
+  /** The conversation re-anchored (task room): close any in-flight stream where it was. */
+  moved?(run: Run): Promise<void>
 }

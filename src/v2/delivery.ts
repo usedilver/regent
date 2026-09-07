@@ -56,5 +56,6 @@ export class DurableOutput implements Output {
   finish(c: Conversation, run: Run, text: string) { return this.enqueue('finish', [c, run, text], c.key) }
   gate(c: Conversation, gate: { id: string; kind: string; questions: string[] }, text: string) { return this.enqueue('gate', [c, gate, text], c.key) }
   question(c: Conversation, question: { id: string; text: string; options: string[] }) { return this.enqueue('question', [c, question], c.key) }
+  moved(run: Run) { return this.delegate.moved?.(run) ?? Promise.resolve() }
   async close(): Promise<void> { clearInterval(this.timer); await Promise.allSettled(this.inflight.values()) }
 }
