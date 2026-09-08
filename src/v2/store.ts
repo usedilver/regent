@@ -23,7 +23,7 @@ export class Store {
     this.db = new DatabaseSync(file)
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;')
     const version = this.db.prepare('PRAGMA user_version').get()!.user_version as number
-    if (version > 5) throw new Error(`Esquema SQLite ${version} mas nuevo que este servidor.`)
+    if (version > 6) throw new Error(`Esquema SQLite ${version} mas nuevo que este servidor.`)
     this.transaction(() => {
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS conversations (
@@ -117,6 +117,14 @@ export class Store {
           PRIMARY KEY(conversation_key,session_id,message_id));
         PRAGMA user_version=5;
       `)
+      if (version < 6) this.db.exec(`
+        CREATE TABLE IF NOT EXISTS room_transfers (
+          conversation_key TEXT PRIMARY KEY REFERENCES conversations(key), name TEXT NOT NULL UNIQUE,
+          channel TEXT UNIQUE, origin TEXT NOT NULL, summary TEXT NOT NULL, users TEXT NOT NULL,
+          state TEXT NOT NULL DEFAULT 'pending'
+        );
+        PRAGMA user_version=6;
+      `)
     })
   }
   claimRuntime(): void {
@@ -151,8 +159,8 @@ export class Store {
       this.db.prepare('INSERT OR IGNORE INTO conversations(key,adapter,channel,thread,team,author,cwd,updated_at) VALUES(?,?,?,?,?,?,?,?)')
         .run(input.key, input.adapter, input.channel, input.thread ?? null, input.team ?? null, input.author, cwd, now)
       const conversation = this.conversation(input.key)!
-      // Idle reset applies to DMs and CLI only: a task room writes at channel root but keeps its session.
-      const resettable = input.adapter === 'cli' || /^slack:D[^:]*$/.test(input.key)
+      // A room keeps its session even when its stable key originated in a DM.
+      const resettable = input.adapter === 'cli' || (conversation.channel.startsWith('D') && /^slack:D[^:]*$/.test(input.key))
       if (conversation.state === 'idle' && !input.thread && resettable && now - conversation.updated_at > idleHours * 3600000) {
         this.db.prepare('UPDATE conversations SET session_id=NULL WHERE key=?').run(input.key)
       }

@@ -53,11 +53,12 @@ export interface Output {
   finish(conversation: Conversation, run: Run, text: string): Promise<void>
   /** The conversation re-anchored: close any in-flight stream where it was. */
   moved?(run: Run): Promise<void>
+  flush?(): Promise<void>
 }
 
 export interface Rooms {
-  create(name: string, author: string, text: string): Promise<{ channel: string; thread: string }>
-  find(name: string): Promise<{ channel: string; thread: string } | undefined>
-  history(channel: string): Promise<string>
-  archive(channel: string): Promise<void>
+  create(name: string): Promise<string>
+  find(name: string): Promise<string | undefined>
+  invite(channel: string, user: string): Promise<void>
+  validateUser(user: string): Promise<void>
 }

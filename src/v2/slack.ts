@@ -3,7 +3,7 @@ import { appLabel, messageBody, threadToMarkdown } from '../slack-thread.ts'
 import type { Config } from './config.ts'
 import type { Core } from './core.ts'
 import type { Conversation, Output, Run } from './types.ts'
-import { redact } from './store.ts'
+import { redact, type Store } from './store.ts'
 import type { Rooms } from './types.ts'
 import type { HistoryMessage, HistorySource } from './history.ts'
 
@@ -199,6 +199,57 @@ export async function gatherThread(api: Api, channel: string, thread: string, re
   return threadToMarkdown(lines.join('\n'))
 }
 
+export function createRoomApi(api: Api, team: string, bot: () => string): Rooms {
+  const rooms: Rooms = {
+    async validateUser(id) {
+      const { user } = await api('users.info', { user: id })
+      if (!user || user.deleted || user.is_bot || user.is_stranger || user.team_id !== team) throw new Error(`No puedo invitar al usuario ${id} de este workspace.`)
+    },
+    async find(name) {
+      let cursor: string | undefined
+      const seen = new Set<string>()
+      do {
+        const result = await api('conversations.list', { types: 'private_channel', exclude_archived: true, limit: 200, cursor })
+        const channel = result.channels?.find((c: any) => c.name === name && c.is_member && c.creator === bot())
+        if (channel) return channel.id
+        cursor = result.response_metadata?.next_cursor || undefined
+        if (cursor && seen.has(cursor)) throw new Error('Slack repitio el cursor de salas.')
+        if (cursor) seen.add(cursor)
+      } while (cursor)
+      return undefined
+    },
+    async create(name) {
+      try {
+        const result = await api('conversations.create', { name, is_private: true })
+        if (!result.channel?.id) throw new Error('Slack no devolvio la sala creada.')
+        return result.channel.id
+      } catch (error) {
+        if ((error as Error).message.includes('name_taken')) {
+          const channel = await rooms.find(name)
+          if (channel) return channel
+        }
+        throw error
+      }
+    },
+    async invite(channel, user) {
+      try { await api('conversations.invite', { channel, users: user }) }
+      catch (error) { if (!(error as Error).message.includes('already_in_channel')) throw error }
+    },
+  }
+  return rooms
+}
+
+export function conversationRoute(store: Store, event: { channel: string; channel_type?: string; thread_ts?: string; ts: string }) {
+  const dm = event.channel_type === 'im' || event.channel.startsWith('D')
+  const existing = store.db.prepare("SELECT key FROM conversations WHERE adapter='slack' AND channel=? AND thread IS NULL").get(event.channel)
+  const pending = store.db.prepare("SELECT conversation_key FROM room_transfers WHERE channel=? AND state='pending'").get(event.channel)
+  const room = Boolean(existing) && !dm
+  const key = (existing?.key ?? pending?.conversation_key) as string ?? (dm ? `slack:${event.channel}` : `slack:${event.channel}:${event.thread_ts ?? event.ts}`)
+  const destination = store.conversation(key)
+  return { dm, room, key, pending: Boolean(pending), thread: dm ? undefined : room ? event.thread_ts : event.thread_ts ?? event.ts,
+    redirect: destination && destination.channel !== event.channel ? destination.channel : undefined }
+}
+
 export function createSlack(config: Config) {
   const app = new pkg.App({ token: process.env.SLACK_BOT_TOKEN, appToken: process.env.SLACK_APP_TOKEN, socketMode: true,
     clientOptions: { timeout: 2500, retryConfig: { retries: 2 } } })
@@ -208,52 +259,7 @@ export function createSlack(config: Config) {
     return response
   }
   const output = new SlackOutput(api)
-  const rooms: Rooms = {
-    async create(name, author, text) {
-      const response = await api('conversations.create', { name, is_private: true })
-      const channel = response.channel?.id
-      if (!channel) throw new Error('Slack no devolvio la sala creada.')
-      try { await api('conversations.invite', { channel, users: author }) }
-      catch (error) { if (!(error as Error).message.includes('already_in_channel')) throw error }
-      const message = await api('chat.postMessage', { channel, text: redact(text), unfurl_links: false })
-      return { channel, thread: message.ts }
-    },
-    async find(name) {
-      let cursor: string | undefined
-      do {
-        const response = await api('conversations.list', { types: 'private_channel', exclude_archived: true, limit: 200, cursor })
-        const channel = response.channels?.find((c: any) => c.name === name && c.is_member)
-        if (channel) {
-          const history = await api('conversations.history', { channel: channel.id, limit: 100 })
-          const root = history.messages?.findLast((m: any) => m.user === botId && !m.subtype)
-          if (root) return { channel: channel.id, thread: root.ts }
-          return undefined
-        }
-        cursor = response.response_metadata?.next_cursor || undefined
-      } while (cursor)
-      return undefined
-    },
-    async history(channel) {
-      const lines: string[] = []
-      let cursor: string | undefined
-      do {
-        const response = await api('conversations.history', { channel, limit: 100, cursor })
-        for (const message of response.messages ?? []) {
-          if (!message.bot_id && !message.subtype && message.user !== botId) lines.push(`@${message.user}: ${messageBody(message)}`)
-          if (message.reply_count) {
-            const replies = await gatherThread(api, channel, message.ts, file => readSlackFile(file, process.env.SLACK_BOT_TOKEN!))
-            lines.push(replies)
-          }
-        }
-        cursor = response.response_metadata?.next_cursor || undefined
-      } while (cursor)
-      return redact(lines.reverse().join('\n')).slice(0, 50000) || 'Sin mensajes adicionales.'
-    },
-    async archive(channel) {
-      try { await api('conversations.archive', { channel }) }
-      catch (error) { if (!(error as Error).message.includes('already_archived')) throw error }
-    },
-  }
+  const rooms = createRoomApi(api, config.slack.workspace_team_id, () => botId)
   let core: Core, botId = '', connected = false
   const membership = new Map<string, { allowed: boolean; checkedAt: number }>()
   const receiver = app.receiver as any
@@ -264,12 +270,7 @@ export function createSlack(config: Config) {
   const handle = async (event: any, body: any, mention = false) => {
     if (event.bot_id || event.user === botId || (event.subtype && event.subtype !== 'file_share') || !event.user || !event.ts) return
     if (event.user_team && event.user_team !== config.slack.workspace_team_id) return
-    const dm = event.channel_type === 'im' || event.channel.startsWith('D')
-    const roomConversation = core.store.db.prepare("SELECT key FROM conversations WHERE adapter='slack' AND channel=? AND thread IS NULL").get(event.channel)
-    const room = Boolean(roomConversation)
-    // A room converses at channel root; elsewhere the thread anchors the conversation.
-    const thread = dm ? undefined : room ? event.thread_ts : event.thread_ts ?? event.ts
-    const key = roomConversation?.key as string ?? (dm ? `slack:${event.channel}` : `slack:${event.channel}:${event.thread_ts ?? event.ts}`)
+    const { dm, room, key, thread } = conversationRoute(core.store, event)
     // app_mention and message may have different event IDs for the same message.
     if (!mention && !dm && (event.text ?? '').includes(`<@${botId}>`)) return
     const text = messageBody(event).replaceAll(`<@${botId}>`, '').trim()
@@ -288,6 +289,15 @@ export function createSlack(config: Config) {
       }
       if (!entry.allowed) return
     }
+    const { redirect, pending } = conversationRoute(core.store, event)
+    if (pending) {
+      await api('chat.postMessage', { channel: event.channel, thread_ts: event.thread_ts ?? event.ts, text: 'El traslado aun no termina. Continua en la conversacion de origen hasta que se confirme la sala.' })
+      return
+    }
+    if (redirect) {
+      await api('chat.postMessage', { channel: event.channel, thread_ts: event.thread_ts ?? event.ts, text: `Continuamos en <#${redirect}>.` })
+      return
+    }
     output.latestThread.set(key, event.thread_ts ?? event.ts)
     try {
       await core.submit(input)
@@ -298,10 +308,9 @@ export function createSlack(config: Config) {
   app.event('app_mention', async ({ event, body }) => handle(event, body, true))
   app.message(async ({ message, body }) => handle(message, body))
   app.event('agent_session_stopped' as any, async ({ event, body }: any) => {
-    const roomConversation = core.store.db.prepare("SELECT key FROM conversations WHERE adapter='slack' AND channel=? AND thread IS NULL").get(event.channel)
-    const key = roomConversation?.key as string ?? (event.channel.startsWith('D') ? `slack:${event.channel}` : `slack:${event.channel}:${event.thread_ts}`)
+    const { key } = conversationRoute(core.store, event)
     const input = { adapter: 'slack' as const, key, eventId: body.event_id, channel: event.channel, thread: event.channel.startsWith('D') ? undefined : event.thread_ts, team: body.team_id, author: event.user, text: 'stop' }
-    if (core.authorized(input)) await core.submit(input)
+    if (core.authorized(input) && core.store.conversation(key)?.channel === event.channel) await core.submit(input)
   })
   app.action(/^regent_question_([0-4])$/, async ({ ack, body, action, respond }: any) => {
     await ack()
@@ -319,6 +328,7 @@ export function createSlack(config: Config) {
     connected: () => connected,
     async start(value: Core) {
       core = value
+      core.rooms = rooms
       const auth = await api('auth.test', {})
       if (auth.team_id !== config.slack.workspace_team_id) throw new Error('El token Slack pertenece a otro workspace.')
       botId = auth.user_id

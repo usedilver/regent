@@ -26,8 +26,9 @@ export class DurableOutput implements Output {
           if (row.kind === 'notice') await this.delegate.notice(args[0], args[1])
           else if (row.kind === 'status') await this.delegate.status(args[0], args[1])
           else if (row.kind === 'question') {
-            const current = this.store.db.prepare('SELECT state FROM gates WHERE question_id=?').get(args[1].id)
+            const current = this.store.db.prepare('SELECT state,destination FROM gates WHERE question_id=?').get(args[1].id)
             if (current?.state === 'pending') {
+              if (current.destination) args[0] = JSON.parse(current.destination as string)
               if (this.delegate.question) await this.delegate.question(args[0], args[1])
               else await this.delegate.notice(args[0], [args[1].text, ...args[1].options.map((o: string, i: number) => `${i + 1}. ${o}`)].join('\n'))
             }

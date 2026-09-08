@@ -6,7 +6,8 @@ import { assertAuth, defaultRepoDir } from './config.ts'
 import { agentEnvFiles, loadAgentEnv, ownEnvKeys } from '../env.ts'
 import { startRunner, type RunnerEvent, type RunnerOptions } from './runner.ts'
 import { Store, redact } from './store.ts'
-import type { Conversation, Inbound, Output, Run } from './types.ts'
+import type { Conversation, Inbound, Output, Run, Rooms } from './types.ts'
+import { RoomTransfers } from './rooms.ts'
 import { denial } from '../../plugin/hooks/policy.mjs'
 import { progressText } from './progress.ts'
 import { resolveRepository, isolationFor } from './repository.ts'
@@ -16,6 +17,7 @@ interface Active {
   run: Run; token: string; controller?: ReturnType<typeof startRunner>; done?: Promise<void>
   conversation?: Conversation
   contextChanged?: boolean
+  moving?: boolean
   waiting: boolean; cancelled: boolean; reserved: number; lastTool: string
   output: Promise<void>
   lastStatusAt: number
@@ -36,6 +38,7 @@ export class Core {
   adapter?: string
   defaultCwd: string
   historyLoader?: HistoryLoader
+  rooms?: Rooms
   constructor(options: { store: Store; config: Config; output: Output; cwd: string; adapter?: string; runner?: typeof startRunner; runnerOverrides?: Partial<RunnerOptions> }) {
     this.store = options.store; this.config = options.config; this.output = options.output; this.cwd = options.cwd
     this.defaultCwd = defaultRepoDir(this.config, this.cwd)
@@ -202,9 +205,7 @@ export class Core {
   /** Re-anchor a conversation: the origin keeps the pointer, everything else continues there. */
   async moveToRoom(active: Active, room: string): Promise<void> {
     const key = active.run.conversation_key
-    this.store.db.prepare('UPDATE conversations SET channel=?, thread=NULL WHERE key=?').run(room, key)
-    this.store.db.prepare('INSERT INTO conversation_history VALUES(?,?) ON CONFLICT(conversation_key) DO UPDATE SET source=excluded.source').run(key, JSON.stringify({ channel: room }))
-    this.store.db.prepare("UPDATE runs SET reply_channel=?, reply_thread=NULL WHERE conversation_key=? AND state IN ('queued','running')").run(room, key)
+    new RoomTransfers(this.store).move(key, room)
     active.run.reply_channel = room
     active.run.reply_thread = null
     if (active.conversation) { active.conversation.channel = room; active.conversation.thread = null }
@@ -224,6 +225,23 @@ export class Core {
     const conversation = { ...this.store.conversation(active.run.conversation_key)!, thread: active.run.reply_thread, author: active.run.author }
     conversation.channel = active.run.reply_channel ?? conversation.channel
     if (active.waiting || active.cancelled) throw new Error('El run ya esta esperando o detenido; termina el turno.')
+    if (active.moving && name !== 'regent_cancel') throw new Error('El traslado de sala esta en curso; espera a que termine.')
+    if (name === 'regent_create_room') {
+      if (conversation.adapter !== 'slack' || !this.rooms) throw new Error('Crear salas requiere el cliente Slack conectado.')
+      if (active.operations.size) throw new Error('Espera a que terminen las otras herramientas antes de trasladar la conversacion.')
+      active.moving = true
+      try {
+        const transfer = await new RoomTransfers(this.store).prepare(conversation, args, this.rooms, active.abort.signal)
+        if (transfer.state !== 'moved') {
+          await active.output
+          active.abort.signal.throwIfAborted()
+          await this.moveToRoom(active, transfer.channel!)
+        }
+        await this.output.flush?.().catch(() => {})
+        return { channel: transfer.channel, name: transfer.name, url: `slack://channel?team=${conversation.team}&id=${transfer.channel}`, moved: true,
+          instruction: 'La misma sesion continua en la sala. No reinicies el repo ni el worktree, no crees una tarea.' }
+      } finally { active.moving = false }
+    }
     if (name === 'regent_use_repo') {
       const target = resolveRepository(this.cwd, args.repo)
       if (target === conversation.cwd) return { repo: target, unchanged: true }

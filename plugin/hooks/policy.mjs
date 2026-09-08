@@ -33,7 +33,7 @@ export function denial(input, env = process.env) {
       return null
     } catch { return 'Ruta de edicion inaccesible o workspace no configurado.' }
   }
-  if (['use_repo', 'status', 'ask_human', 'cancel'].some(tool => name === `mcp__regent__regent_${tool}`)) return null
+  if (['use_repo', 'create_room', 'status', 'ask_human', 'cancel'].some(tool => name === `mcp__regent__regent_${tool}`)) return null
   if (name === 'Bash') {
     const command = args.command ?? ''
     // Heuristic guards in both modes, not a shell sandbox: credential references,
