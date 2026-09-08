@@ -56,7 +56,7 @@ en el hilo. También puedes responder con tus propias palabras. La respuesta con
 la misma conversación; un botón ya respondido o de una pregunta reemplazada no vuelve
 a ejecutar trabajo. El significado de una aprobación lo determina la pregunta y el
 flujo del repo, no una compuerta propia de Regent.
-En CLI las opciones se muestran como texto. El arranque actualiza SQLite al esquema 4
+En CLI las opciones se muestran como texto. El arranque actualiza SQLite al esquema 5
 y conserva las sesiones y preguntas pendientes de versiones anteriores.
 
 Antes de iniciar: copia `regent.example.yaml` a `config/regent.yaml` y completa
@@ -67,9 +67,11 @@ Notion/Jira son opcionales y se configuran en el repo mediante sus propias herra
 
 En canales y salas el bot actúa solo con @mención; sin mención acepta únicamente
 la respuesta del autor cuando el bot le preguntó algo (o los comandos exactos
-`stop`/`para`/`reset`/`nuevo`). En un DM todo se procesa. La creación de salas
-independientes y el contexto incremental de Slack siguen pendientes; ya no se
-crean salas como efecto de una tarea.
+`stop`/`para`/`reset`/`nuevo`). En un DM todo se procesa. En cada intervención se
+incorporan los mensajes nuevos o modificados del hilo; en conversaciones a raíz
+de canal, también sus hilos. Capturas y mensajes entregados se guardan en SQLite
+para deduplicar entre turnos y reinicios. La creación de salas independientes sigue
+pendiente; ya no se crean salas como efecto de una tarea.
 
 `pnpm start` usa `REGENT_PORT=8788`, `REGENT_DB=log/v2.sqlite` y escucha solo en
 `127.0.0.1`. `REGENT_CONFIG` permite elegir otro YAML. La CLI y el servidor no deben

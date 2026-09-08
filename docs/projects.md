@@ -61,7 +61,7 @@ selecting it. Native worktree setup and ignored context files remain repo concer
 Custom WorktreeCreate hooks returning a different path are not supported yet.
 Trusted scripts/MCPs are not an OS sandbox; external databases, ports, deployments
 and arbitrary absolute writes inside scripts are not isolated by Git worktrees.
-Context refresh from Slack and independent room creation are the next modules.
+Incremental Slack context is implemented; independent room creation is next.
 
 The previous profile tools were removed. Existing manifest files are neither read
 nor deleted; move any useful commands into the repository's own skills or scripts.
