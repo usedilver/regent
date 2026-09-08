@@ -1,11 +1,27 @@
 # Multiple repositories and project creation
 
-SUPERSEDED DESIGN: the profile manifest and provisioning tools described below
-still exist in code but are scheduled for removal. They are not required by the
-agreed product contract. See [v2.md](v2.md); do not adopt this manifest for new setups.
-
 Regent has no built-in organization, template, hosting provider or domain routing.
 The configured default repository is an entry point, not the only project.
+See [v2.md](v2.md) for the product contract and remaining implementation work.
+
+## Create, clone or review
+
+Use the context repository's instructions, skills, scripts, CLI or MCPs.
+There is no `.regent/projects.json`, profile discovery tool or Regent provisioning
+API. Git and gh follow the same runtime permissions as other shell commands.
+Remote review does not require a local clone if the available tools suffice.
+
+For a new local project, choose a distinct path in the authorized workspace and
+verify it does not overwrite existing work. The repository's own tools handle
+initialization, template selection, remote creation and seeding project context.
+Regent does not require an initial commit, origin or deployment to select a repo.
+Existing core worktree/publication helpers have their own prerequisites; they are
+not a general initialization workflow for an empty repository.
+
+Confirm ownership or paid/public actions when the request and repository rules
+do not already establish authorization. Do not invent credentials or copy server
+secrets. After a failed or interrupted creation, inspect local and remote state
+before retrying: repository tools own reconciliation of their external effects.
 
 ## Select a repository
 
@@ -24,60 +40,18 @@ in-flight tools or active worktrees; use another thread for an unrelated project
 in that case. A task record, if present, is preserved, including its approval state.
 Selecting a submodule is not required just to edit it with the parent's context.
 
-## Repository-owned profiles
+## Permissions and migration
 
-The context repository can declare `.regent/projects.json`:
+In `native` mode the runtime applies its permission settings; in `bypass` it does
+not. Removing Regent's git/gh denylist does not authorize an operation rejected by
+the runtime. Hooks are not a filesystem sandbox. Workspace containment is enforced
+for context selection, not for every arbitrary shell command.
 
-```json
-{
-  "profiles": {
-    "internal-tool": {
-      "command": ["node", "scripts/provision-project.mjs"]
-    }
-  }
-}
-```
+Direct Write/Edit still require a core-owned worktree and existing task approvals.
+Decoupling these legacy workflows is the next module, not completed here.
 
-`regent_project_profiles` lists these profiles. `regent_create_project` accepts:
-
-```json
-{
-  "profile": "internal-tool",
-  "destination": "projects/alex-renewals",
-  "input": { "name": "alex-renewals" }
-}
-```
-
-The parent directory must already exist inside the workspace and outside any
-repository. Regent creates an empty target directory, then executes the profile's
-argv without an implicit shell, from the source repository. Inputs are passed as:
-
-- `REGENT_PROJECT_DIR`: canonical absolute destination.
-- `REGENT_PROJECT_INPUT`: JSON object of string values, treated as data.
-- The same filtered environment prepared for the source agent, not Regent secrets.
-
-The script owns provider authentication, template choice and remote creation.
-On success it must leave a git repository with an initial commit, an `origin`
-remote and a corresponding remote-tracking branch for the checked-out branch.
-It must seed the project's own context and install only necessary credentials.
-The destination is already present: scripts must accept an empty directory.
-
-The result returns the repository path. Call `regent_use_repo` next; subsequent
-editing uses Regent worktrees and the existing PR workflow. Repository creation
-is provider-neutral; existing PR publication remains GitHub/gh-based.
-
-## Trust and recovery
-
-Profiles are executable operator-trusted code, not sandboxed. Do not put credentials
-in the manifest, command arguments or tool input. Define resource limits and access
-policy in the profile; ask for confirmation before paid resources or public exposure.
-Regent checks an existing task's plan gate, but does not infer provider-specific costs.
-
-A destination has one persisted creation effect. Completed calls return the same
-result. Failed or interrupted calls are not automatically repeated, even if a
-partial checkout exists: a remote resource may already exist. Inspect and reconcile
-the recorded effect before retrying; there is no automatic provider reconciliation
-or operator recovery command in this first implementation. Files are not deleted.
-
-No profile is bundled or enabled for Talently. Adapting Talenter, moving its secrets,
-and reviewing its deployment/access policy are separate work in that repository.
+The previous profile tools were removed. Existing manifest files are neither read
+nor deleted; move any useful commands into the repository's own skills or scripts.
+Old project effect records remain in SQLite for audit; Regent no longer executes
+or retries them. No repository files, remote resources or sessions are deleted.
+If a resumed session remembers the removed tools, it should use repo tools instead.

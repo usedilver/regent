@@ -10,14 +10,12 @@ import type { Conversation, Inbound, Output, Run } from './types.ts'
 import { Changes } from './changes.ts'
 import { Tasks } from './tasks.ts'
 import { denial } from '../../plugin/hooks/policy.mjs'
-import { literalCommand } from '../../plugin/hooks/command.mjs'
 import { progressText } from './progress.ts'
-import { Projects } from './projects.ts'
+import { resolveRepository } from './repository.ts'
 
 interface Active {
   run: Run; token: string; controller?: ReturnType<typeof startRunner>; done?: Promise<void>
   conversation?: Conversation
-  agentEnv?: NodeJS.ProcessEnv
   contextChanged?: boolean
   waiting: boolean; cancelled: boolean; reserved: number; lastTool: string
   output: Promise<void>
@@ -40,11 +38,9 @@ export class Core {
   changes: Changes
   tasks: Tasks
   defaultCwd: string
-  projects: Projects
   constructor(options: { store: Store; config: Config; output: Output; cwd: string; adapter?: string; runner?: typeof startRunner; runnerOverrides?: Partial<RunnerOptions> }) {
     this.store = options.store; this.config = options.config; this.output = options.output; this.cwd = options.cwd
     this.defaultCwd = defaultRepoDir(this.config, this.cwd)
-    this.projects = new Projects(this.store, this.cwd)
     this.runner = options.runner ?? startRunner; this.runnerOverrides = options.runnerOverrides ?? {}
     this.adapter = options.adapter
     this.changes = new Changes(this.store, this.config, this.cwd)
@@ -142,7 +138,6 @@ export class Core {
       if (process.env.ANTHROPIC_API_KEY) env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
       else delete env.ANTHROPIC_API_KEY
       assertAuth(this.config, env)
-      active.agentEnv = env
       if (this.config.auth.mode === 'team') {
         const spent = this.store.spent(run.author)
         const reserved = [...this.active.values()].filter(a => a !== active && a.run.author === run.author).reduce((sum, a) => sum + a.reserved, 0)
@@ -228,13 +223,8 @@ export class Core {
     const conversation = { ...this.store.conversation(active.run.conversation_key)!, thread: active.run.reply_thread, author: active.run.author }
     conversation.channel = active.run.reply_channel ?? conversation.channel
     if (active.waiting || active.cancelled) throw new Error('El run ya esta esperando o detenido; termina el turno.')
-    if (name === 'regent_project_profiles') return this.projects.profiles(conversation.cwd)
-    if (name === 'regent_create_project') {
-      if (!this.tasks.canWrite(conversation.key)) throw new Error('Falta aprobar el plan antes de crear recursos.')
-      return this.projects.create(conversation.cwd, args.profile, args.destination, args.input ?? {}, active.agentEnv!, active.abort.signal)
-    }
     if (name === 'regent_use_repo') {
-      const target = this.projects.repo(args.repo)
+      const target = resolveRepository(this.cwd, args.repo)
       if (target === conversation.cwd) return { repo: target, unchanged: true }
       if (this.changes.list(conversation.key).length) throw new Error('Esta conversacion tiene worktrees. Usa un hilo nuevo para otro proyecto.')
       if (this.store.db.prepare("SELECT 1 FROM runs WHERE conversation_key=? AND state='queued'").get(conversation.key)) throw new Error('Hay mensajes en cola; espera antes de cambiar de proyecto.')
@@ -340,17 +330,8 @@ export class Core {
       this.store.db.prepare('UPDATE worktrees SET test_passed=0,test_tree=NULL WHERE id=?').run(w.id)
       return null
     }
-    let root = this.cwd
     const cwd = this.store.conversation(active.run.conversation_key)?.cwd ?? this.defaultCwd
-    if (input.tool_name === 'Bash') {
-      const words = literalCommand(input.tool_input?.command)
-      if (words?.[0] === 'git' && words[1] === '-C' && words[2]) {
-        const target = path.resolve(cwd, words[2])
-        const w = worktrees.find(w => target === w.dir || target.startsWith(w.dir + path.sep))
-        if (w) root = w.dir
-      }
-    }
-    return denial(input, { ...process.env, REGENT_PERMISSION_MODE: this.config.permission_mode === 'native' ? 'repository' : '', REGENT_ROOT: root, REGENT_CWD: cwd, REGENT_READONLY_MCP: JSON.stringify(this.config.repos.readonly_mcp) })
+    return denial(input, { ...process.env, REGENT_PERMISSION_MODE: this.config.permission_mode === 'native' ? 'repository' : '', REGENT_ROOT: this.cwd, REGENT_CWD: cwd, REGENT_READONLY_MCP: JSON.stringify(this.config.repos.readonly_mcp) })
   }
   async answerQuestion(id: string, index: number, author: string, team: string, channel: string, thread: string | null) {
     if (!this.authorized({ adapter: 'slack', author, team } as Inbound)) throw new Error('Usuario o workspace no autorizado.')

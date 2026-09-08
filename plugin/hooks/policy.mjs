@@ -1,5 +1,4 @@
 import fs from 'node:fs'
-import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { literalCommand } from './command.mjs'
 
@@ -15,12 +14,11 @@ export function denial(input, env = process.env) {
   // Escrituras: el core las gatea (worktree propio + plan). El hook las niega por defensa
   // cuando actua solo (el core responde antes en el flujo normal).
   if (['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(name)) return 'Las escrituras pasan por el core: worktree propio y plan aprobado.'
-  if (['project_profiles', 'create_project', 'use_repo', 'status', 'ask_human', 'cancel', 'worktree', 'install', 'run_tests', 'open_pr', 'close_pr', 'create_task', 'update_task', 'request_qa'].some(tool => name === `mcp__regent__regent_${tool}`)) return null
+  if (['use_repo', 'status', 'ask_human', 'cancel', 'worktree', 'install', 'run_tests', 'open_pr', 'close_pr', 'create_task', 'update_task', 'request_qa'].some(tool => name === `mcp__regent__regent_${tool}`)) return null
   if (name === 'Bash') {
     const command = args.command ?? ''
-    const native = env.REGENT_PERMISSION_MODE === 'repository'
-    // Security floor (both modes): never read credentials, never pipe a download into an interpreter,
-    // never recursively delete an absolute or home path (a worktree rm is fine).
+    // Heuristic guards in both modes, not a shell sandbox: credential references,
+    // download-to-interpreter pipelines and recursive deletion of absolute paths.
     if (/\.credentials\.json|\.env(?:\b|$)|\.claude\.json/.test(command)) return 'No leer archivos de credenciales.'
     if (/\b(?:curl|wget|fetch)\b[\s\S]*\|\s*(?:sudo\s+)?(?:sh|bash|zsh|ash|dash|python[0-9.]*|node|perl|ruby)\b/.test(command)) return 'No canalizar una descarga a un interprete.'
     const rmMatch = command.match(/(?:^|[;&|]\s*|\s)rm\s+([^;&|]+)/)
@@ -32,39 +30,11 @@ export function denial(input, env = process.env) {
     }
     const words = literalCommand(command)
     const first = words ? words[0] : (command.trim().match(/^[^\s|&;<>()`$]+/) ?? [''])[0]
-    // Tracker and worktree publication go through the core tools, never direct.
+    // Legacy Regent-specific commands still go through core tools.
     if (['ncard', 'regent-wt'].includes(first)) return 'ncard y regent-wt van por las tools del core, no por Bash.'
-    // git/gh: reads allowed in both modes; writes go through the core publication tools.
-    if (first === 'git' || first === 'gh') {
-      if (!words) return 'Para git/gh usa un comando literal de lectura, sin operadores; la publicacion va por las tools del core.'
-      if (/\.credentials\.json|\.env\b|\.claude\.json/.test(words.join(' '))) return 'No leer credenciales mediante git o gh.'
-      if (first === 'git') {
-        let index = 1
-        if (words[index] === '-C') {
-          const root = fs.realpathSync(env.REGENT_ROOT)
-          let dir
-          try { dir = fs.realpathSync(path.resolve(env.REGENT_CWD ?? root, words[index + 1] ?? '')) } catch { return 'Directorio git inexistente.' }
-          const relative = path.relative(root, dir)
-          if (relative.startsWith('..') || path.isAbsolute(relative)) return 'git -C debe consultar un repo dentro del workspace.'
-          index += 2
-        }
-        const readOnly = ['log', 'show', 'blame', 'status', 'diff', 'ls-files', 'ls-tree', 'rev-parse', 'grep', 'show-ref', 'cat-file', 'describe', 'rev-list', 'shortlog']
-        if (words[index] === 'submodule' && words[index + 1] === 'status' && words.slice(index + 2).every(w => ['--recursive', '--cached'].includes(w))) return null
-        if (!readOnly.includes(words[index])) return 'Subcomando git de escritura: usa las tools del core para publicar.'
-        if (words[index] === 'cat-file') {
-          const [mode, object, ...extra] = words.slice(index + 1)
-          if (!['-p', '-t', '-s', '-e', 'blob', 'tree', 'commit', 'tag'].includes(mode) || !object || object.startsWith('-') || extra.length) {
-            return 'cat-file solo admite inspeccion directa: -p, -t, -s, -e o tipo de objeto, seguido de un objeto; sin filtros ni modos batch.'
-          }
-        }
-        if (words.some(w => /^--(?:output|open-files-in-pager|ext-diff|textconv|no-index|exec|config)/.test(w) || /^-O/.test(w))) return 'Opcion git no permitida en una consulta de lectura.'
-        return null
-      }
-      if (['pr', 'issue', 'repo'].includes(words[1]) && ['view', 'list', 'diff'].includes(words[2]) && !words.some(w => /^--(?:web|template)/.test(w))) return null
-      return 'gh de escritura: usa las tools del core para publicar.'
-    }
-    // Any other command: bypass runs it (this hook is the guard); native lets the repo settings decide.
-    void native
+    if (words && /\.credentials\.json|\.env\b|\.claude\.json/.test(words.join(' '))) return 'No leer archivos de credenciales.'
+    // Git, gh and repository scripts follow the same runtime permissions as other
+    // shell tools. In bypass mode this abstention is not a filesystem sandbox.
     return null
   }
   let servers = []
@@ -80,7 +50,7 @@ export function denial(input, env = process.env) {
   // Los servidores marcados en readonly_mcp ya quedaron restringidos arriba.
   // Repo/user MCP tools and every built-in meta tool (ToolSearch loads deferred MCP tools,
   // Task/WebFetch/WebSearch/TodoWrite, etc.) are the repo's context, not a threat. The real
-  // guards are above: credentials, git/gh writes, readonly MCP DML, and worktree-scoped edits
+  // guards are above: credentials, readonly MCP DML, and worktree-scoped edits
   // (core enforces those for Write/Edit). Abstain here: bypass runs it, native lets the repo decide.
   return null
 }

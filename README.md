@@ -98,8 +98,10 @@ headless las solicitudes sin autorización pueden denegarse. Los hooks de Regent
 no son un sandbox; las credenciales de datos deben tener los permisos adecuados.
 
 Los hooks permiten Edit/Write dentro del worktree propio, y exigen aprobación del
-plan cuando hay tarea. Bash conserva solo consultas simples de git/gh; instalar,
-ejecutar tests y publicar un PR se hace mediante las tools del core. También admite
+plan cuando hay tarea. Git/gh y los scripts del repo siguen los permisos del runtime,
+sin prohibición global de escritura. Crear/clonar no requiere un manifiesto propio;
+ver [proyectos y cambio de contexto](docs/projects.md). Los cambios gestionados por
+el core aún usan sus helpers de instalación, tests y publicación. Se admiten
 MCPs externos; `repos.readonly_mcp` restringe los servidores indicados. Esos
 MCPs deben usar credenciales de base de datos de solo lectura: el filtro de comandos
 no reemplaza los permisos de la base. `agent_env_files` conserva el contexto del repo.

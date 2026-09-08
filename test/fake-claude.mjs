@@ -16,6 +16,12 @@ if (scenario === 'hang' || scenario === 'ignore-signals') {
 } else {
   if (scenario === 'tool') {
     const config = JSON.parse(process.argv[process.argv.indexOf('--mcp-config') + 1]).mcpServers.regent
+    const listing = await fetch(config.url, { method: 'POST', headers: { ...config.headers, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }) })
+    const names = (await listing.json()).result.tools.map(tool => tool.name)
+    if (!names.includes('regent_use_repo') || names.includes('regent_create_project') || names.includes('regent_project_profiles')) {
+      throw new Error('Unexpected repository MCP tools')
+    }
     const response = await fetch(config.url, { method: 'POST', headers: { ...config.headers, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'regent_status', arguments: { text: 'Consultando el repositorio' } } }) })
     if (!response.ok) throw new Error(`Internal MCP: HTTP ${response.status}`)
