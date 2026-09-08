@@ -9,6 +9,7 @@ export interface Inbound {
   replyThread?: string
   team?: string
   transcript?: string
+  history?: import('./history.ts').HistorySource
   intent?: 'ask' | 'patch' | 'task'
 }
 

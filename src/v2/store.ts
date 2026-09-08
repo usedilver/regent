@@ -23,7 +23,7 @@ export class Store {
     this.db = new DatabaseSync(file)
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;')
     const version = this.db.prepare('PRAGMA user_version').get()!.user_version as number
-    if (version > 4) throw new Error(`Esquema SQLite ${version} mas nuevo que este servidor.`)
+    if (version > 5) throw new Error(`Esquema SQLite ${version} mas nuevo que este servidor.`)
     this.transaction(() => {
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS conversations (
@@ -110,6 +110,13 @@ export class Store {
         );
         PRAGMA user_version=4;
       `)
+      if (version < 5) this.db.exec(`
+        CREATE TABLE IF NOT EXISTS conversation_history (conversation_key TEXT PRIMARY KEY, source TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS run_history (run_id TEXT PRIMARY KEY REFERENCES runs(id), source TEXT NOT NULL, snapshot TEXT);
+        CREATE TABLE IF NOT EXISTS history_seen (conversation_key TEXT NOT NULL, session_id TEXT NOT NULL, message_id TEXT NOT NULL, hash TEXT NOT NULL,
+          PRIMARY KEY(conversation_key,session_id,message_id));
+        PRAGMA user_version=5;
+      `)
     })
   }
   claimRuntime(): void {
@@ -158,6 +165,13 @@ export class Store {
       if (id) {
         this.db.prepare('INSERT INTO runs(id,conversation_key,author,prompt,transcript,reply_thread,reply_channel,intent,state,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
           .run(id, input.key, input.author, redact(input.text), input.transcript ? redact(input.transcript) : null, input.replyThread ?? input.thread ?? null, input.channel, input.intent ?? 'ask', 'queued', now)
+        const history = input.history ?? (input.adapter === 'slack' ? this.db.prepare('SELECT source FROM conversation_history WHERE conversation_key=?').get(input.key)?.source : undefined)
+        if (history) {
+          const source = typeof history === 'string' ? history : JSON.stringify(history)
+          this.db.prepare('INSERT INTO run_history(run_id,source) VALUES(?,?)').run(id, source)
+          if (input.history) this.db.prepare('INSERT INTO conversation_history VALUES(?,?) ON CONFLICT(conversation_key) DO UPDATE SET source=excluded.source')
+            .run(input.key, JSON.stringify({ channel: input.history.channel, thread: input.history.thread }))
+        }
         this.db.prepare("UPDATE gates SET state='answered',answer=? WHERE conversation_key=? AND state='pending'").run(redact(input.text), input.key)
         if (conversation.state !== 'running') this.state(input.key, 'queued')
       }
@@ -176,7 +190,7 @@ export class Store {
       this.state(this.run(id)!.conversation_key, 'running')
     })
   }
-  finish(id: string, state: string, result = '', error = ''): void {
+  finish(id: string, state: string, result = '', error = '', acknowledge?: () => void): void {
     this.transaction(() => {
       this.db.prepare('UPDATE runs SET state=?,result=?,error=?,ended_at=? WHERE id=?').run(state, redact(result), redact(error), Date.now(), id)
       const key = this.run(id)!.conversation_key
@@ -184,6 +198,7 @@ export class Store {
       const running = this.db.prepare("SELECT 1 FROM runs WHERE conversation_key=? AND state='running'").get(key)
       this.state(key, running ? 'running' : state === 'interrupted' ? 'interrupted' : state === 'waiting_human' ? 'waiting_human' : pending ? 'queued' : 'idle')
       this.db.prepare('UPDATE conversations SET updated_at=? WHERE key=?').run(Date.now(), key)
+      acknowledge?.()
     })
   }
   event(id: string, kind: string, data: unknown): void {

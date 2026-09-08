@@ -5,6 +5,49 @@ import type { Core } from './core.ts'
 import type { Conversation, Output, Run } from './types.ts'
 import { redact } from './store.ts'
 import type { Rooms } from './types.ts'
+import type { HistoryMessage, HistorySource } from './history.ts'
+
+export async function gatherHistory(api: Api, source: HistorySource, botId: string, readFile: (file: any) => Promise<string>, signal?: AbortSignal, includeOwn = false): Promise<HistoryMessage[]> {
+  const messages = new Map<string, any>()
+  const stamp = (ts: string) => { const [seconds, fraction = ''] = ts.split('.'); return BigInt(seconds) * 1000000n + BigInt(fraction.padEnd(6, '0')) }
+  const collect = async (thread?: string) => {
+    let cursor: string | undefined
+    const cursors = new Set<string>()
+    do {
+      signal?.throwIfAborted()
+      const result = await api(thread ? 'conversations.replies' : 'conversations.history', {
+        channel: source.channel, ...(thread ? { ts: thread } : {}), latest: source.latest, inclusive: true, limit: 100, cursor,
+      })
+      for (const message of result.messages ?? []) {
+        if (!message.ts) throw new Error('Slack devolvio un mensaje sin timestamp.')
+        if (!source.latest || stamp(message.ts) <= stamp(source.latest)) messages.set(message.ts, message)
+      }
+      if (messages.size > 2000) throw new Error('Historial Slack demasiado grande; usa un hilo mas acotado.')
+      cursor = result.response_metadata?.next_cursor || undefined
+      if (result.has_more && !cursor) throw new Error('Slack devolvio historial incompleto sin cursor de continuacion.')
+      if (cursor && cursors.has(cursor)) throw new Error('Slack repitio el cursor de historial.')
+      if (cursor) cursors.add(cursor)
+    } while (cursor)
+  }
+  await collect(source.thread)
+  if (!source.thread) {
+    // Old channel roots may have fresh replies, so do not advance only a channel timestamp.
+    for (const message of [...messages.values()]) if (message.reply_count) await collect(message.ts)
+  }
+  const result: HistoryMessage[] = []
+  for (const m of [...messages.values()].sort((a, b) => stamp(a.ts) < stamp(b.ts) ? -1 : stamp(a.ts) > stamp(b.ts) ? 1 : 0)) {
+    signal?.throwIfAborted()
+    if ((!includeOwn && m.user === botId) || m.subtype === 'message_deleted') continue
+    const id = `${source.channel}:${m.ts}`
+    const author = m.bot_id ? appLabel(m) : `@${m.user ?? 'unknown'}`
+    const label = `${author}${m.thread_ts && m.thread_ts !== m.ts ? ` (hilo ${m.thread_ts})` : ''}`
+    const body = messageBody(m)
+    if (body) result.push({ id, text: `${label}: ${body}` })
+    const files = (await Promise.all((m.files ?? []).map(readFile))).join('\n')
+    if (files) result.push({ id: `${id}:files`, text: `${label}: ${files}` })
+  }
+  return result
+}
 
 type Api = (method: string, args: Record<string, any>) => Promise<any>
 type Stream = { ts?: string; pending: string; sent: string; timer?: NodeJS.Timeout; chain: Promise<void>; failed?: boolean; channel: string; thread?: string }
@@ -231,8 +274,10 @@ export function createSlack(config: Config) {
     if (!mention && !dm && (event.text ?? '').includes(`<@${botId}>`)) return
     const text = messageBody(event).replaceAll(`<@${botId}>`, '').trim()
     if (!accepts({ dm, mention, author: event.user, text, conversation: core.store.conversation(key) })) return
-    const input = { adapter: 'slack' as const, eventId: body.event_id ?? `${event.channel}:${event.ts}`, key, channel: event.channel,
-      thread, replyThread: event.thread_ts ?? (room ? undefined : event.ts), team: body.team_id, author: event.user, text: text || 'Revisa el contexto de este hilo.' }
+    const input = { adapter: 'slack' as const, eventId: `message:${event.channel}:${event.ts}`, key, channel: event.channel,
+      thread, replyThread: event.thread_ts ?? (room ? undefined : event.ts), team: body.team_id, author: event.user, text: text || 'Revisa el contexto de este hilo.',
+      history: { channel: event.channel, thread: room || (dm && !event.thread_ts) ? undefined : event.thread_ts ?? event.ts,
+        latest: event.ts, trigger: `${event.channel}:${event.ts}` } }
     if (!core.authorized(input)) return
     if (!config.slack.allowed_users.length) {
       let entry = membership.get(event.user)
@@ -245,7 +290,7 @@ export function createSlack(config: Config) {
     }
     output.latestThread.set(key, event.thread_ts ?? event.ts)
     try {
-      await core.submit(input, () => gatherThread(api, event.channel, event.thread_ts ?? event.ts, file => readSlackFile(file, process.env.SLACK_BOT_TOKEN!)))
+      await core.submit(input)
     } catch (error) {
       await api('chat.postMessage', { channel: event.channel, thread_ts: event.thread_ts ?? event.ts, text: `No pude procesar el mensaje: ${redact((error as Error).message)}` })
     }
@@ -277,6 +322,7 @@ export function createSlack(config: Config) {
       const auth = await api('auth.test', {})
       if (auth.team_id !== config.slack.workspace_team_id) throw new Error('El token Slack pertenece a otro workspace.')
       botId = auth.user_id
+      core.historyLoader = (source, signal, includeOwn) => gatherHistory(api, source, botId, file => readSlackFile(file, process.env.SLACK_BOT_TOKEN!), signal, includeOwn)
       await app.start()
     },
     async stop() { await app.stop(); connected = false },
