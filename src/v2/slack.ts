@@ -201,7 +201,11 @@ export class SlackOutput implements Output {
     await stream.chain
     try {
       if (stream.ts) {
-        await this.api('chat.stopStream', { channel: stream.channel, ts: stream.ts })
+        try { await this.api('chat.stopStream', { channel: stream.channel, ts: stream.ts }) }
+        catch (error) {
+          const code = (error as any)?.data?.error
+          if (code !== 'message_not_in_streaming_state' && !/\bmessage_not_in_streaming_state\b/.test((error as Error).message ?? '')) throw error
+        }
         // The authoritative result can differ from interim assistant messages.
         if (text.length <= 3500) await this.api('chat.update', { channel: stream.channel, ts: stream.ts, text: redact(text) })
         else {
@@ -210,8 +214,11 @@ export class SlackOutput implements Output {
         }
       } else await this.notice({ ...c, channel: stream.channel, thread: stream.thread ?? null }, text)
     } catch (error) {
-      await this.notice({ ...c, channel: stream.channel, thread: stream.thread ?? null }, `${text}\n\nNo pude cerrar el stream: ${(error as Error).message}`)
-    } finally { this.streams.delete(run.id) }
+      // Preserve the known message for DurableOutput to retry after a network
+      // failure, instead of posting a duplicate answer with an internal error.
+      throw error
+    }
+    this.streams.delete(run.id)
   }
   /** The conversation moved to its room: close the origin stream so the rest lands there. */
   async moved(run: Run): Promise<void> {

@@ -71,6 +71,9 @@ export function startRunner(options: RunnerOptions): { done: Promise<RunnerResul
   // Do not inherit a parent interactive session or alternate subscription tokens.
   delete env.CLAUDECODE
   delete env.CLAUDE_CODE_OAUTH_TOKEN
+  // Node watch reports module loads over child IPC, corrupting worker protocols
+  // (e.g. Next's jest-worker). Keep watching Regent, not the agent's children.
+  delete env.WATCH_REPORT_DEPENDENCIES
   // In bypass the hook is the only guard: never let an inherited var make it abstain.
   if (!native) delete env.REGENT_PERMISSION_MODE
   const child = spawn(options.command ?? 'claude', [...(options.prefixArgs ?? []), ...runnerArgs(options)], {

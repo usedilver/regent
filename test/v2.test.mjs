@@ -74,6 +74,13 @@ try {
       }
     } finally { if (previous === undefined) delete process.env[key]; else process.env[key] = previous }
   })
+  await check('runner strips Node watch reporting without changing caller env or worker IPC', async () => {
+    const env = { WATCH_REPORT_DEPENDENCIES: '1', REPO_TEST_VALUE: 'preserved' }
+    const result = await startRunner(runnerOptions({ env, prefixArgs: [path.resolve('test/runner-worker-probe.cjs')] })).done
+    assert.equal(result.state, 'completed')
+    assert.deepEqual(JSON.parse(result.text), { messages: [[0, 'worker-ok']], watch: null, own: 'preserved' })
+    assert.equal(env.WATCH_REPORT_DEPENDENCIES, '1')
+  })
   await check('room-root question choices preserve a null thread', async () => {
     const f = fixture({ runnerOverrides: { command: process.execPath, prefixArgs: [fake], env: { FAKE_CLAUDE_SCENARIO: 'hang' } } })
     try {
@@ -456,6 +463,33 @@ try {
       assert.equal(calls.find(c => c.method === 'chat.update').args.text, 'Respuesta final')
       assert.equal(calls.at(-1).args.status, 'active')
     } finally { await new Promise(resolve => server.close(resolve)) }
+  })
+  await check('Slack finalization retries a lost stop response and reconciles an already closed stream', async () => {
+    const calls = []
+    let stopped = false
+    const output = new SlackOutput(async (method, args) => {
+      calls.push({ method, args })
+      if (method === 'chat.stopStream') {
+        if (!stopped) { stopped = true; throw new Error('simulated lost HTTP response') }
+        throw Object.assign(new Error('An API error occurred: message_not_in_streaming_state'), { data: { error: 'message_not_in_streaming_state' } })
+      }
+      return { ok: true, ts: '100' }
+    }, 5)
+    const store = new Store(':memory:')
+    const durable = new DurableOutput(store, output)
+    const c = { key: 'slack:C1:1', channel: 'C1', thread: '1', author: 'U1', team: 'T1' }, run = { id: 'closed-stream', author: 'U1' }
+    try {
+      await output.delta(c, run, 'Trabajo en curso.\n')
+      await until(() => calls.some(c => c.method === 'chat.startStream'))
+      await assert.rejects(durable.finish(c, run, 'Resultado verificado'), /lost HTTP/)
+      assert.ok(output.streams.has(run.id))
+      await durable.flush()
+      assert.equal(calls.filter(c => c.method === 'chat.postMessage').length, 0)
+      assert.equal(calls.filter(c => c.method === 'chat.update').length, 1)
+      assert.equal(calls.find(c => c.method === 'chat.update').args.text, 'Resultado verificado')
+      assert.equal(store.db.prepare("SELECT state FROM deliveries WHERE kind='finish'").get().state, 'sent')
+      assert.equal(output.streams.has(run.id), false)
+    } finally { await durable.close(); store.close() }
   })
   await check('Slack history: pagination, app attachments, private-channel errors visible', async () => {
     let count = 0

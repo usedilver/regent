@@ -1,8 +1,38 @@
 # Investigación: builds/workers que fallan dentro de regent (sandbox de Claude Code)
 
-Bitácora abierta. Iniciada 2026-09-08. **Estado: mecanismo reproducido; fix pendiente.**
+Bitácora abierta. Iniciada 2026-09-08. **Estado: fuga watch corregida y build real verificado.**
 Documento de análisis, no contrato. Registra hallazgos, descartes y preguntas
 abiertas para seguir. Actualizar en el mismo PR que avance el tema.
+
+## Corrección y verificación ejecutadas (2026-09-08)
+
+- `startRunner` elimina `WATCH_REPORT_DEPENDENCIES` de la copia del entorno antes
+  del spawn. No modifica el entorno del servidor ni desactiva watch o sandbox.
+- Regresión automatizada: el runner recibe la variable contaminante, lanza un
+  proceso con un fork IPC y solo recibe el mensaje esperado del worker. También
+  verifica que se conserve una variable legítima y no se mute el entorno de entrada.
+- `pnpm build` del worktree real terminó con exit 0, cuatro workers y generación
+  de páginas completa al eliminar la variable.
+- Segunda prueba real mediante `startRunner`, inyectando la variable en sus
+  opciones: `completed {"exit":0,"watch":null,"workerError":false,"pagesGenerated":true}`.
+  Usó un adaptador determinista que ejecuta pnpm build, no una nueva sesión Claude;
+  verifica la frontera de spawn sin gastar otro turno en instrucciones al modelo.
+- `finishReply` tolera `message_not_in_streaming_state` y actualiza el mensaje
+  existente. Otros errores de transporte se propagan a DurableOutput, conservando
+  el stream conocido para reintentar en lugar de publicar otra respuesta con logs.
+- Regresión Slack: stop aplicado con respuesta perdida, segundo stop devuelve
+  stream cerrado, actualización final única y entrega marcada sent. No se publica
+  un segundo mensaje ni el diagnóstico técnico en el hilo.
+- `pnpm test` completo pasó. Pruebas sin despliegue ni escrituras de datos de app.
+  El status Git del worktree conserva la misma lista de cambios pendientes.
+
+Pendiente operativo: nueva prueba desde Slack con el servidor actualizado, limpieza
+y commit del proyecto y despliegue. No se certifica el cierre real de Slack solo
+con mocks. La recuperación de identidad de streams tras reinicio sigue siendo
+parte de [la migración de progreso](v2-slack-progress.md), no de este arreglo.
+
+Las listas de pendientes y conclusiones de secciones siguientes son históricas;
+los puntos de filtrado y finalización se implementaron como se describe arriba.
 
 ## Revisión con logs y reproducción (2026-09-08)
 
