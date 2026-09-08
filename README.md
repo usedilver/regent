@@ -58,7 +58,7 @@ en el hilo. También puedes responder con tus propias palabras. La respuesta con
 la misma conversación; un botón ya respondido o de una pregunta reemplazada no vuelve
 a ejecutar trabajo. El significado de una aprobación lo determina la pregunta y el
 flujo del repo, no una compuerta propia de Regent.
-En CLI las opciones se muestran como texto. El arranque actualiza SQLite al esquema 6
+En CLI las opciones se muestran como texto. El arranque actualiza SQLite al esquema 7
 y conserva las sesiones y preguntas pendientes de versiones anteriores.
 
 El setup crea `config/regent.yaml` (o `REGENT_CONFIG`) sin sobrescribir archivos
@@ -103,6 +103,22 @@ traslada la misma sesión, repo y worktree. Deja un enlace en el origen y un res
 en la sala. Los reintentos reutilizan el canal preparado; si falla una invitación,
 el traslado queda pendiente en el origen. En la sala sigue aplicando la @mención
 y la autorización configurada: ser invitado no amplía `slack.allowed_users`.
+
+El indicador nativo de trabajo se usa cuando Slack confirma el estado del hilo.
+Las salas actuales son canales privados normales: en su raíz se muestra un único
+mensaje de progreso que se actualiza, igual que cuando falla el indicador nativo.
+Su identificador queda en SQLite para limpiar avisos pendientes tras un reinicio.
+Slack también tiene canales de sesión con indicador a nivel de canal; Regent no
+crea ese tipo de canal actualmente. Ver [estados de sesión de Slack](https://docs.slack.dev/reference/methods/agents.sessions.setStatus/).
+
+Cada turno reserva para responder el menor valor entre 60 segundos y el 20% de su
+límite total. Durante ese margen no inicia nuevas herramientas de investigación o
+edición; puede comunicar estado, preguntar, cancelar y recoger o detener subagentes
+existentes. El agente recibe el plazo y una instrucción de cierre, y Slack recibe
+un aviso. El timeout total no se amplía. Si aun así se interrumpe, se muestra el
+texto parcial disponible como incompleto; si no existe, se indica expresamente.
+Una herramienta ya en curso puede consumir todo el margen: no se garantiza un
+resumen ni se reanuda automáticamente la investigación.
 
 `pnpm start` usa `REGENT_PORT=8788`, `REGENT_DB=log/v2.sqlite` y escucha solo en
 `127.0.0.1`. `REGENT_CONFIG` permite elegir otro YAML. La CLI y el servidor no deben
