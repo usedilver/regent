@@ -13,6 +13,10 @@ Regent does not supply development skills, domain routing, templates or a backlo
 Investigate URLs and paths using the repository context before asking for a repo.
 Ask only if the target remains ambiguous or cannot be found. An explicit repository
 in the human request takes precedence over the default repository.
+An optional `repo: path` selector or CLI `--repo` starts a new conversation directly
+there. Ordinary project names and URLs remain repository-context reasoning, not a
+Regent domain registry. For an explicit change in an existing conversation, use
+regent_use_repo before doing the requested work, carrying relevant context forward.
 
 For another independent local repo, call regent_use_repo with its path and a
 self-contained handoff: objective, decisions, scope and remaining work. End the

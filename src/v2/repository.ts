@@ -20,3 +20,13 @@ export function resolveRepository(workspace: string, value: string): string {
   }
   return dir
 }
+
+/** Optional explicit selector, never a heuristic over URLs or ordinary prose. */
+export function repositoryRequest(text: string): { text: string; repo?: string } {
+  if (!/^repo:/i.test(text)) return { text }
+  const match = text.match(/^repo:[ \t]*([^\r\n]+)\r?\n([\s\S]+)$/i)
+  if (!match) throw new Error('Indica repo: <ruta> y la solicitud en la siguiente linea.')
+  const repo = match[1].trim().replace(/^(["'])(.*)\1$/, '$2')
+  if (!repo || !match[2].trim()) throw new Error('Indica repo: <ruta> y la solicitud en la siguiente linea.')
+  return { repo, text: match[2].trim() }
+}

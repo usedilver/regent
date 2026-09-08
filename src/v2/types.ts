@@ -11,6 +11,7 @@ export interface Inbound {
   transcript?: string
   history?: import('./history.ts').HistorySource
   intent?: 'ask' | 'patch' | 'task'
+  repo?: string
 }
 
 export interface Conversation {

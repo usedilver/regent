@@ -3,6 +3,7 @@ import path from 'node:path'
 import YAML from 'yaml'
 import { z } from 'zod'
 import { BRIDGE_DIR } from '../env.ts'
+import { resolveRepository } from './repository.ts'
 
 const positive = z.number().positive().finite()
 export const ConfigSchema = z.object({
@@ -64,6 +65,7 @@ export function assertAuth(config: Config, env: NodeJS.ProcessEnv = process.env)
 }
 
 export function loadConfig(file = process.env.REGENT_CONFIG ?? path.join(BRIDGE_DIR, 'config/regent.yaml')): Config {
+  if (!fs.existsSync(file)) throw new Error(`No existe ${file}. Ejecuta pnpm regent setup --repo <ruta> --team <ID> --user <ID>.`)
   return ConfigSchema.parse(YAML.parse(fs.readFileSync(file, 'utf8')))
 }
 
@@ -71,17 +73,12 @@ export function workspaceDir(config: Config): string {
   const root = fs.realpathSync(config.repos.path.replace(/^~(?=$|\/)/, process.env.HOME ?? ''))
   const dir = fs.realpathSync(path.resolve(root, config.repos.workspace_root ?? '.'))
   const relative = path.relative(root, dir)
-  if (relative.startsWith('..') || path.isAbsolute(relative) || !fs.statSync(dir).isDirectory()) throw new Error('workspace_root debe ser una carpeta dentro de repos.path.')
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative) || !fs.statSync(dir).isDirectory()) throw new Error('workspace_root debe ser una carpeta dentro de repos.path.')
   return dir
 }
 
 export function defaultRepoDir(config: Config, workspace: string): string {
   if (!config.repos.default_repo) return workspace
-  const root = fs.realpathSync(workspace)
-  const dir = fs.realpathSync(path.resolve(root, config.repos.default_repo))
-  const relative = path.relative(root, dir)
-  if (relative.startsWith('..') || path.isAbsolute(relative) || !fs.statSync(dir).isDirectory() || !fs.existsSync(path.join(dir, '.git'))) {
-    throw new Error('repos.default_repo debe ser un repo dentro del workspace.')
-  }
-  return dir
+  try { return resolveRepository(workspace, config.repos.default_repo) }
+  catch (cause) { throw new Error('repos.default_repo debe ser un repo dentro del workspace.', { cause }) }
 }

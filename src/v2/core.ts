@@ -10,7 +10,7 @@ import type { Conversation, Inbound, Output, Run, Rooms } from './types.ts'
 import { RoomTransfers } from './rooms.ts'
 import { denial } from '../../plugin/hooks/policy.mjs'
 import { progressText } from './progress.ts'
-import { resolveRepository, isolationFor } from './repository.ts'
+import { resolveRepository, isolationFor, repositoryRequest } from './repository.ts'
 import { History, type HistoryLoader } from './history.ts'
 
 interface Active {
@@ -52,7 +52,17 @@ export class Core {
   async submit(input: Inbound, prepare?: () => Promise<string | undefined>) {
     if (this.stopping) throw new Error('El servidor se esta deteniendo; vuelve a enviar el mensaje.')
     if (!this.authorized(input)) throw new Error('Usuario o workspace fuera de la configuracion autorizada.')
-    const accepted = this.store.accept(input, this.defaultCwd, this.config.session.idle_reset_hours)
+    const previous = this.store.db.prepare('SELECT run_id FROM inbound WHERE adapter=? AND event_id=?').get(input.adapter, input.eventId)
+    if (previous) return { duplicate: true, runId: previous.run_id as string | null, command: null }
+    const selection = repositoryRequest(input.text)
+    const requested = input.repo ?? selection.repo
+    const selected = requested ? resolveRepository(this.cwd, requested) : undefined
+    const existing = this.store.conversation(input.key)
+    const switching = selected && existing && selected !== existing.cwd
+    input = { ...input, text: switching
+      ? `El usuario selecciono explicitamente el repositorio ${JSON.stringify(selected)}. Antes de ejecutar la solicitud, llama regent_use_repo con esa ruta y un handoff del contexto relevante; termina el turno para cargar su entorno. No ejecutes la solicitud en el repo actual.\nSolicitud:\n${selection.text}`
+      : selection.text }
+    const accepted = this.store.accept(input, selected ?? this.defaultCwd, this.config.session.idle_reset_hours)
     if (accepted.duplicate) return accepted
     const waiting = this.active.get(input.key)
     if (accepted.runId && waiting?.waiting) waiting.resumeAfterWait = true
