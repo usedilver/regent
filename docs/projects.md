@@ -15,8 +15,8 @@ For a new local project, choose a distinct path in the authorized workspace and
 verify it does not overwrite existing work. The repository's own tools handle
 initialization, template selection, remote creation and seeding project context.
 Regent does not require an initial commit, origin or deployment to select a repo.
-Existing core worktree/publication helpers have their own prerequisites; they are
-not a general initialization workflow for an empty repository.
+Editing, testing and publication use repository tools; Regent has no worktree,
+installation, PR or task helpers. An empty repository can be initialized directly.
 
 Confirm ownership or paid/public actions when the request and repository rules
 do not already establish authorization. Do not invent credentials or copy server
@@ -35,9 +35,9 @@ MCP configuration and default environment files are loaded there. The old Claude
 session is not resumed; conversational continuity comes from the explicit handoff.
 Explicit `repos.agent_env_files` remain operator-configured shared inputs.
 
-Other conversations keep their context. Switching is refused with queued messages,
-in-flight tools or active worktrees; use another thread for an unrelated project
-in that case. A task record, if present, is preserved, including its approval state.
+Other conversations keep their context. Switching is refused with queued messages
+or in-flight tools; wait until those operations finish. Worktrees no longer prevent
+selecting another project, and no task record controls the switch.
 Selecting a submodule is not required just to edit it with the parent's context.
 
 ## Permissions and migration
@@ -47,8 +47,11 @@ not. Removing Regent's git/gh denylist does not authorize an operation rejected 
 the runtime. Hooks are not a filesystem sandbox. Workspace containment is enforced
 for context selection, not for every arbitrary shell command.
 
-Direct Write/Edit still require a core-owned worktree and existing task approvals.
-Decoupling these legacy workflows is the next module, not completed here.
+Direct Write/Edit are checked against the authorized workspace, including symlinks,
+but do not require a core-owned worktree or a task approval. Native mode does not
+pre-allow repository editing tools. Concurrent sessions do not automatically get
+separate checkouts: follow the repository's isolation rules and preserve other work.
+Context refresh from Slack and independent room creation are the next modules.
 
 The previous profile tools were removed. Existing manifest files are neither read
 nor deleted; move any useful commands into the repository's own skills or scripts.

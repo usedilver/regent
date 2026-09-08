@@ -37,9 +37,8 @@ revisa su autenticación para usar tu suscripción.
 regent es un cliente conversacional open source de Claude Code CLI, con Slack como
 primera interfaz. El repo predeterminado aporta contexto; cada repo define sus
 skills, MCPs, reglas y flujo de trabajo. No requiere Notion ni crear una tarea
-para conversar. Consultas y cambios con PR están validados en real; todavía hay
-flujos impuestos por el core que deben retirarse. El contrato vigente y los
-pendientes están en [docs/v2.md](docs/v2.md).
+para conversar. El flujo de desarrollo pertenece al repo, sin tareas, planes ni
+worktrees obligatorios de Regent. El contrato vigente y los pendientes están en [docs/v2.md](docs/v2.md).
 
 ```sh
 pnpm start                 # servidor (Slack), escucha en 127.0.0.1
@@ -48,17 +47,14 @@ pnpm test                  # suite v2
 pnpm regent ask "Explica este repositorio" --conversation revision
 pnpm regent patch "Corrige el fallo y abre un PR" --conversation correccion
 pnpm regent runs
-pnpm regent tasks
-pnpm regent gates
-pnpm regent gate <gate_id> approve
-pnpm regent sync
 pnpm regent tail <run_id> --follow
 ```
 
 Cuando Regent necesita una decisión, puede mostrar hasta cinco opciones con botones
 en el hilo. También puedes responder con tus propias palabras. La respuesta continúa
 la misma conversación; un botón ya respondido o de una pregunta reemplazada no vuelve
-a ejecutar trabajo. Elegir una alternativa no reemplaza la aprobación del plan o QA.
+a ejecutar trabajo. El significado de una aprobación lo determina la pregunta y el
+flujo del repo, no una compuerta propia de Regent.
 En CLI las opciones se muestran como texto. El arranque actualiza SQLite al esquema 4
 y conserva las sesiones y preguntas pendientes de versiones anteriores.
 
@@ -70,9 +66,9 @@ Notion/Jira son opcionales y se configuran en el repo mediante sus propias herra
 
 En canales y salas el bot actúa solo con @mención; sin mención acepta únicamente
 la respuesta del autor cuando el bot le preguntó algo (o los comandos exactos
-`stop`/`para`/`reset`/`nuevo`). En un DM todo se procesa. Al crear una tarea con
-sala, la conversación se muda a la sala y conversa a raíz de canal; el hilo de
-origen recibe solo el puntero.
+`stop`/`para`/`reset`/`nuevo`). En un DM todo se procesa. La creación de salas
+independientes y el contexto incremental de Slack siguen pendientes; ya no se
+crean salas como efecto de una tarea.
 
 `pnpm start` usa `REGENT_PORT=8788`, `REGENT_DB=log/v2.sqlite` y escucha solo en
 `127.0.0.1`. `REGENT_CONFIG` permite elegir otro YAML. La CLI y el servidor no deben
@@ -86,47 +82,33 @@ suscribe `agent_session_stopped`; la [migración de Slack es irreversible](https
 No expongas `/tools`, `/tool-policy` ni `/hook-denial` mediante el túnel. `/healthz` incluye conexión,
 cola y entregas pendientes; `/metrics` expone runs por estado.
 
-### Implementación Actual Y Límites
+### Ejecución Y Permisos
 
-Lo siguiente describe mecanismos existentes, no requisitos del contrato de v2.
-Los gates de negocio y las salas ligadas a tareas están pendientes de desacoplar.
+El repo aporta MCPs, skills, reglas y variables. Regent no incluye skills de
+planificación, implementación o QA. Su MCP interno ofrece únicamente selección
+de repo, progreso, preguntas y cancelación; git/gh, tests, instalación, PRs y
+trackers se ejecutan con las herramientas del proyecto.
 
-El repo aporta MCPs, skills, reglas y variables. El modo de permisos actual es
-`bypass` por defecto; no equivale a respetar los `allow/ask/deny` nativos del repo.
-`permission_mode: native` permite usar los permisos nativos, pero en ejecución
-headless las solicitudes sin autorización pueden denegarse. Los hooks de Regent
-no son un sandbox; las credenciales de datos deben tener los permisos adecuados.
+El modo actual es `bypass` por defecto: no aplica los permisos nativos
+`allow/ask/deny`. `permission_mode: native` los respeta sin preautorizar
+Edit/Write; las solicitudes sin autorización pueden denegarse en headless.
+Ambos modos conservan autorización del run, filtros de credenciales, MCPs marcados
+en `repos.readonly_mcp` y validación de rutas de edición dentro del workspace.
+Los hooks no son un sandbox para comandos de shell.
 
-Los hooks permiten Edit/Write dentro del worktree propio, y exigen aprobación del
-plan cuando hay tarea. Git/gh y los scripts del repo siguen los permisos del runtime,
-sin prohibición global de escritura. Crear/clonar no requiere un manifiesto propio;
-ver [proyectos y cambio de contexto](docs/projects.md). Los cambios gestionados por
-el core aún usan sus helpers de instalación, tests y publicación. Se admiten
-MCPs externos; `repos.readonly_mcp` restringe los servidores indicados. Esos
-MCPs deben usar credenciales de base de datos de solo lectura: el filtro de comandos
-no reemplaza los permisos de la base. `agent_env_files` conserva el contexto del repo.
+El workspace se pasa como directorio adicional al runtime para trabajar en los
+repos seleccionados y proyectos nuevos. Los cambios pueden hacerse directamente;
+el repo y el usuario deciden si corresponde una rama o un worktree. Regent no
+aísla automáticamente dos conversaciones editando los mismos archivos.
+
+No hay tareas locales nuevas, gates de plan/QA, digest ni seguimiento automático
+de merges. Se retiraron `tasks`, `gates`, `gate` y `sync` de la CLI y el webhook
+de GitHub. Las opciones antiguas de `policy` se aceptan pero no tienen efecto.
+Las tablas históricas permanecen en SQLite, sin ejecutar su flujo anterior.
+
 Node >=22.20 y un Claude Code que soporte `--permission-prompts` son necesarios.
-
-El backlog es del repo, no de regent: si el proyecto define un MCP de Notion, una
-skill de backlog o sus propios estados, el agente los usa de forma 100% agéntica.
-regent solo registra la tarea localmente y gobierna lo humano: sala, compuertas de
-plan/QA con botones, y seguimiento de PRs hasta el merge. Las tareas M/L requieren
-plan aprobado; QA se solicita después de publicar todos sus PRs. Un cambio S sin
-tarea usa `policy.small_fix` y `track_small_fixes` (`digest`); `fast_track` es
-opcional y está desactivado por defecto. Para tests fuera de `package.json`, declara
-`repos.test_commands: { mi-repo: ["pytest", "-q"] }` (clave `.` para el repo raíz).
-La instalación automática solo admite proyectos Node con lockfile.
-
-El servidor verifica merges cada 60 segundos. Opcionalmente expón **solo**
-`POST /webhooks/github` y configura `GITHUB_WEBHOOK_SECRET` para recibir eventos
-`pull_request`; el webhook valida firma y deduplica, y el core confirma el merge con
-`gh` antes de cerrar la tarea. `pnpm regent sync` revisa las tareas de la CLI;
-las compuertas de Slack se responden en Slack.
-
-Un resultado remoto incierto se reconcilia antes de repetir una creación. Si no puede
-reconciliarse, se detiene con aviso para revisión operativa; no se garantiza
-exactly-once para mensajes de Slack. Las operaciones de trackers externos dependen
-de las herramientas configuradas por cada repo.
+Las operaciones remotas y su recuperación dependen de las herramientas del repo;
+Regent no garantiza exactly-once para mensajes de Slack.
 
 `REGENT_SMOKE=1 pnpm smoke` prueba una consulta con Claude real y una base temporal;
 puede consumir saldo. La suite normal usa procesos falsos y no necesita tokens.
