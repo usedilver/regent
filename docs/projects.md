@@ -1,5 +1,9 @@
 # Multiple repositories and project creation
 
+SUPERSEDED DESIGN: the profile manifest and provisioning tools described below
+still exist in code but are scheduled for removal. They are not required by the
+agreed product contract. See [v2.md](v2.md); do not adopt this manifest for new setups.
+
 Regent has no built-in organization, template, hosting provider or domain routing.
 The configured default repository is an entry point, not the only project.
 

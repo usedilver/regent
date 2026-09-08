@@ -9,6 +9,7 @@ auth:
 repos:
   path: /absolute/path/to/repos
   workspace_root: null
+  default_repo: null # Relativo al workspace; null usa el workspace como contexto inicial.
   agent_env_files: []
   readonly_mcp: []
   # Argv por nombre/ruta relativa de repo; usa '.' si path es el repo mismo.

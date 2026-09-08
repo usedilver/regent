@@ -34,10 +34,12 @@ revisa su autenticación para usar tu suscripción.
 
 ## Uso
 
-regent es un colega en el chat: le hablas por Slack (DM o mención), lee tus repos y
-datos con contexto por conversación, responde en streaming, parcha lo chico y abre un
-PR, y sube tarea a Notion solo cuando vale la pena. `ask` y `patch` (Slack + PR) están validados
-en real; el flujo de tarea y el soak siguen pendientes. Detalle en [docs/v2.md](docs/v2.md).
+regent es un cliente conversacional open source de Claude Code CLI, con Slack como
+primera interfaz. El repo predeterminado aporta contexto; cada repo define sus
+skills, MCPs, reglas y flujo de trabajo. No requiere Notion ni crear una tarea
+para conversar. Consultas y cambios con PR están validados en real; todavía hay
+flujos impuestos por el core que deben retirarse. El contrato vigente y los
+pendientes están en [docs/v2.md](docs/v2.md).
 
 ```sh
 pnpm start                 # servidor (Slack), escucha en 127.0.0.1
@@ -57,13 +59,14 @@ Cuando Regent necesita una decisión, puede mostrar hasta cinco opciones con bot
 en el hilo. También puedes responder con tus propias palabras. La respuesta continúa
 la misma conversación; un botón ya respondido o de una pregunta reemplazada no vuelve
 a ejecutar trabajo. Elegir una alternativa no reemplaza la aprobación del plan o QA.
-En CLI las opciones se muestran como texto. El arranque actualiza SQLite al esquema 3
+En CLI las opciones se muestran como texto. El arranque actualiza SQLite al esquema 4
 y conserva las sesiones y preguntas pendientes de versiones anteriores.
 
 Antes de iniciar: copia `regent.example.yaml` a `config/regent.yaml` y completa
 `auth.mode`, `slack.workspace_team_id` y `slack.allowed_users`. Necesita
 `SLACK_BOT_TOKEN` y `SLACK_APP_TOKEN` de una app con `slack-manifest-v2.json`
-(Agent messaging), y `NOTION_TOKEN`/`DATA_SOURCE_ID` para tareas.
+(Agent messaging). Define `repos.path` y `repos.default_repo` para el contexto inicial.
+Notion/Jira son opcionales y se configuran en el repo mediante sus propias herramientas.
 
 En canales y salas el bot actúa solo con @mención; sin mención acepta únicamente
 la respuesta del autor cuando el bot le preguntó algo (o los comandos exactos
@@ -83,17 +86,21 @@ suscribe `agent_session_stopped`; la [migración de Slack es irreversible](https
 No expongas `/tools`, `/tool-policy` ni `/hook-denial` mediante el túnel. `/healthz` incluye conexión,
 cola y entregas pendientes; `/metrics` expone runs por estado.
 
-El repositorio clonado es la fuente de verdad: sus MCPs, skills, reglas y
-credenciales aplican tal cual. Los permisos son bypass por defecto, sin nada que
-configurar; la guarda son los hooks duros de regent (git/gh de escritura, tracker,
-secretos, worktree/plan) y las credenciales de solo lectura que el propio repo usa
-en sus bases. `readonly_mcp` y `permission_mode: native` existen como endurecimiento
-opcional para entornos no confiables — no son parte del setup normal.
+### Implementación Actual Y Límites
+
+Lo siguiente describe mecanismos existentes, no requisitos del contrato de v2.
+Los gates de negocio y las salas ligadas a tareas están pendientes de desacoplar.
+
+El repo aporta MCPs, skills, reglas y variables. El modo de permisos actual es
+`bypass` por defecto; no equivale a respetar los `allow/ask/deny` nativos del repo.
+`permission_mode: native` permite usar los permisos nativos, pero en ejecución
+headless las solicitudes sin autorización pueden denegarse. Los hooks de Regent
+no son un sandbox; las credenciales de datos deben tener los permisos adecuados.
 
 Los hooks permiten Edit/Write dentro del worktree propio, y exigen aprobación del
 plan cuando hay tarea. Bash conserva solo consultas simples de git/gh; instalar,
 ejecutar tests y publicar un PR se hace mediante las tools del core. También admite
-MCPs declarados en `repos.readonly_mcp`; explica las herramientas denegadas. Esos
+MCPs externos; `repos.readonly_mcp` restringe los servidores indicados. Esos
 MCPs deben usar credenciales de base de datos de solo lectura: el filtro de comandos
 no reemplaza los permisos de la base. `agent_env_files` conserva el contexto del repo.
 Node >=22.20 y un Claude Code que soporte `--permission-prompts` son necesarios.
@@ -116,7 +123,8 @@ las compuertas de Slack se responden en Slack.
 
 Un resultado remoto incierto se reconcilia antes de repetir una creación. Si no puede
 reconciliarse, se detiene con aviso para revisión operativa; no se garantiza
-exactly-once para mensajes de Slack ni atomicidad al reemplazar una sección de Notion.
+exactly-once para mensajes de Slack. Las operaciones de trackers externos dependen
+de las herramientas configuradas por cada repo.
 
 `REGENT_SMOKE=1 pnpm smoke` prueba una consulta con Claude real y una base temporal;
 puede consumir saldo. La suite normal usa procesos falsos y no necesita tokens.
