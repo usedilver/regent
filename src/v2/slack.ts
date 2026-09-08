@@ -1,4 +1,5 @@
 import pkg from '@slack/bolt'
+import { SlackConnection } from './slack-connection.ts'
 import { appLabel, messageBody, threadToMarkdown } from '../slack-thread.ts'
 import type { Config } from './config.ts'
 import type { Core } from './core.ts'
@@ -317,7 +318,7 @@ export function conversationRoute(store: Store, event: { channel: string; channe
 
 export function createSlack(config: Config) {
   const app = new pkg.App({ token: process.env.SLACK_BOT_TOKEN, appToken: process.env.SLACK_APP_TOKEN, socketMode: true,
-    clientOptions: { timeout: 2500, retryConfig: { retries: 2 } } })
+    clientOptions: { timeout: 10000, retryConfig: { retries: 2 } } })
   const api: Api = async (method, args) => {
     const response = await app.client.apiCall(method, args)
     if (!response.ok) throw new Error(`${method}: ${response.error}`)
@@ -325,12 +326,10 @@ export function createSlack(config: Config) {
   }
   const output = new SlackOutput(api)
   const rooms = createRoomApi(api, config.slack.workspace_team_id, () => botId)
-  let core: Core, botId = '', connected = false
+  let core: Core, botId = ''
   const membership = new Map<string, { allowed: boolean; checkedAt: number }>()
   const receiver = app.receiver as any
-  receiver.client.on('connected', () => { connected = true })
-  receiver.client.on('disconnected', () => { connected = false })
-  receiver.client.on('reconnecting', () => { connected = false })
+  const connection = new SlackConnection(receiver.client, message => console.warn(`[slack v2] ${redact(message)}`))
 
   const handle = async (event: any, body: any, mention = false) => {
     if (event.bot_id || event.user === botId || (event.subtype && event.subtype !== 'file_share') || !event.user || !event.ts) return
@@ -390,7 +389,7 @@ export function createSlack(config: Config) {
   return {
     output,
     rooms,
-    connected: () => connected,
+    connected: () => connection.connected,
     async start(value: Core) {
       core = value
       output.store = core.store
@@ -399,8 +398,8 @@ export function createSlack(config: Config) {
       if (auth.team_id !== config.slack.workspace_team_id) throw new Error('El token Slack pertenece a otro workspace.')
       botId = auth.user_id
       core.historyLoader = (source, signal, includeOwn) => gatherHistory(api, source, botId, file => readSlackFile(file, process.env.SLACK_BOT_TOKEN!), signal, includeOwn)
-      await app.start()
+      await connection.start(() => app.start())
     },
-    async stop() { await app.stop(); connected = false },
+    async stop() { await connection.stop(() => app.stop()) },
   }
 }
