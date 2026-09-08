@@ -23,7 +23,7 @@ export class Store {
     this.db = new DatabaseSync(file)
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;')
     const version = this.db.prepare('PRAGMA user_version').get()!.user_version as number
-    if (version > 6) throw new Error(`Esquema SQLite ${version} mas nuevo que este servidor.`)
+    if (version > 7) throw new Error(`Esquema SQLite ${version} mas nuevo que este servidor.`)
     this.transaction(() => {
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS conversations (
@@ -124,6 +124,10 @@ export class Store {
           state TEXT NOT NULL DEFAULT 'pending'
         );
         PRAGMA user_version=6;
+      `)
+      if (version < 7) this.db.exec(`
+        CREATE TABLE IF NOT EXISTS slack_progress (run_id TEXT PRIMARY KEY, channel TEXT NOT NULL, ts TEXT NOT NULL);
+        PRAGMA user_version=7;
       `)
     })
   }

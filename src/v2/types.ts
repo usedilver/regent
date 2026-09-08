@@ -45,11 +45,17 @@ export interface Run {
 }
 
 export interface Output {
-  /** The surface already animates a native "working…" indicator: skip periodic heartbeat notices. */
-  animates?: boolean
+  /** True when THIS conversation shows a native "working…" indicator (needs a thread anchor):
+   * skip the periodic heartbeat there. Rooms converse at channel root with no anchor, so they
+   * return false and rely on the updating progress message below. */
+  animates?(conversation: Conversation): boolean
   question?(conversation: Conversation, question: { id: string; text: string; options: string[] }): Promise<void>
   notice(conversation: Conversation, text: string): Promise<void>
   status(conversation: Conversation, status: 'processing' | 'active' | 'suspended'): Promise<void>
+  /** Periodic "still working" signal for surfaces without a native indicator: posts once, then
+   * updates the same message (no repeated posts). Cleared when the run finishes or moves. */
+  progress?(conversation: Conversation, run: Run, text: string): Promise<void>
+  recoverProgress?(): Promise<void>
   delta(conversation: Conversation, run: Run, text: string): Promise<void>
   finish(conversation: Conversation, run: Run, text: string): Promise<void>
   /** The conversation re-anchored: close any in-flight stream where it was. */

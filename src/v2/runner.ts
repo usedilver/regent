@@ -128,10 +128,10 @@ export function startRunner(options: RunnerOptions): { done: Promise<RunnerResul
   child.stdin.on('error', error => { if ((error as NodeJS.ErrnoException).code !== 'EPIPE') { fatal = error.message; cancel(fatal) } })
   child.stdin.end(options.prompt)
   const startedAt = Date.now()
-  const timedOut = () => cancel('Se alcanzo el tiempo maximo; escribe continua para retomar.')
+  const timedOut = () => cancel('Se alcanzo el tiempo maximo de ejecucion de este turno.')
   let timeout = setTimeout(timedOut, options.timeoutMs)
   const setTimeoutMs = (ms: number) => { clearTimeout(timeout); timeout = setTimeout(timedOut, Math.max(1, ms - (Date.now() - startedAt))) }
-  const stall = setInterval(() => { if (Date.now() - lastEvent >= options.stallMs) cancel('Claude dejo de emitir eventos; escribe continua para retomar.') }, Math.min(1000, options.stallMs))
+  const stall = setInterval(() => { if (Date.now() - lastEvent >= options.stallMs) cancel('Claude dejo de emitir eventos.') }, Math.min(1000, options.stallMs))
   const done = new Promise<RunnerResult>(resolve => {
     child.on('error', error => { fatal = `No pude iniciar Claude: ${error.message}` })
     child.on('close', code => {

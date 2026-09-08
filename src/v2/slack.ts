@@ -70,8 +70,14 @@ export class SlackOutput implements Output {
   api: Api
   streams = new Map<string, Stream>()
   flushMs: number
-  animates = true // Agent messaging shows the native "está trabajando…" indicator.
+  progressMsgs = new Map<string, { channel: string; ts: string }>()
+  nativeStatuses = new Set<string>()
+  store?: Store
   constructor(api: Api, flushMs = 3000) { this.api = api; this.flushMs = flushMs }
+  /** The native "está trabajando…" indicator (agents.sessions.setStatus) needs a thread anchor.
+   * Rooms converse at channel root with no anchor, so it can't animate there — the core falls
+   * back to the updating progress message instead. */
+  animates(c: Conversation): boolean { return this.nativeStatuses.has(JSON.stringify([c.channel, this.anchor(c)])) }
   async question(c: Conversation, question: { id: string; text: string; options: string[] }): Promise<void> {
     if (!question.options.length) return this.notice(c, question.text)
     const options = question.options.map((o, i) => `${i + 1}. ${redact(o)}`).join('\n')
@@ -94,12 +100,66 @@ export class SlackOutput implements Output {
   }
   async status(c: Conversation, status: 'processing' | 'active' | 'suspended'): Promise<void> {
     const thread = this.anchor(c)
-    try { await this.api('agents.sessions.setStatus', { channel_id: c.channel, thread_ts: thread, status, initiator_user_id: c.author }) }
-    catch (error) {
-      // Native status needs an agent session; elsewhere only the ack matters — the final text covers the rest.
+    // agents.sessions.setStatus needs a thread anchor. Without one (rooms), it just fails; the
+    // core's updating progress message covers that case, so skip quietly — no duplicate text ack.
+    if (thread === undefined) return
+    const key = JSON.stringify([c.channel, thread])
+    try {
+      await this.api('agents.sessions.setStatus', { channel_id: c.channel, thread_ts: thread, status, initiator_user_id: c.author })
+      if (status === 'processing') this.nativeStatuses.add(key)
+      else this.nativeStatuses.delete(key)
+    } catch (error) {
+      this.nativeStatuses.delete(key)
       console.error(`[slack v2] setStatus ${status}: ${redact((error as Error).message)}`)
-      if (status === 'processing') await this.notice({ ...c, thread: thread ?? null }, 'Recibido; estoy en ello.')
     }
+  }
+  /** Surfaces without a native indicator (rooms): post one "working…" message and refresh it in
+   * place on each tick, so there are no repeated posts. clearProgress removes it when done. */
+  async progress(c: Conversation, run: Run, text: string): Promise<void> {
+    let existing = this.progressMessage(run.id)
+    if (existing && existing.channel !== c.channel) {
+      await this.clearProgress(run)
+      if (this.progressMessage(run.id)) return
+      existing = undefined
+    }
+    try {
+      if (existing) await this.api('chat.update', { channel: existing.channel, ts: existing.ts, text: redact(text) })
+      else {
+        const result = await this.api('chat.postMessage', { channel: c.channel, thread_ts: this.anchor(c), text: redact(text), unfurl_links: false })
+        if (result.ts) {
+          if (this.store) this.store.db.prepare('INSERT OR REPLACE INTO slack_progress VALUES(?,?,?)').run(run.id, c.channel, result.ts)
+          else this.progressMsgs.set(run.id, { channel: c.channel, ts: result.ts })
+        }
+      }
+    } catch (error) {
+      if (existing && (error as Error).message.includes('message_not_found')) this.forgetProgress(run.id, existing.ts)
+      console.error(`[slack v2] progress: ${redact((error as Error).message)}`)
+    }
+  }
+  /** Remove the run's progress message once the real reply lands (or the conversation moves). */
+  async clearProgress(run: Run): Promise<void> {
+    const p = this.progressMessage(run.id)
+    if (!p) return
+    try { await this.api('chat.delete', { channel: p.channel, ts: p.ts }) }
+    catch (error) {
+      if (!(error as Error).message.includes('message_not_found')) {
+        console.error(`[slack v2] clearProgress: ${redact((error as Error).message)}`)
+        return
+      }
+    }
+    this.forgetProgress(run.id, p.ts)
+  }
+  forgetProgress(id: string, ts: string): void {
+    this.progressMsgs.delete(id)
+    this.store?.db.prepare('DELETE FROM slack_progress WHERE run_id=? AND ts=?').run(id, ts)
+  }
+  progressMessage(id: string): { channel: string; ts: string } | undefined {
+    return this.store ? this.store.db.prepare('SELECT channel,ts FROM slack_progress WHERE run_id=?').get(id) as { channel: string; ts: string } | undefined : this.progressMsgs.get(id)
+  }
+  async recoverProgress(): Promise<void> {
+    if (!this.store) return
+    const rows = this.store.db.prepare("SELECT p.run_id FROM slack_progress p LEFT JOIN runs r ON r.id=p.run_id LEFT JOIN conversations c ON c.key=r.conversation_key WHERE r.id IS NULL OR r.state!='running' OR c.channel!=p.channel").all()
+    for (const row of rows) await this.clearProgress({ id: row.run_id } as Run)
   }
   async delta(c: Conversation, run: Run, text: string): Promise<void> {
     let stream = this.streams.get(run.id)
@@ -129,6 +189,10 @@ export class SlackOutput implements Output {
     stream.pending = stream.pending.slice(raw.length)
   }
   async finish(c: Conversation, run: Run, text: string): Promise<void> {
+    await this.finishReply(c, run, text)
+    await this.clearProgress(run)
+  }
+  async finishReply(c: Conversation, run: Run, text: string): Promise<void> {
     text = redact(text)
     const stream = this.streams.get(run.id)
     if (!stream) return this.notice({ ...c, thread: this.anchor(c) ?? null }, text)
@@ -150,6 +214,7 @@ export class SlackOutput implements Output {
   }
   /** The conversation moved to its room: close the origin stream so the rest lands there. */
   async moved(run: Run): Promise<void> {
+    await this.clearProgress(run)
     const stream = this.streams.get(run.id)
     if (!stream) return
     this.streams.delete(run.id)
@@ -328,6 +393,7 @@ export function createSlack(config: Config) {
     connected: () => connected,
     async start(value: Core) {
       core = value
+      output.store = core.store
       core.rooms = rooms
       const auth = await api('auth.test', {})
       if (auth.team_id !== config.slack.workspace_team_id) throw new Error('El token Slack pertenece a otro workspace.')

@@ -7,7 +7,7 @@ export class DurableOutput implements Output {
   inflight = new Map<string, Promise<void>>()
   timer?: NodeJS.Timeout
   constructor(store: Store, delegate: Output) { this.store = store; this.delegate = delegate }
-  get animates(): boolean | undefined { return this.delegate.animates }
+  animates(c: Conversation): boolean { return this.delegate.animates?.(c) ?? false }
   start(): void {
     this.timer = setInterval(() => { void this.flush() }, 5000)
     void this.flush()
@@ -15,6 +15,7 @@ export class DurableOutput implements Output {
   async flush(): Promise<void> {
     const keys = this.store.db.prepare("SELECT DISTINCT conversation_key FROM deliveries WHERE state='pending'").all()
     for (const row of keys) await this.flushKey(row.conversation_key as string).catch(() => {})
+    await this.recoverProgress()
   }
   flushKey(key: string): Promise<void> {
     const previous = this.inflight.get(key) ?? Promise.resolve()
@@ -52,6 +53,9 @@ export class DurableOutput implements Output {
   notice(c: Conversation, text: string) { return this.enqueue('notice', [c, text], c.key) }
   status(c: Conversation, status: 'processing' | 'active' | 'suspended') { return this.enqueue('status', [c, status], c.key) }
   delta(c: Conversation, run: Run, text: string) { return this.delegate.delta(c, run, text) }
+  // Progress is an ephemeral, self-updating heartbeat: deliver best-effort, never persist/retry.
+  progress(c: Conversation, run: Run, text: string) { return this.delegate.progress?.(c, run, text) ?? Promise.resolve() }
+  recoverProgress() { return this.delegate.recoverProgress?.() ?? Promise.resolve() }
   finish(c: Conversation, run: Run, text: string) { return this.enqueue('finish', [c, run, text], c.key) }
   question(c: Conversation, question: { id: string; text: string; options: string[] }) { return this.enqueue('question', [c, question], c.key) }
   moved(run: Run) { return this.delegate.moved?.(run) ?? Promise.resolve() }

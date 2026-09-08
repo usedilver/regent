@@ -376,7 +376,7 @@ try {
     store.db.prepare("INSERT INTO gates(conversation_key,question,state) VALUES(?,?,'pending')").run(input('x').key, 'Pregunta anterior')
     store.db.exec('DROP INDEX gates_question_id; ALTER TABLE gates DROP COLUMN question_id; ALTER TABLE gates DROP COLUMN options; ALTER TABLE gates DROP COLUMN destination; PRAGMA user_version=2;')
     store.close(); store = new Store(file)
-    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 6)
+    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 7)
     assert.equal(store.conversation(input('x').key).session_id, 'session-before-upgrade')
     assert.equal(store.run(accepted.runId).state, 'queued')
     assert.equal(store.db.prepare('SELECT question FROM gates').get().question, 'Pregunta anterior')
