@@ -61,7 +61,10 @@ selecting it. Native worktree setup and ignored context files remain repo concer
 Custom WorktreeCreate hooks returning a different path are not supported yet.
 Trusted scripts/MCPs are not an OS sandbox; external databases, ports, deployments
 and arbitrary absolute writes inside scripts are not isolated by Git worktrees.
-Incremental Slack context is implemented; independent room creation is next.
+Incremental Slack context and independent room creation are implemented. A room
+keeps the same conversation key, selected repository, Claude session and native
+worktree. It does not trigger project provisioning or tracker creation. Next:
+minimal onboarding, explicit initial repository selection and real Slack acceptance.
 
 The previous profile tools were removed. Existing manifest files are neither read
 nor deleted; move any useful commands into the repository's own skills or scripts.

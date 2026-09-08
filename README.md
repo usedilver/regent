@@ -56,7 +56,7 @@ en el hilo. También puedes responder con tus propias palabras. La respuesta con
 la misma conversación; un botón ya respondido o de una pregunta reemplazada no vuelve
 a ejecutar trabajo. El significado de una aprobación lo determina la pregunta y el
 flujo del repo, no una compuerta propia de Regent.
-En CLI las opciones se muestran como texto. El arranque actualiza SQLite al esquema 5
+En CLI las opciones se muestran como texto. El arranque actualiza SQLite al esquema 6
 y conserva las sesiones y preguntas pendientes de versiones anteriores.
 
 Antes de iniciar: copia `regent.example.yaml` a `config/regent.yaml` y completa
@@ -70,8 +70,13 @@ la respuesta del autor cuando el bot le preguntó algo (o los comandos exactos
 `stop`/`para`/`reset`/`nuevo`). En un DM todo se procesa. En cada intervención se
 incorporan los mensajes nuevos o modificados del hilo; en conversaciones a raíz
 de canal, también sus hilos. Capturas y mensajes entregados se guardan en SQLite
-para deduplicar entre turnos y reinicios. La creación de salas independientes sigue
-pendiente; ya no se crean salas como efecto de una tarea.
+para deduplicar entre turnos y reinicios. Las salas se crean solo cuando se piden,
+sin tarea ni tracker. Por ejemplo: «Crea una sala para continuar esto e invita a @Ana».
+Regent crea un canal privado, invita al solicitante y a las personas indicadas, y
+traslada la misma sesión, repo y worktree. Deja un enlace en el origen y un resumen
+en la sala. Los reintentos reutilizan el canal preparado; si falla una invitación,
+el traslado queda pendiente en el origen. En la sala sigue aplicando la @mención
+y la autorización configurada: ser invitado no amplía `slack.allowed_users`.
 
 `pnpm start` usa `REGENT_PORT=8788`, `REGENT_DB=log/v2.sqlite` y escucha solo en
 `127.0.0.1`. `REGENT_CONFIG` permite elegir otro YAML. La CLI y el servidor no deben
@@ -89,7 +94,7 @@ cola y entregas pendientes; `/metrics` expone runs por estado.
 
 El repo aporta MCPs, skills, reglas y variables. Regent no incluye skills de
 planificación, implementación o QA. Su MCP interno ofrece únicamente selección
-de repo, progreso, preguntas y cancelación; git/gh, tests, instalación, PRs y
+de repo, salas, progreso, preguntas y cancelación; git/gh, tests, instalación, PRs y
 trackers se ejecutan con las herramientas del proyecto.
 
 El modo actual es `bypass` por defecto: no aplica los permisos nativos
