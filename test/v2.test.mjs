@@ -6,7 +6,7 @@ import http from 'node:http'
 import { ConfigSchema, assertAuth, authNotice, defaultRepoDir } from '../src/v2/config.ts'
 import { Store, redact } from '../src/v2/store.ts'
 import { Core } from '../src/v2/core.ts'
-import { startRunner, runnerArgs } from '../src/v2/runner.ts'
+import { startRunner, runnerArgs, assertIsolationVersion } from '../src/v2/runner.ts'
 import { createHttp } from '../src/v2/http.ts'
 import { SlackOutput, accepts, gatherThread, readSlackFile } from '../src/v2/slack.ts'
 import { DurableOutput } from '../src/v2/delivery.ts'
@@ -150,9 +150,14 @@ try {
     assert.equal(args[args.indexOf('--add-dir') + 1], path.join(tmp, 'own worktree'))
     // Native mode pre-allows conversation tools, never repository edits.
     const native = runnerArgs(runnerOptions({ permissionMode: 'native' }))
-    assert.equal(native[native.indexOf('--permission-mode') + 1], 'default')
+    assert.equal(native[native.indexOf('--permission-mode') + 1], 'manual')
     assert.ok(!native.includes('bypassPermissions'))
     assert.equal(native[native.indexOf('--allowedTools') + 1], 'mcp__regent__*')
+    const isolated = runnerArgs(runnerOptions({ worktreeName: 'regent-test', sessionId: 'existing' }))
+    assert.equal(isolated[isolated.indexOf('--worktree') + 1], 'regent-test')
+    assert.ok(isolated.includes('--resume'))
+    assertIsolationVersion('2.1.263 (Claude Code)')
+    assert.throws(() => assertIsolationVersion('2.1.100'), />= 2.1.263/)
   })
   await check('runtime lease rejects a second writer and permits read-only inspection', () => {
     const file = path.join(tmp, 'lease.sqlite')
@@ -203,11 +208,11 @@ try {
       await f.core.submit(input('fourth', 'slack:C3:1'))
       await until(() => !f.core.active.size)
       assert.equal(starts.length, 4); assert.equal(max, 2)
-      assert.ok(starts.every(s => s.additionalDirectories.length && s.additionalDirectories.every(d => fs.existsSync(d))))
+      assert.ok(starts.every(s => s.additionalDirectories.length === 0))
       const dirs = name => starts.find(s => s.prompt.endsWith(`\n${name}`)).additionalDirectories
       assert.deepEqual(dirs('first'), dirs('second'))
-      assert.deepEqual(dirs('first'), [tmp])
-      assert.deepEqual(dirs('third'), [tmp])
+      assert.deepEqual(dirs('first'), [])
+      assert.deepEqual(dirs('third'), [])
       assert.ok(starts.find(s => s.prompt.includes('second')).sessionId)
       assert.equal(f.store.db.prepare("SELECT COUNT(*) AS n FROM runs WHERE state='completed'").get().n, 4)
       assert.ok(f.messages.some(m => m.kind === 'notice' && m.args[1].includes('En cola')))

@@ -1,5 +1,12 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { createHash } from 'node:crypto'
+
+export function isolationFor(repo: string, conversation: string) {
+  const root = fs.realpathSync(repo)
+  const name = `regent-${createHash('sha256').update(JSON.stringify([root, conversation])).digest('hex').slice(0, 24)}`
+  return { name, dir: path.join(root, '.claude', 'worktrees', name) }
+}
 
 export function resolveRepository(workspace: string, value: string): string {
   const root = fs.realpathSync(workspace)

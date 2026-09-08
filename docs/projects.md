@@ -38,7 +38,9 @@ Explicit `repos.agent_env_files` remain operator-configured shared inputs.
 Other conversations keep their context. Switching is refused with queued messages
 or in-flight tools; wait until those operations finish. Worktrees no longer prevent
 selecting another project, and no task record controls the switch.
-Selecting a submodule is not required just to edit it with the parent's context.
+For a submodule, resolve its source from the parent, transfer relevant parent
+instructions in the handoff, and select the submodule before editing it. Its
+native worktree has its own branch without changing the shared submodule checkout.
 
 ## Permissions and migration
 
@@ -47,10 +49,18 @@ not. Removing Regent's git/gh denylist does not authorize an operation rejected 
 the runtime. Hooks are not a filesystem sandbox. Workspace containment is enforced
 for context selection, not for every arbitrary shell command.
 
-Direct Write/Edit are checked against the authorized workspace, including symlinks,
-but do not require a core-owned worktree or a task approval. Native mode does not
-pre-allow repository editing tools. Concurrent sessions do not automatically get
-separate checkouts: follow the repository's isolation rules and preserve other work.
+Regent now launches Git conversations with native Claude worktree isolation using
+a stable name per canonical source and conversation. Direct edits and command cwd
+must stay inside that worktree. No task or business approval is required. Git/gh
+commands use native runtime isolation checks rather than a publication workflow.
+Different threads get different directories and branches; one thread stays FIFO.
+An absent or invalid worktree never permits a shared-checkout fallback. Non-Git
+contexts allow reading but require selecting Git before edits or shell execution.
+Initialize a new repo with a first commit from an existing isolated session before
+selecting it. Native worktree setup and ignored context files remain repo concerns.
+Custom WorktreeCreate hooks returning a different path are not supported yet.
+Trusted scripts/MCPs are not an OS sandbox; external databases, ports, deployments
+and arbitrary absolute writes inside scripts are not isolated by Git worktrees.
 Context refresh from Slack and independent room creation are the next modules.
 
 The previous profile tools were removed. Existing manifest files are neither read

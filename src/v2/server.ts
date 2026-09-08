@@ -7,6 +7,7 @@ import { Core } from './core.ts'
 import { createSlack } from './slack.ts'
 import { createHttp } from './http.ts'
 import { DurableOutput } from './delivery.ts'
+import { assertIsolationVersion } from './runner.ts'
 
 loadEnv()
 const config = loadConfig()
@@ -14,8 +15,9 @@ console.log(authNotice(config))
 assertAuth(config)
 const cwd = workspaceDir(config)
 const claudeVersion = execFileSync('claude', ['--version'], { encoding: 'utf8', timeout: 10000 }).trim()
+assertIsolationVersion(claudeVersion)
 const help = execFileSync('claude', ['--help'], { encoding: 'utf8', timeout: 10000 })
-for (const flag of ['--permission-prompts', '--plugin-dir', '--include-partial-messages']) {
+for (const flag of ['--permission-prompts', '--plugin-dir', '--include-partial-messages', '--worktree']) {
   if (!help.includes(flag)) throw new Error(`Actualiza Claude Code: falta ${flag}.`)
 }
 if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_APP_TOKEN) throw new Error('Configura SLACK_BOT_TOKEN y SLACK_APP_TOKEN antes de iniciar Slack v2.')

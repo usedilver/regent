@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { spawn, execFileSync } from 'node:child_process'
 import { StringDecoder } from 'node:string_decoder'
 import path from 'node:path'
 import { BRIDGE_DIR } from '../env.ts'
@@ -6,10 +6,20 @@ import { ensureTrusted, ensureBypassAccepted } from '../claude-settings.ts'
 
 export interface RunnerEvent { kind: string; [key: string]: any }
 export interface RunnerResult { state: 'completed' | 'failed' | 'interrupted'; text: string; error: string; cost: number; usage: unknown }
+let isolationVersionChecked = false
+export function assertIsolationVersion(version: string): void {
+  const match = version.match(/^(\d+)\.(\d+)\.(\d+)/)
+  if (!match) throw new Error('No pude verificar la version de Claude Code para aislamiento.')
+  const [major, minor, patch] = match.slice(1).map(Number)
+  if (major < 2 || (major === 2 && (minor < 1 || (minor === 1 && patch < 263)))) {
+    throw new Error('El aislamiento de Regent requiere Claude Code >= 2.1.263. Actualiza el CLI; no se ejecutara en el checkout compartido.')
+  }
+}
 export interface RunnerOptions {
   cwd: string; prompt: string; runId: string; sessionId?: string | null; model?: string | null
   env?: NodeJS.ProcessEnv; toolsUrl: string; token: string; readonlyMcp: string[]
   additionalDirectories?: string[]
+  worktreeName?: string
   /** Bypass skips native permissions. Native honors repository rules; unanswered
    * permission prompts are denied in headless mode. Hooks are not a sandbox. */
   permissionMode?: 'bypass' | 'native'
@@ -20,8 +30,9 @@ export interface RunnerOptions {
 export function runnerArgs(options: RunnerOptions): string[] {
   const native = options.permissionMode === 'native'
   return ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
-    '--permission-mode', native ? 'default' : 'bypassPermissions', '--permission-prompts', 'none',
+    '--permission-mode', native ? 'manual' : 'bypassPermissions', '--permission-prompts', 'none',
     '--setting-sources', 'user,project,local',
+    ...(options.worktreeName ? ['--worktree', options.worktreeName] : []),
     ...(native ? ['--allowedTools', 'mcp__regent__*'] : []),
     ...(options.additionalDirectories ?? []).flatMap(dir => ['--add-dir', dir]),
     '--append-system-prompt-file', path.join(BRIDGE_DIR, 'plugin/colleague.md'),
@@ -47,6 +58,10 @@ export function normalizeEvent(raw: any): RunnerEvent[] {
 }
 
 export function startRunner(options: RunnerOptions): { done: Promise<RunnerResult>; cancel(reason?: string): void; setTimeoutMs?(ms: number): void } {
+  if (options.worktreeName && !options.command && !isolationVersionChecked) {
+    assertIsolationVersion(execFileSync('claude', ['--version'], { encoding: 'utf8', timeout: 10000 }).trim())
+    isolationVersionChecked = true
+  }
   const native = options.permissionMode === 'native'
   if (!native && !options.command) { ensureTrusted(options.cwd); ensureBypassAccepted() }
   const env = { ...(options.env ?? process.env), REGENT_RUN_ID: options.runId, REGENT_RUN_TOKEN: options.token,

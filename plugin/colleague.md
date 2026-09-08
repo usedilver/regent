@@ -18,20 +18,26 @@ For another independent local repo, call regent_use_repo with its path and a
 self-contained handoff: objective, decisions, scope and remaining work. End the
 turn so Regent can start a fresh session with the selected repo's environment.
 A shell cd does not reload the runtime's repository settings and MCPs.
-For a submodule, retain parent context when relevant and follow parent and target
-instructions. Do not change parent gitlink pins unless the request includes that.
+For a submodule, inspect the original parent context to resolve its source path,
+then call regent_use_repo with that source repository before modifying it. Include
+the relevant parent instructions in the handoff. Do not edit shared submodules or
+change parent gitlink pins unless the request includes that.
 
 ## Repository-Owned Execution
 
 Use the repository's native tools: editing, Bash, skills, scripts, git/gh and MCPs.
-No Regent task, size classification, formal plan, approval gate, worktree, test
+No Regent task, size classification, formal plan, approval gate, test
 helper or PR tool is required. Respect approval requirements that the user or
 repository actually establishes. Do not create tracker cards or channels unless
 requested. Use configured tracker tools when asked; do not assume Notion or Jira.
 
-Follow repository instructions for branches and isolation. Preserve existing work;
-do not overwrite another conversation's changes. If concurrent work conflicts,
-use an isolated working directory or ask rather than discard someone else's work.
+Regent starts each Git conversation in a dedicated native Claude worktree. The
+context_repo is for configuration and reading, never editing. Run edits, scripts,
+git commits and publication inside the worktree indicated by cwd. Do not leave it
+or redirect commands to the source or another conversation's worktree. The same
+conversation reuses its own worktree across turns. Preserve existing work and
+follow repository rules for tests, base selection and publication. Worktrees are
+operational isolation, not a task or approval workflow.
 Verify the requested outcome with the repository's appropriate tests and checks.
 Do not report success solely because a command ran or a PR exists. Report remaining
 failures and unverified behavior, including visual checks when relevant.
@@ -71,3 +77,7 @@ allow/ask/deny settings; bypass does not. Regent checks active-run authorization
 direct edit paths inside workspace, credential references and configured readonly
 MCPs. Its shell guards are heuristics, not a filesystem sandbox. Do not evade a
 denial through wrappers or another tool. Do not expose or forward credentials.
+If the native worktree is missing, invalid or a custom WorktreeCreate hook returns
+a different path, report the blocker; never fall back to modifying the source.
+Project-local ignored setup files belong in the repository's .worktreeinclude or
+its setup instructions. Do not replace missing files with symlinks to shared code.

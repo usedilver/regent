@@ -38,7 +38,8 @@ regent es un cliente conversacional open source de Claude Code CLI, con Slack co
 primera interfaz. El repo predeterminado aporta contexto; cada repo define sus
 skills, MCPs, reglas y flujo de trabajo. No requiere Notion ni crear una tarea
 para conversar. El flujo de desarrollo pertenece al repo, sin tareas, planes ni
-worktrees obligatorios de Regent. El contrato vigente y los pendientes están en [docs/v2.md](docs/v2.md).
+gates de Regent. El aislamiento Git por conversación sí es obligatorio. El contrato
+vigente y los pendientes están en [docs/v2.md](docs/v2.md).
 
 ```sh
 pnpm start                 # servidor (Slack), escucha en 127.0.0.1
@@ -93,20 +94,22 @@ El modo actual es `bypass` por defecto: no aplica los permisos nativos
 `allow/ask/deny`. `permission_mode: native` los respeta sin preautorizar
 Edit/Write; las solicitudes sin autorización pueden denegarse en headless.
 Ambos modos conservan autorización del run, filtros de credenciales, MCPs marcados
-en `repos.readonly_mcp` y validación de rutas de edición dentro del workspace.
+en `repos.readonly_mcp` y validación de rutas de edición dentro del worktree propio.
 Los hooks no son un sandbox para comandos de shell.
 
-El workspace se pasa como directorio adicional al runtime para trabajar en los
-repos seleccionados y proyectos nuevos. Los cambios pueden hacerse directamente;
-el repo y el usuario deciden si corresponde una rama o un worktree. Regent no
-aísla automáticamente dos conversaciones editando los mismos archivos.
+Cada conversación Git arranca con `claude --worktree` y un nombre estable por
+repo/conversación. No se concede acceso adicional a todo el workspace. Dos hilos
+tienen directorios y ramas distintos; los mensajes del mismo hilo siguen en cola.
+El checkout original aporta contexto, no es el destino de edición. Para modificar
+un submódulo, se selecciona su repo de origen y se abre su propio aislamiento.
+Sin worktree válido se bloquean edición y comandos, sin fallback al checkout común.
 
 No hay tareas locales nuevas, gates de plan/QA, digest ni seguimiento automático
 de merges. Se retiraron `tasks`, `gates`, `gate` y `sync` de la CLI y el webhook
 de GitHub. Las opciones antiguas de `policy` se aceptan pero no tienen efecto.
 Las tablas históricas permanecen en SQLite, sin ejecutar su flujo anterior.
 
-Node >=22.20 y un Claude Code que soporte `--permission-prompts` son necesarios.
+Node >=22.20 y Claude Code >=2.1.263 son necesarios para este aislamiento.
 Las operaciones remotas y su recuperación dependen de las herramientas del repo;
 Regent no garantiza exactly-once para mensajes de Slack.
 

@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process'
 import { Core } from '../src/v2/core.ts'
 import { Store } from '../src/v2/store.ts'
 import { ConfigSchema } from '../src/v2/config.ts'
-import { resolveRepository } from '../src/v2/repository.ts'
+import { resolveRepository, isolationFor } from '../src/v2/repository.ts'
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'regent-projects-'))
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -47,11 +47,14 @@ try {
       repos: { path: root, default_repo: 'repo' },
       slack: { workspace_team_id: 'T1', allowed_users: ['U1'] },
       policy: { room: 'always', small_fix: { max_files: 1 }, fast_track: false } })
-    let finish, options
+    let options
     const core = new Core({ store, config, cwd: root,
       output: { async notice() {}, async status() {}, async delta() {}, async finish() {} },
       runner: value => {
         options = value
+        const isolated = { name: value.worktreeName, dir: path.join(repo, '.claude/worktrees', value.worktreeName) }
+        if (!fs.existsSync(isolated.dir)) git(repo, 'worktree', 'add', '-b', `worktree-${isolated.name}`, isolated.dir, 'HEAD')
+        let finish
         return { done: new Promise(resolve => { finish = resolve }),
           cancel: () => finish({ state: 'interrupted', text: '', error: 'stopped', cost: 0, usage: {} }) }
       } })
@@ -61,28 +64,45 @@ try {
       const active = [...core.active.values()][0]
       const permit = (tool_name, tool_input) => core.permission(active.token, { tool_name, tool_input })
       assert.equal(options.cwd, fs.realpathSync(repo))
-      assert.deepEqual(options.additionalDirectories, [root])
+      assert.deepEqual(options.additionalDirectories, [])
+      const isolated = isolationFor(repo, key)
+      assert.equal(options.worktreeName, isolated.name)
       assert.doesNotMatch(options.prompt, /"policy"|"worktrees"|"task"/)
       for (const tool_name of ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']) {
         const field = tool_name === 'NotebookEdit' ? 'notebook_path' : 'file_path'
         assert.equal(permit(tool_name, { [field]: 'answer.txt' }), null)
-        assert.equal(permit(tool_name, { [field]: path.join(unborn, 'nested/new.txt') }), null)
+        assert.ok(permit(tool_name, { [field]: path.join(unborn, 'nested/new.txt') }))
+        assert.ok(permit(tool_name, { [field]: path.join(repo, 'answer.txt') }))
         assert.ok(permit(tool_name, { [field]: path.join(root, 'escape/outside.txt') }))
         assert.ok(permit(tool_name, { [field]: path.join(os.tmpdir(), 'outside.txt') }))
         assert.ok(permit(tool_name, { [field]: '.env' }))
       }
       assert.equal(permit('Write', { file_path: '.claude/settings.json' }), null)
       assert.equal(permit('Write', { file_path: '.mcp.json' }), null)
-      assert.ok(permit('Write', { file_path: 'secret-alias' }))
-      assert.ok(permit('Write', { file_path: 'broken-link' }))
+      assert.ok(permit('Write', { file_path: path.join(repo, 'secret-alias') }))
+      assert.ok(permit('Write', { file_path: path.join(repo, 'broken-link') }))
       for (const command of ['git add answer.txt', 'git commit -m fix', 'gh pr create', 'pnpm test', 'ncard create task']) {
         assert.equal(permit('Bash', { command }), null)
       }
       // Simulate the runtime using the approved repository tools, not core helpers.
-      fs.writeFileSync(path.join(repo, 'answer.txt'), `${permission_mode}\n`)
-      assert.match(git(repo, 'diff', '--', 'answer.txt'), new RegExp(permission_mode))
-      git(repo, 'add', 'answer.txt')
-      git(repo, 'commit', '-m', `Edit with ${permission_mode}`)
+      fs.writeFileSync(path.join(isolated.dir, 'answer.txt'), `${permission_mode}\n`)
+      assert.match(git(isolated.dir, 'diff', '--', 'answer.txt'), new RegExp(permission_mode))
+      git(isolated.dir, 'add', 'answer.txt')
+      git(isolated.dir, 'commit', '-m', `Edit with ${permission_mode}`)
+      const other = isolationFor(repo, 'slack:C2:2')
+      await core.submit({ adapter: 'slack', key: 'slack:C2:2', eventId: 'second', author: 'U1', channel: 'C2', thread: '2', team: 'T1', text: 'Another fix' })
+      assert.equal(core.active.size, 2)
+      const otherToken = core.active.get('slack:C2:2').token
+      assert.equal(core.permission(otherToken, { tool_name: 'Write', tool_input: { file_path: path.join(other.dir, 'answer.txt') }, cwd: other.dir }), null)
+      assert.ok(core.permission(otherToken, { tool_name: 'Write', tool_input: { file_path: path.join(isolated.dir, 'answer.txt') }, cwd: other.dir }))
+      fs.writeFileSync(path.join(other.dir, 'answer.txt'), 'independent\n')
+      assert.ok(permit('Write', { file_path: path.join(other.dir, 'answer.txt') }))
+      assert.ok(core.permission(active.token, { tool_name: 'Bash', tool_input: { command: 'git status' }, cwd: repo }))
+      assert.ok(core.permission(active.token, { tool_name: 'ExitWorktree', tool_input: {} }))
+      assert.equal(fs.readFileSync(path.join(repo, 'answer.txt'), 'utf8'), 'before\n')
+      assert.equal(fs.readFileSync(path.join(isolated.dir, 'answer.txt'), 'utf8'), `${permission_mode}\n`)
+      assert.notEqual(git(isolated.dir, 'symbolic-ref', 'HEAD'), git(other.dir, 'symbolic-ref', 'HEAD'))
+      assert.equal(isolationFor(repo, key).dir, isolated.dir)
       for (const table of ['tasks', 'task_gates', 'worktrees', 'prs']) {
         assert.equal(store.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n, 0)
       }
@@ -97,4 +117,18 @@ try {
   for (const name of ['plan', 'implement', 'qa']) {
     assert.ok(!fs.existsSync(path.resolve('plugin/skills', name, 'SKILL.md')))
   }
+  const parent = path.join(root, 'parent')
+  git(root, 'init', parent)
+  git(parent, '-c', 'protocol.file.allow=always', 'submodule', 'add', repo, 'hire')
+  const hire = path.join(parent, 'hire')
+  const a = isolationFor(hire, 'thread-A'), b = isolationFor(hire, 'thread-B')
+  git(hire, 'worktree', 'add', '-b', a.name, a.dir, 'HEAD')
+  git(hire, 'worktree', 'add', '-b', b.name, b.dir, 'HEAD')
+  fs.writeFileSync(path.join(a.dir, 'answer.txt'), 'fix A')
+  fs.writeFileSync(path.join(b.dir, 'answer.txt'), 'fix B')
+  assert.equal(fs.readFileSync(path.join(hire, 'answer.txt'), 'utf8'), 'before\n')
+  assert.equal(fs.readFileSync(path.join(a.dir, 'answer.txt'), 'utf8'), 'fix A')
+  assert.equal(fs.readFileSync(path.join(b.dir, 'answer.txt'), 'utf8'), 'fix B')
+  assert.notEqual(git(a.dir, 'symbolic-ref', 'HEAD'), git(b.dir, 'symbolic-ref', 'HEAD'))
+  console.log('  OK two isolated worktrees of a submodule leave its shared checkout untouched')
 } finally { fs.rmSync(root, { recursive: true, force: true }) }
