@@ -3,4 +3,8 @@ log
 tmp
 worktrees
 .env
+.env.*
+config
+.claude
+projects
 .git

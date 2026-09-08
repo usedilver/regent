@@ -13,7 +13,7 @@ Name the product and integrations regent. Consult the upstream branding terms be
 introducing provider branding. Authentication requirements remain subject to the
 operator's current provider agreement.
 
-Run `pnpm test` and `pnpm test:v2` for changes to execution or adapters. Tests use
+Run `pnpm test` for changes to execution or adapters. Tests use
 temporary repositories, SQLite databases, a fake Claude process and local HTTP
 servers. They do not require provider tokens. The real-Claude smoke is opt-in.
 

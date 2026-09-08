@@ -3,7 +3,7 @@
 .env.*
 !.env.example
 
-# config/ es TU instancia (la genera `pnpm setup`): workflow, process.md
+# config/ contiene la instancia local (pnpm regent setup).
 config/*
 !config/README.md
 

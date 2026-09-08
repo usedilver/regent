@@ -27,7 +27,7 @@ cancelación del acceso (baneo). La advertencia no autoriza el uso compartido: `
 exige un único usuario y rechaza instrucciones de los demás. Para un equipo, usa
 `team` con API key. Ver [Consumer Terms, secciones 2 y 12](https://www.anthropic.com/legal/consumer-terms).
 
-El aviso aparece durante la migración y al iniciar el servidor o una consulta por CLI.
+El aviso aparece al configurar la instancia y al iniciar el servidor o una consulta por CLI.
 Los límites de Pro/Max siguen aplicando; regent no garantiza uso ilimitado ni ausencia
 de sanciones. Si `ANTHROPIC_API_KEY` está presente, el CLI puede facturar por API:
 revisa su autenticación para usar tu suscripción.
@@ -70,7 +70,7 @@ de esa carpeta. `--mode team` admite repetir `--user`; `indie` permite uno solo.
 aplica `allow/ask/deny`. No guarda secretos ni valida conexiones externas.
 También puedes copiar `regent.example.yaml` a `config/regent.yaml` manualmente.
 Antes de iniciar necesita
-`SLACK_BOT_TOKEN` y `SLACK_APP_TOKEN` de una app con `slack-manifest-v2.json`
+`SLACK_BOT_TOKEN` y `SLACK_APP_TOKEN` de una app con `slack-manifest.json`
 (Agent messaging). Define `repos.path` y `repos.default_repo` para el contexto inicial.
 Notion/Jira son opcionales y se configuran en el repo mediante sus propias herramientas.
 
@@ -126,7 +126,7 @@ ejecutar agentes simultáneamente sobre la misma base: el bloqueo de runtime lo 
 Para probar la CLI con el servidor activo, usa otra `REGENT_DB`.
 
 El servidor necesita `SLACK_BOT_TOKEN` y `SLACK_APP_TOKEN` de una app con el manifiesto
-`slack-manifest-v2.json`. Prueba con una app separada: dos servidores Socket Mode con
+`slack-manifest.json`. Prueba con una app separada: dos servidores Socket Mode con
 el mismo app token pueden repartirse eventos. El manifiesto v2 usa Agent messaging y
 suscribe `agent_session_stopped`; la [migración de Slack es irreversible](https://docs.slack.dev/ai/migrating-to-agent-messaging/).
 No expongas `/tools`, `/tool-policy` ni `/hook-denial` mediante el túnel. `/healthz` incluye conexión,

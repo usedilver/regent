@@ -89,13 +89,13 @@ para otro miembro del hilo; no asumirla a partir de la vista del solicitante.
 
 | Modulo | Comportamiento actual | Cambio necesario |
 | --- | --- | --- |
-| `src/v2/runner.ts` | Emite tool_use sin ID; tool_result si conserva tool_use_id | Conservar identidad y parentesco para correlacionar |
-| `src/v2/core.ts` | Guarda eventos, recuerda lastTool y publica deltas | Reducir eventos a actividades y estados verificables |
-| `src/v2/progress.ts` | Texto generico por nombre de herramienta | Reutilizar como fallback; no confundir nombre con resultado |
-| `src/v2/types.ts` | Output con texto/progreso y estados | Evento de actividad independiente de Slack |
-| `src/v2/slack.ts` | Stream de markdown, mapa de streams en memoria | Renderer de chunks/blocks, snapshots y cierre coherente |
-| `src/v2/delivery.ts` | Resultado/avisos durables; progreso best effort | Persistir revision y destino del progreso estructurado |
-| `src/v2/store.ts` | slack_progress guarda run/channel/ts | Migracion aditiva para actividades, revision y stream |
+| `src/runner.ts` | Emite tool_use sin ID; tool_result si conserva tool_use_id | Conservar identidad y parentesco para correlacionar |
+| `src/core.ts` | Guarda eventos, recuerda lastTool y publica deltas | Reducir eventos a actividades y estados verificables |
+| `src/progress.ts` | Texto generico por nombre de herramienta | Reutilizar como fallback; no confundir nombre con resultado |
+| `src/types.ts` | Output con texto/progreso y estados | Evento de actividad independiente de Slack |
+| `src/slack.ts` | Stream de markdown, mapa de streams en memoria | Renderer de chunks/blocks, snapshots y cierre coherente |
+| `src/delivery.ts` | Resultado/avisos durables; progreso best effort | Persistir revision y destino del progreso estructurado |
+| `src/store.ts` | slack_progress guarda run/channel/ts | Migracion aditiva para actividades, revision y stream |
 
 Dos restricciones relevantes del codigo existente:
 
