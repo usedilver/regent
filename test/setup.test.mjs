@@ -3,11 +3,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { setup, requestArgs } from '../src/v2/setup.ts'
-import { loadConfig, workspaceDir, defaultRepoDir } from '../src/v2/config.ts'
-import { repositoryRequest, isolationFor } from '../src/v2/repository.ts'
-import { Store } from '../src/v2/store.ts'
-import { Core } from '../src/v2/core.ts'
+import { setup, requestArgs } from '../src/setup.ts'
+import { loadConfig, workspaceDir, defaultRepoDir } from '../src/config.ts'
+import { repositoryRequest, isolationFor } from '../src/repository.ts'
+import { Store } from '../src/store.ts'
+import { Core } from '../src/core.ts'
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-setup-')))
 const configFile = path.join(root, 'config/regent.yaml')
@@ -38,7 +38,7 @@ try {
   assert.equal(loadConfig(teamFile).permission_mode, 'native')
   assert.deepEqual(loadConfig(teamFile).slack.allowed_users, ['U1', 'U2'])
   // Setup must not open the runtime database, including with a nonexistent DB parent.
-  execFileSync(process.execPath, ['src/v2/cli.ts', 'setup', '--repo', repo, '--team', 'T1', '--user', 'U1'], {
+  execFileSync(process.execPath, ['src/cli.ts', 'setup', '--repo', repo, '--team', 'T1', '--user', 'U1'], {
     env: { ...process.env, REGENT_CONFIG: path.join(root, 'cli.yaml'), REGENT_DB: path.join(root, 'unused/db.sqlite') }, stdio: 'pipe',
   })
   assert.ok(!fs.existsSync(path.join(root, 'unused')))

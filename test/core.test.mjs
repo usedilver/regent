@@ -3,16 +3,15 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
-import { ConfigSchema, assertAuth, authNotice, defaultRepoDir } from '../src/v2/config.ts'
-import { Store, redact } from '../src/v2/store.ts'
-import { Core } from '../src/v2/core.ts'
-import { startRunner, runnerArgs, assertIsolationVersion } from '../src/v2/runner.ts'
-import { createHttp } from '../src/v2/http.ts'
-import { SlackOutput, accepts, gatherThread, readSlackFile } from '../src/v2/slack.ts'
-import { DurableOutput } from '../src/v2/delivery.ts'
-import { migrateConfig, importLegacy } from '../src/v2/migrate.ts'
+import { ConfigSchema, assertAuth, authNotice, defaultRepoDir } from '../src/config.ts'
+import { Store, redact } from '../src/store.ts'
+import { Core } from '../src/core.ts'
+import { startRunner, runnerArgs, assertIsolationVersion } from '../src/runner.ts'
+import { createHttp } from '../src/http.ts'
+import { SlackOutput, accepts, gatherThread, readSlackFile } from '../src/slack.ts'
+import { DurableOutput } from '../src/delivery.ts'
 import { denial } from '../plugin/hooks/policy.mjs'
-import { progressText } from '../src/v2/progress.ts'
+import { progressText } from '../src/progress.ts'
 
 let failed = 0
 const check = async (name, fn) => {
@@ -600,24 +599,6 @@ try {
     fs.symlinkSync(os.tmpdir(), path.join(tmp, 'outside'))
     c.repos.default_repo = 'outside'
     assert.throws(() => defaultRepoDir(c, tmp), /repo dentro/)
-  })
-  await check('migration: preserves config and imports v1 links only once', () => {
-    const personal = migrateConfig({}, { REPO_PATH: tmp })
-    assert.equal(personal.auth.mode, 'indie')
-    assert.deepEqual(personal.slack.allowed_users, [])
-    assert.throws(() => assertAuth(personal, {}), /tu ID de Slack/)
-    assert.equal(migrateConfig({}, { REPO_PATH: tmp, ANTHROPIC_API_KEY: 'fixture' }).auth.mode, 'team')
-    assert.equal(migrateConfig({ chat: { invite_users: ['U1', 'U2'] } }, { REPO_PATH: tmp }).auth.mode, 'team')
-    const migrated = migrateConfig({ name: 'Test', workspace_root: 'mono', repo_base_branches: { api: 'master' }, chat: { invite_users: ['U1'] }, states: [{ name: 'Inbox' }] }, { REPO_PATH: tmp, SLACK_TEAM_ID: 'T1' })
-    assert.equal(migrated.auth.mode, 'indie'); assert.equal(migrated.repos.base_branches.api, 'master')
-    const dir = path.join(tmp, 'legacy'); fs.mkdirSync(dir)
-    fs.writeFileSync(path.join(dir, 'threads.json'), JSON.stringify({ 'C1:1': 'page-1' }))
-    fs.writeFileSync(path.join(dir, 'rooms.json'), JSON.stringify({ 'page-1': { channelId: 'C2', tabRefs: ['old-terminal'] } }))
-    const store = new Store(':memory:')
-    assert.equal(importLegacy(store, dir), 2); assert.equal(importLegacy(store, dir), 0)
-    assert.equal(store.conversation('slack:C1:1').task_id, 'page-1')
-    assert.equal(store.conversation('slack:C1:1').session_id, null)
-    store.close()
   })
   await check('mention rule: channels only listen when asked; DMs and commands are the exception', () => {
     const base = { dm: false, mention: false, author: 'U1', text: 'hola equipo' }

@@ -2,12 +2,12 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { Store } from '../src/v2/store.ts'
-import { Core } from '../src/v2/core.ts'
-import { ConfigSchema } from '../src/v2/config.ts'
-import { SlackOutput } from '../src/v2/slack.ts'
-import { DurableOutput } from '../src/v2/delivery.ts'
-import { interruptedText } from '../src/v2/progress.ts'
+import { Store } from '../src/store.ts'
+import { Core } from '../src/core.ts'
+import { ConfigSchema } from '../src/config.ts'
+import { SlackOutput } from '../src/slack.ts'
+import { DurableOutput } from '../src/delivery.ts'
+import { interruptedText } from '../src/progress.ts'
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'regent-progress-'))
 let store, core, durable

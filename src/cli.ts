@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { BRIDGE_DIR, loadEnv } from '../env.ts'
+import { BRIDGE_DIR, loadEnv } from './env.ts'
 import { assertAuth, authNotice, loadConfig, workspaceDir } from './config.ts'
 import { Store } from './store.ts'
 import { Core } from './core.ts'

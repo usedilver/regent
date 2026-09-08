@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { parseArgs } from 'node:util'
 import YAML from 'yaml'
-import { BRIDGE_DIR } from '../env.ts'
+import { BRIDGE_DIR } from './env.ts'
 import { ConfigSchema, authNotice } from './config.ts'
 import { resolveRepository } from './repository.ts'
 

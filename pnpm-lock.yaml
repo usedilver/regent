@@ -11,9 +11,6 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
         version: 1.30.0(zod@4.5.4)
-      '@notionhq/client':
-        specifier: ^5.24.0
-        version: 5.26.0
       '@slack/bolt':
         specifier: ^5.0.0
         version: 5.0.0(@types/express@5.0.6)(undici@7.29.0)
@@ -44,10 +41,6 @@ packages:
     peerDependenciesMeta:
       '@cfworker/json-schema':
         optional: true
-
-  '@notionhq/client@5.26.0':
-    resolution: {integrity: sha512-Oc3438nQ5YmZkVO7YJG8fcTYl0V46CirdCvO33azZ9f7ZfD2rsHE4fUVANJiBB9Xf1sqpCs82nd8oKPxeXLmMg==}
-    engines: {node: '>=18'}
 
   '@slack/bolt@5.0.0':
     resolution: {integrity: sha512-L0FTzidrDKTu4Ph8sdv0bB3acafBTAC02TBcD+hojPTTNSMX3hSK+rkpkUKkqbbc0vGpSjd6A/g71Rjy7EbBhw==}
@@ -591,8 +584,6 @@ snapshots:
       zod-to-json-schema: 3.25.2(zod@4.5.4)
     transitivePeerDependencies:
       - supports-color
-
-  '@notionhq/client@5.26.0': {}
 
   '@slack/bolt@5.0.0(@types/express@5.0.6)(undici@7.29.0)':
     dependencies:

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { createRequire } from 'node:module'
-import { SlackConnection } from '../src/v2/slack-connection.ts'
+import { SlackConnection } from '../src/slack-connection.ts'
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 const until = async predicate => {

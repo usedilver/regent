@@ -61,12 +61,4 @@ check('normalizeFences: la valla inline de un campo queda en líneas propias', (
   assert.equal(body, 'Exception:\n```\n{\n"a":1\n}\n```')
 })
 
-check('de punta a punta: attachment con valla inline → toggle con bloque code en Notion', async () => {
-  const { mdToBlocks } = await import('../src/md-blocks.ts')
-  const body = messageBody({ bot_id: 'B', attachments: [{ title: 'Message', text: 'boom', fields: [{ title: 'Exception', value: '```{\n"file":"x.php:17"\n}```' }] }] })
-  const [toggle] = mdToBlocks(threadToMarkdown(`[app bot]: ${body}`))
-  const types = toggle.toggle.children.map(c => c.type)
-  assert.ok(types.includes('code'), `sin bloque code: ${types}`)
-})
-
 if (failed) { console.error(`\n${failed} fallaron`); process.exit(1) }

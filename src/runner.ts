@@ -1,8 +1,8 @@
 import { spawn, execFileSync } from 'node:child_process'
 import { StringDecoder } from 'node:string_decoder'
 import path from 'node:path'
-import { BRIDGE_DIR } from '../env.ts'
-import { ensureTrusted, ensureBypassAccepted } from '../claude-settings.ts'
+import { BRIDGE_DIR } from './env.ts'
+import { ensureTrusted, ensureBypassAccepted } from './claude-settings.ts'
 
 export interface RunnerEvent { kind: string; [key: string]: any }
 export interface RunnerResult { state: 'completed' | 'failed' | 'interrupted'; text: string; error: string; cost: number; usage: unknown }

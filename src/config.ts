@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import YAML from 'yaml'
 import { z } from 'zod'
-import { BRIDGE_DIR } from '../env.ts'
+import { BRIDGE_DIR } from './env.ts'
 import { resolveRepository } from './repository.ts'
 
 const positive = z.number().positive().finite()

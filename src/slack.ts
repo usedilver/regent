@@ -1,6 +1,6 @@
 import pkg from '@slack/bolt'
 import { SlackConnection } from './slack-connection.ts'
-import { appLabel, messageBody, threadToMarkdown } from '../slack-thread.ts'
+import { appLabel, messageBody, threadToMarkdown } from './slack-thread.ts'
 import type { Config } from './config.ts'
 import type { Core } from './core.ts'
 import type { Conversation, Output, Run } from './types.ts'

@@ -3,10 +3,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { Core } from '../src/v2/core.ts'
-import { Store } from '../src/v2/store.ts'
-import { ConfigSchema } from '../src/v2/config.ts'
-import { resolveRepository, isolationFor } from '../src/v2/repository.ts'
+import { Core } from '../src/core.ts'
+import { Store } from '../src/store.ts'
+import { ConfigSchema } from '../src/config.ts'
+import { resolveRepository, isolationFor } from '../src/repository.ts'
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'regent-projects-'))
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
