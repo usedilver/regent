@@ -8,8 +8,8 @@
     "start": "node src/v2/server.ts",
     "start:v2": "node src/v2/server.ts",
     "dev": "node --watch-path=src --watch-path=plugin --watch-path=config --watch-path=.env --watch-preserve-output src/v2/server.ts",
-    "test": "node test/v2.test.mjs && node test/v2-changes.test.mjs && node test/workspace.test.mjs && node test/slack-thread.test.mjs && node test/md-blocks.test.mjs && node test/claude-settings.test.mjs",
-    "test:v2": "node test/v2.test.mjs && node test/v2-changes.test.mjs",
+    "test": "node test/v2.test.mjs && node test/v2-projects.test.mjs && node test/workspace.test.mjs && node test/slack-thread.test.mjs && node test/md-blocks.test.mjs && node test/claude-settings.test.mjs",
+    "test:v2": "node test/v2.test.mjs && node test/v2-projects.test.mjs",
     "smoke": "node test/smoke-v2.mjs",
     "regent": "node src/v2/cli.ts"
   },

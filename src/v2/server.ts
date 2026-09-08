@@ -24,13 +24,7 @@ store.claimRuntime()
 const slack = createSlack(config)
 const output = new DurableOutput(store, slack.output)
 const core = new Core({ store, config, output, cwd, adapter: 'slack' })
-core.tasks.rooms = slack.rooms
-let polling: Promise<void> | undefined
-const poll = () => {
-  if (!polling) polling = core.tasks.poll().catch(error => console.error('[v2 merge]', error.message)).finally(() => { polling = undefined; core.pump() })
-}
-let mergeTimer: NodeJS.Timeout | undefined
-const server = createHttp(core, () => ({ slack_connected: slack.connected(), claude_version: claudeVersion }), poll)
+const server = createHttp(core, () => ({ slack_connected: slack.connected(), claude_version: claudeVersion }))
 const port = Number(process.env.REGENT_PORT ?? 8788)
 try {
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve) })
@@ -38,13 +32,9 @@ try {
   await slack.start(core)
   output.start()
   await core.recover()
-  mergeTimer = setInterval(poll, 60000)
-  poll()
   console.log(`${config.name} v2 en http://127.0.0.1:${port}; ${claudeVersion}`)
 } catch (error) {
   await core.close()
-  clearInterval(mergeTimer)
-  await polling
   await output.close()
   await slack.stop().catch(() => {})
   server.close()
@@ -55,9 +45,7 @@ let closing = false
 const close = async () => {
   if (closing) return
   closing = true
-  clearInterval(mergeTimer)
   await core.close()
-  await polling
   await output.close()
   await slack.stop()
   await new Promise<void>(resolve => server.close(() => resolve()))

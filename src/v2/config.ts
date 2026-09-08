@@ -8,7 +8,7 @@ const positive = z.number().positive().finite()
 export const ConfigSchema = z.object({
   name: z.string().min(1).default('Regent'),
   auth: z.object({ mode: z.enum(['indie', 'team']) }),
-  // bypass (default): un agente con todas las herramientas del repo; los hooks duros son la guarda.
+  // bypass skips native permission rules; hooks are not a filesystem sandbox.
   // native: respeta allow/ask/deny del repo — en headless lo no permitido se auto-deniega.
   permission_mode: z.enum(['bypass', 'native']).default('bypass'),
   repos: z.object({
@@ -38,16 +38,8 @@ export const ConfigSchema = z.object({
   models: z.object({ ask: z.string().nullable().default(null), patch: z.string().nullable().default(null), task: z.string().nullable().default(null), project: z.string().nullable().default(null) }).prefault({}),
   // Legado, ignorado: el backlog es del repo (su MCP de Notion, sus skills), no de regent.
   notion: z.record(z.string(), z.unknown()).default({}),
-  policy: z.object({
-    room: z.enum(['never', 'on_task', 'always']).default('on_task'),
-    track_small_fixes: z.enum(['none', 'digest']).default('digest'),
-    fast_track: z.boolean().default(false),
-    small_fix: z.object({
-      max_files: z.number().int().positive().default(5), max_lines: z.number().int().positive().default(150),
-      deny_paths: z.array(z.string()).default(['**/migrations/**', '**/schema*', 'infra/**', '.github/**']),
-      require_tests_pass: z.boolean().default(true),
-    }).prefault({}),
-  }).prefault({}),
+  // Former workflow configuration is accepted but never used by v2 execution.
+  policy: z.unknown().optional(),
   mcp: z.record(z.string(), z.unknown()).default({}),
   projects: z.record(z.string(), z.unknown()).default({}),
 }).strict()

@@ -19,7 +19,7 @@ if (scenario === 'hang' || scenario === 'ignore-signals') {
     const listing = await fetch(config.url, { method: 'POST', headers: { ...config.headers, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }) })
     const names = (await listing.json()).result.tools.map(tool => tool.name)
-    if (!names.includes('regent_use_repo') || names.includes('regent_create_project') || names.includes('regent_project_profiles')) {
+    if (JSON.stringify(names.sort()) !== JSON.stringify(['regent_ask_human', 'regent_cancel', 'regent_status', 'regent_use_repo'])) {
       throw new Error('Unexpected repository MCP tools')
     }
     const response = await fetch(config.url, { method: 'POST', headers: { ...config.headers, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },

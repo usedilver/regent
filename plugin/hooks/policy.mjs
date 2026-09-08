@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { literalCommand } from './command.mjs'
 
@@ -11,10 +12,28 @@ export function denial(input, env = process.env) {
     if (/\.credentials\.json|\.env(?:\b|$)|\.claude\.json/.test(JSON.stringify(paths))) return 'No leer archivos de credenciales; consulta codigo sin secretos.'
     return null
   }
-  // Escrituras: el core las gatea (worktree propio + plan). El hook las niega por defensa
-  // cuando actua solo (el core responde antes en el flujo normal).
-  if (['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(name)) return 'Las escrituras pasan por el core: worktree propio y plan aprobado.'
-  if (['use_repo', 'status', 'ask_human', 'cancel', 'worktree', 'install', 'run_tests', 'open_pr', 'close_pr', 'create_task', 'update_task', 'request_qa'].some(tool => name === `mcp__regent__regent_${tool}`)) return null
+  if (['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(name)) {
+    const file = args.file_path ?? args.notebook_path
+    if (typeof file !== 'string' || !file) return 'Indica la ruta del archivo.'
+    if (/\.credentials\.json|\.env(?:\b|$)|\.claude\.json/.test(file)) return 'No modificar archivos de credenciales mediante herramientas de edicion.'
+    try {
+      const root = fs.realpathSync(env.REGENT_ROOT)
+      const requested = path.resolve(env.REGENT_CWD ?? root, file)
+      let parent = requested
+      while (true) {
+        try { fs.lstatSync(parent); break } catch (error) {
+          if (error.code !== 'ENOENT' || path.dirname(parent) === parent) throw error
+          parent = path.dirname(parent)
+        }
+      }
+      const resolved = path.resolve(fs.realpathSync(parent), path.relative(parent, requested))
+      if (/\.credentials\.json|\.env(?:\b|$)|\.claude\.json/.test(resolved)) return 'No modificar archivos de credenciales mediante herramientas de edicion.'
+      const relative = path.relative(root, resolved)
+      if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return 'La edicion debe estar dentro del workspace autorizado.'
+      return null
+    } catch { return 'Ruta de edicion inaccesible o workspace no configurado.' }
+  }
+  if (['use_repo', 'status', 'ask_human', 'cancel'].some(tool => name === `mcp__regent__regent_${tool}`)) return null
   if (name === 'Bash') {
     const command = args.command ?? ''
     // Heuristic guards in both modes, not a shell sandbox: credential references,
@@ -29,9 +48,6 @@ export function denial(input, env = process.env) {
       if (/r/i.test(flags) && /f/i.test(flags) && targets.some(t => /^(?:\/|~|\$HOME|\$\{HOME\})/.test(t))) return 'No borrar recursivamente rutas absolutas o del home.'
     }
     const words = literalCommand(command)
-    const first = words ? words[0] : (command.trim().match(/^[^\s|&;<>()`$]+/) ?? [''])[0]
-    // Legacy Regent-specific commands still go through core tools.
-    if (['ncard', 'regent-wt'].includes(first)) return 'ncard y regent-wt van por las tools del core, no por Bash.'
     if (words && /\.credentials\.json|\.env\b|\.claude\.json/.test(words.join(' '))) return 'No leer archivos de credenciales.'
     // Git, gh and repository scripts follow the same runtime permissions as other
     // shell tools. In bypass mode this abstention is not a filesystem sandbox.
@@ -50,8 +66,8 @@ export function denial(input, env = process.env) {
   // Los servidores marcados en readonly_mcp ya quedaron restringidos arriba.
   // Repo/user MCP tools and every built-in meta tool (ToolSearch loads deferred MCP tools,
   // Task/WebFetch/WebSearch/TodoWrite, etc.) are the repo's context, not a threat. The real
-  // guards are above: credentials, readonly MCP DML, and worktree-scoped edits
-  // (core enforces those for Write/Edit). Abstain here: bypass runs it, native lets the repo decide.
+  // guards are above: credentials, readonly MCP DML, and workspace-scoped edits.
+  // Abstain here: bypass runs it, native lets the repo decide.
   return null
 }
 

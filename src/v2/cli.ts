@@ -25,11 +25,7 @@ try {
       if (!args.includes('--follow') || !['queued', 'running'].includes(store.run(id)!.state)) break
       await new Promise(resolve => setTimeout(resolve, 500))
     }
-  } else if (command === 'tasks') {
-    console.table(store.db.prepare('SELECT id,title,size,state,url,room FROM tasks ORDER BY created_at DESC LIMIT 30').all())
-  } else if (command === 'gates') {
-    console.table(store.db.prepare("SELECT id,task_id,kind,state FROM task_gates WHERE state='pending'").all())
-  } else if ((['ask', 'patch', 'gate'].includes(command) && args.length) || command === 'sync') {
+  } else if (['ask', 'patch'].includes(command) && args.length) {
     store.claimRuntime()
     const config = loadConfig()
     console.log(authNotice(config))
@@ -37,13 +33,12 @@ try {
     const conversationIndex = args.indexOf('--conversation')
     const conversation = conversationIndex >= 0 ? args[conversationIndex + 1] : randomUUID()
     if (conversationIndex >= 0) args.splice(conversationIndex, 2)
-    if (!conversation || (!args.length && command !== 'sync')) throw new Error('ask/patch necesitan texto y --conversation necesita un identificador.')
+    if (!conversation || !args.length) throw new Error('ask/patch necesitan texto y --conversation necesita un identificador.')
     const author = process.env.REGENT_USER_ID ?? config.slack.allowed_users[0]
     if (!author) throw new Error('Configura REGENT_USER_ID para atribuir consumo al usuario local.')
     const output: Output = {
       async notice(_c, text) { console.log(text) }, async status() {},
       async delta() {}, async finish(_c, run, text) { console.log(`${text}\n\nrun: ${run.id}`) },
-      async gate(_c, gate, text) { console.log(`${text}\n${gate.questions.join('\n')}\nCompuerta: ${gate.id}\npnpm regent gate ${gate.id} approve|changes|cancel`) },
     }
     const core = new Core({ store, config, output, cwd: workspaceDir(config), adapter: 'cli' })
     const server = createHttp(core, () => ({ slack_connected: false }))
@@ -53,13 +48,7 @@ try {
     process.on('SIGINT', stop); process.on('SIGTERM', stop)
     try {
       await core.recover()
-      let accepted: { runId?: string | null } = {}
-      if (command === 'gate') {
-        const gate = store.db.prepare('SELECT conversation FROM task_gates WHERE id=?').get(args[0])
-        if (!gate || JSON.parse(gate.conversation as string).adapter !== 'cli') throw new Error('La CLI solo revisa sus propias compuertas; usa los botones para las de Slack.')
-        await core.reviewGate(args[0], args[1], author, config.slack.workspace_team_id)
-      } else if (command === 'sync') await core.tasks.poll()
-      else accepted = await core.submit({ adapter: 'cli', eventId: randomUUID(), key: `cli:${author}:${conversation}`, author, text: args.join(' '), channel: conversation, intent: command === 'patch' ? 'patch' : 'ask' })
+      const accepted = await core.submit({ adapter: 'cli', eventId: randomUUID(), key: `cli:${author}:${conversation}`, author, text: args.join(' '), channel: conversation, intent: command === 'patch' ? 'patch' : 'ask' })
       while (core.active.size) await Promise.allSettled([...core.active.values()].map(a => a.done))
       if (accepted.runId && ['failed', 'interrupted'].includes(store.run(accepted.runId)!.state)) process.exitCode = 1
       console.log(`conversation: ${conversation}`)
@@ -69,7 +58,7 @@ try {
       process.off('SIGINT', stop); process.off('SIGTERM', stop)
     }
   } else {
-    console.log('Uso: pnpm regent ask|patch <texto> [--conversation <id>] | runs | tasks | gates | gate <id> approve|changes|cancel | sync | tail <run_id> [--follow]')
+    console.log('Uso: pnpm regent ask|patch <texto> [--conversation <id>] | runs | tail <run_id> [--follow]')
     process.exitCode = 1
   }
 } finally { store.close() }

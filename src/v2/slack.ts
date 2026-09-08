@@ -4,7 +4,7 @@ import type { Config } from './config.ts'
 import type { Core } from './core.ts'
 import type { Conversation, Output, Run } from './types.ts'
 import { redact } from './store.ts'
-import type { Rooms } from './tasks.ts'
+import type { Rooms } from './types.ts'
 
 type Api = (method: string, args: Record<string, any>) => Promise<any>
 type Stream = { ts?: string; pending: string; sent: string; timer?: NodeJS.Timeout; chain: Promise<void>; failed?: boolean; channel: string; thread?: string }
@@ -40,27 +40,12 @@ export class SlackOutput implements Output {
           text: { type: 'plain_text', text: `Opcion ${i + 1}` }, action_id: `regent_question_${i}`, value: question.id })) },
       ] })
   }
-  async gate(c: Conversation, gate: { id: string; kind: string; questions: string[] }, text: string): Promise<void> {
-    const choices = [
-      ...(!gate.questions.length ? [{ label: gate.kind === 'plan' ? 'Aprobar plan' : 'Probado', decision: 'approve', style: 'primary' }] : []),
-      { label: gate.kind === 'plan' ? 'Pedir cambios' : 'Falla', decision: 'changes' },
-      { label: 'Cancelar', decision: 'cancel', style: 'danger' },
-    ]
-    const body = redact([text, ...gate.questions].join('\n'))
-    const sections = []
-    for (let offset = 0; offset < body.length; offset += 2900) sections.push({ type: 'section', text: { type: 'mrkdwn', text: body.slice(offset, offset + 2900) } })
-    await this.api('chat.postMessage', { channel: c.channel, thread_ts: c.thread ?? undefined, text: body.slice(0, 3500), blocks: [
-      ...sections,
-      { type: 'actions', elements: choices.map(choice => ({ type: 'button', text: { type: 'plain_text', text: choice.label },
-        action_id: `regent_gate_${choice.decision}`, value: gate.id, ...('style' in choice ? { style: choice.style } : {}) })) },
-    ] })
-  }
   async notice(c: Conversation, text: string): Promise<void> {
     text = redact(text)
     for (let offset = 0; offset < text.length; offset += 3500) await this.api('chat.postMessage', { channel: c.channel, thread_ts: c.thread ?? undefined, text: text.slice(offset, offset + 3500), unfurl_links: false })
   }
   latestThread = new Map<string, string>()
-  /** DMs anchor each response to its request; a task room converses at channel root. */
+  /** DMs anchor each response to its request; a room converses at channel root. */
   anchor(c: Conversation): string | undefined {
     return c.thread ?? (c.channel.startsWith('D') ? this.latestThread.get(c.key) : undefined)
   }
@@ -120,7 +105,7 @@ export class SlackOutput implements Output {
       await this.notice({ ...c, channel: stream.channel, thread: stream.thread ?? null }, `${text}\n\nNo pude cerrar el stream: ${(error as Error).message}`)
     } finally { this.streams.delete(run.id) }
   }
-  /** The conversation moved to its task room: close the origin stream so the rest lands there. */
+  /** The conversation moved to its room: close the origin stream so the rest lands there. */
   async moved(run: Run): Promise<void> {
     const stream = this.streams.get(run.id)
     if (!stream) return
@@ -237,11 +222,11 @@ export function createSlack(config: Config) {
     if (event.bot_id || event.user === botId || (event.subtype && event.subtype !== 'file_share') || !event.user || !event.ts) return
     if (event.user_team && event.user_team !== config.slack.workspace_team_id) return
     const dm = event.channel_type === 'im' || event.channel.startsWith('D')
-    const task = core.store.db.prepare('SELECT conversation_key FROM tasks WHERE room=?').get(event.channel)
-    const room = Boolean(task)
-    // A task room converses at channel root; elsewhere the thread anchors the conversation.
+    const roomConversation = core.store.db.prepare("SELECT key FROM conversations WHERE adapter='slack' AND channel=? AND thread IS NULL").get(event.channel)
+    const room = Boolean(roomConversation)
+    // A room converses at channel root; elsewhere the thread anchors the conversation.
     const thread = dm ? undefined : room ? event.thread_ts : event.thread_ts ?? event.ts
-    const key = task?.conversation_key as string ?? (dm ? `slack:${event.channel}` : `slack:${event.channel}:${event.thread_ts ?? event.ts}`)
+    const key = roomConversation?.key as string ?? (dm ? `slack:${event.channel}` : `slack:${event.channel}:${event.thread_ts ?? event.ts}`)
     // app_mention and message may have different event IDs for the same message.
     if (!mention && !dm && (event.text ?? '').includes(`<@${botId}>`)) return
     const text = messageBody(event).replaceAll(`<@${botId}>`, '').trim()
@@ -268,8 +253,8 @@ export function createSlack(config: Config) {
   app.event('app_mention', async ({ event, body }) => handle(event, body, true))
   app.message(async ({ message, body }) => handle(message, body))
   app.event('agent_session_stopped' as any, async ({ event, body }: any) => {
-    const task = core.store.db.prepare('SELECT conversation_key FROM tasks WHERE room=?').get(event.channel)
-    const key = task?.conversation_key as string ?? (event.channel.startsWith('D') ? `slack:${event.channel}` : `slack:${event.channel}:${event.thread_ts}`)
+    const roomConversation = core.store.db.prepare("SELECT key FROM conversations WHERE adapter='slack' AND channel=? AND thread IS NULL").get(event.channel)
+    const key = roomConversation?.key as string ?? (event.channel.startsWith('D') ? `slack:${event.channel}` : `slack:${event.channel}:${event.thread_ts}`)
     const input = { adapter: 'slack' as const, key, eventId: body.event_id, channel: event.channel, thread: event.channel.startsWith('D') ? undefined : event.thread_ts, team: body.team_id, author: event.user, text: 'stop' }
     if (core.authorized(input)) await core.submit(input)
   })
@@ -280,14 +265,6 @@ export function createSlack(config: Config) {
       const result = await core.answerQuestion(action.value, Number(action.action_id.replace('regent_question_', '')),
         body.user.id, body.team?.id, body.channel?.id, body.message?.thread_ts ?? null)
       await respond({ text: result.duplicate ? 'La pregunta ya fue respondida.' : 'Respuesta registrada.', replace_original: false, response_type: 'ephemeral' })
-    } catch (error) { await respond({ text: redact((error as Error).message), replace_original: false, response_type: 'ephemeral' }) }
-  })
-  app.action(/^regent_gate_(approve|changes|cancel)$/, async ({ ack, body, action, respond }: any) => {
-    await ack()
-    try {
-      if (body.user?.team_id && body.user.team_id !== config.slack.workspace_team_id) throw new Error('Usuario de otro workspace.')
-      await core.reviewGate(action.value, action.action_id.replace('regent_gate_', ''), body.user.id, body.team?.id, body.channel?.id)
-      await respond({ text: 'Decision registrada.', replace_original: false, response_type: 'ephemeral' })
     } catch (error) { await respond({ text: redact((error as Error).message), replace_original: false, response_type: 'ephemeral' }) }
   })
   app.error(async error => { console.error(`[slack v2] ${redact(error.message)}`) })

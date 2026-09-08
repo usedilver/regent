@@ -32,11 +32,8 @@ export class DurableOutput implements Output {
               else await this.delegate.notice(args[0], [args[1].text, ...args[1].options.map((o: string, i: number) => `${i + 1}. ${o}`)].join('\n'))
             }
           }
-          else if (row.kind === 'gate') {
-            if (this.delegate.gate) await this.delegate.gate(args[0], args[1], args[2])
-            else await this.delegate.notice(args[0], `${args[2]}\nCompuerta: ${args[1].id}`)
-          }
-          else await this.delegate.finish(args[0], args[1], args[2])
+          else if (row.kind === 'finish') await this.delegate.finish(args[0], args[1], args[2])
+          else throw new Error(`Tipo de entrega no soportado: ${row.kind}`)
           this.store.db.prepare("UPDATE deliveries SET state='sent',attempts=attempts+1,error=NULL WHERE id=?").run(row.id)
         } catch (error) {
           this.store.db.prepare('UPDATE deliveries SET attempts=attempts+1,error=? WHERE id=?').run(redact((error as Error).message), row.id)
@@ -55,7 +52,6 @@ export class DurableOutput implements Output {
   status(c: Conversation, status: 'processing' | 'active' | 'suspended') { return this.enqueue('status', [c, status], c.key) }
   delta(c: Conversation, run: Run, text: string) { return this.delegate.delta(c, run, text) }
   finish(c: Conversation, run: Run, text: string) { return this.enqueue('finish', [c, run, text], c.key) }
-  gate(c: Conversation, gate: { id: string; kind: string; questions: string[] }, text: string) { return this.enqueue('gate', [c, gate, text], c.key) }
   question(c: Conversation, question: { id: string; text: string; options: string[] }) { return this.enqueue('question', [c, question], c.key) }
   moved(run: Run) { return this.delegate.moved?.(run) ?? Promise.resolve() }
   async close(): Promise<void> { clearInterval(this.timer); await Promise.allSettled(this.inflight.values()) }

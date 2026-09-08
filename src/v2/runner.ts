@@ -10,9 +10,8 @@ export interface RunnerOptions {
   cwd: string; prompt: string; runId: string; sessionId?: string | null; model?: string | null
   env?: NodeJS.ProcessEnv; toolsUrl: string; token: string; readonlyMcp: string[]
   additionalDirectories?: string[]
-  /** bypass (default): hooks are the only guard — a headless run cannot answer prompts, so every
-   * repo MCP and tool works and datos quedan disponibles. native: honor repo allow/ask/deny;
-   * anything unanswered is auto-denied (native is for untrusted repos only). */
+  /** Bypass skips native permissions. Native honors repository rules; unanswered
+   * permission prompts are denied in headless mode. Hooks are not a sandbox. */
   permissionMode?: 'bypass' | 'native'
   timeoutMs: number; stallMs: number; graceMs: number; maxCost?: number
   command?: string; prefixArgs?: string[]; onEvent(event: RunnerEvent): void
@@ -23,7 +22,7 @@ export function runnerArgs(options: RunnerOptions): string[] {
   return ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
     '--permission-mode', native ? 'default' : 'bypassPermissions', '--permission-prompts', 'none',
     '--setting-sources', 'user,project,local',
-    ...(native ? ['--allowedTools', 'mcp__regent__*,Edit,Write,MultiEdit'] : []),
+    ...(native ? ['--allowedTools', 'mcp__regent__*'] : []),
     ...(options.additionalDirectories ?? []).flatMap(dir => ['--add-dir', dir]),
     '--append-system-prompt-file', path.join(BRIDGE_DIR, 'plugin/colleague.md'),
     '--plugin-dir', path.join(BRIDGE_DIR, 'plugin'),

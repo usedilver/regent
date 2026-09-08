@@ -50,7 +50,13 @@ export interface Output {
   status(conversation: Conversation, status: 'processing' | 'active' | 'suspended'): Promise<void>
   delta(conversation: Conversation, run: Run, text: string): Promise<void>
   finish(conversation: Conversation, run: Run, text: string): Promise<void>
-  gate?(conversation: Conversation, gate: { id: string; kind: string; questions: string[] }, text: string): Promise<void>
-  /** The conversation re-anchored (task room): close any in-flight stream where it was. */
+  /** The conversation re-anchored: close any in-flight stream where it was. */
   moved?(run: Run): Promise<void>
+}
+
+export interface Rooms {
+  create(name: string, author: string, text: string): Promise<{ channel: string; thread: string }>
+  find(name: string): Promise<{ channel: string; thread: string } | undefined>
+  history(channel: string): Promise<string>
+  archive(channel: string): Promise<void>
 }

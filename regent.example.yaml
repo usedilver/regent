@@ -12,8 +12,6 @@ repos:
   default_repo: null # Relativo al workspace; null usa el workspace como contexto inicial.
   agent_env_files: []
   readonly_mcp: []
-  # Argv por nombre/ruta relativa de repo; usa '.' si path es el repo mismo.
-  test_commands: {}
 slack:
   workspace_team_id: T_REPLACE
   allowed_users: [U_REPLACE] # Solo tu usuario; obligatorio en indie, nunca una lista vacia.
@@ -31,12 +29,3 @@ models:
   ask: null
   patch: null
   task: null
-policy:
-  room: on_task # always tambien abre sala para un parche sin tarea (via su card de trazabilidad).
-  track_small_fixes: digest # none|digest; digest requiere slack.digest_channel.
-  fast_track: false
-  small_fix:
-    max_files: 5
-    max_lines: 150
-    deny_paths: ['**/migrations/**', '**/schema*', 'infra/**', '.github/**']
-    require_tests_pass: true
