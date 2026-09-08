@@ -11,6 +11,7 @@ import { Changes, command, parseNumstat, smallFix } from '../src/v2/changes.ts'
 import { Tasks } from '../src/v2/tasks.ts'
 import { Effects } from '../src/v2/effects.ts'
 import { Core } from '../src/v2/core.ts'
+import { Projects } from '../src/v2/projects.ts'
 import { createHttp } from '../src/v2/http.ts'
 import { SlackOutput } from '../src/v2/slack.ts'
 import { upsertSection, upsertPlan } from '../src/notion-sections.ts'
@@ -65,6 +66,34 @@ function fixture() {
 }
 
 try {
+  await check('repo-defined provisioning is provider-neutral, contained and idempotent', async () => {
+    const f = fixture()
+    try {
+      const projects = new Projects(f.store, f.dir)
+      fs.mkdirSync(path.join(f.repo, '.regent'))
+      const script = `const fs=require('fs'), cp=require('child_process'); const cwd=process.env.REGENT_PROJECT_DIR;
+        fs.writeFileSync(cwd+'/README.md', JSON.parse(process.env.REGENT_PROJECT_INPUT).title);
+        for(const args of [['init'],['add','.'],['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-m','Initial'],['init','--bare',cwd+'.git'],['remote','add','origin',cwd+'.git'],['push','-u','origin','HEAD']]) cp.execFileSync('git',args,{cwd});`
+      fs.writeFileSync(path.join(f.repo, '.regent/projects.json'), JSON.stringify({ profiles: {
+        example: { command: [process.execPath, '-e', script] },
+        broken: { command: [process.execPath, '-e', 'process.exit(1)'] },
+      } }))
+      const target = path.join(f.dir, 'independent')
+      const env = { PATH: process.env.PATH, HOME: process.env.HOME }
+      const signal = new AbortController().signal
+      const result = await projects.create(f.repo, 'example', target, { title: 'Test project' }, env, signal)
+      assert.equal(result.repo, fs.realpathSync(target))
+      assert.ok(git(target, 'rev-parse', '--verify', 'HEAD'))
+      assert.deepEqual(await projects.create(f.repo, 'example', target, { title: 'Do not overwrite' }, env, signal), result)
+      assert.equal(fs.readFileSync(path.join(target, 'README.md'), 'utf8'), 'Test project')
+      await assert.rejects(() => projects.create(f.repo, 'example', path.join(f.repo, 'nested'), {}, env, signal), /dentro de otro/)
+      await assert.rejects(() => projects.create(f.repo, 'example', '/tmp/outside', {}, env, signal), /workspace/)
+      const bad = path.join(f.dir, 'incomplete')
+      await assert.rejects(() => projects.create(f.repo, 'broken', bad, {}, env, signal))
+      await assert.rejects(() => projects.create(f.repo, 'broken', bad, {}, env, signal), /reconciliar/)
+      assert.equal(projects.repo(target), fs.realpathSync(target))
+    } finally { f.close() }
+  })
   await check('small_fix counts additions and deletions, rejects binaries and protected paths', () => {
     const config = ConfigSchema.parse({ auth: { mode: 'indie' }, repos: { path: root }, slack: { workspace_team_id: 'T1', allowed_users: ['U1'] } }).policy.small_fix
     const parse = raw => parseNumstat(raw)

@@ -68,6 +68,9 @@ export function createHttp(core: Core, health: () => Record<string, unknown>, on
       }
       const server = new McpServer({ name: 'regent', version: '0.2.0' })
       const schemas = {
+        regent_project_profiles: {},
+        regent_create_project: { profile: z.string().min(1), destination: z.string().min(1), input: z.record(z.string(), z.string()).optional() },
+        regent_use_repo: { repo: z.string().min(1), handoff: z.string().min(1).max(20000) },
         regent_status: { text: z.string().min(1).max(2000) },
         regent_ask_human: { question: z.string().min(1).max(3000), options: z.array(z.string().max(200)).max(5).optional() },
         regent_cancel: { reason: z.string().min(1).max(2000) },

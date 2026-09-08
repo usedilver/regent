@@ -15,11 +15,11 @@ export interface Worktree {
   origin: string; test_command: string | null; test_tree: string | null; test_passed: number; state: string
 }
 export interface DiffFile { path: string; added: number; removed: number; binary: boolean }
-export type Command = (command: string, args: string[], cwd: string, signal?: AbortSignal) => Promise<string>
-export const command: Command = async (cmd, args, cwd, signal) => {
+export type Command = (command: string, args: string[], cwd: string, signal?: AbortSignal, env?: NodeJS.ProcessEnv) => Promise<string>
+export const command: Command = async (cmd, args, cwd, signal, env) => {
   signal?.throwIfAborted()
   const pending = exec(cmd, args, { cwd, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024,
-    detached: process.platform !== 'win32', env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_PAGER: 'cat', GH_PAGER: 'cat', CI: 'true' } } as any)
+    detached: process.platform !== 'win32', env: { ...(env ?? process.env), GIT_TERMINAL_PROMPT: '0', GIT_PAGER: 'cat', GH_PAGER: 'cat', CI: 'true' } } as any)
   const child = pending.child
   let stopped = false, killTimer: NodeJS.Timeout | undefined
   const kill = (sig: NodeJS.Signals) => {

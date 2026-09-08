@@ -38,6 +38,28 @@ function fixture(extra = {}) {
 }
 
 try {
+  await check('repo context handoff restarts without old session or repo environment', async () => {
+    const repo = fs.mkdtempSync(path.join(tmp, 'selected-'))
+    fs.mkdirSync(path.join(repo, '.git'))
+    fs.writeFileSync(path.join(repo, '.env'), 'PROJECT_ONLY=selected\n')
+    const starts = []
+    const f = fixture({ runner: options => { starts.push(options); return startRunner(options) }, runnerOverrides: { command: process.execPath, prefixArgs: [fake], env: { FAKE_CLAUDE_SCENARIO: 'hang' } } })
+    try {
+      await f.core.submit(input('choose-repo'))
+      await until(() => Boolean(f.store.conversation(input('x').key).session_id))
+      const active = [...f.core.active.values()][0]
+      await assert.rejects(() => f.core.tool(active.token, 'regent_use_repo', { repo: '/', handoff: 'test' }))
+      f.core.runnerOverrides = { command: process.execPath, prefixArgs: [fake] }
+      await f.core.tool(active.token, 'regent_use_repo', { repo, handoff: 'Build the requested report.' })
+      await until(() => starts.length === 2 && !f.core.active.size)
+      assert.equal(starts[1].cwd, fs.realpathSync(repo))
+      assert.equal(starts[1].sessionId, null)
+      assert.equal(starts[1].env.PROJECT_ONLY, 'selected')
+      assert.ok(starts[1].prompt.includes('Build the requested report.'))
+      assert.equal(f.store.conversation(input('x').key).cwd, fs.realpathSync(repo))
+      assert.equal(f.store.db.prepare('SELECT COUNT(*) AS n FROM runs').get().n, 2)
+    } finally { await f.close() }
+  })
   await check('runner never reintroduces filtered process secrets', async () => {
     const key = 'REGENT_TEST_FILTERED_SECRET', previous = process.env[key]
     process.env[key] = 'synthetic-secret'

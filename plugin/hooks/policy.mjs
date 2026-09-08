@@ -15,7 +15,7 @@ export function denial(input, env = process.env) {
   // Escrituras: el core las gatea (worktree propio + plan). El hook las niega por defensa
   // cuando actua solo (el core responde antes en el flujo normal).
   if (['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(name)) return 'Las escrituras pasan por el core: worktree propio y plan aprobado.'
-  if (['status', 'ask_human', 'cancel', 'worktree', 'install', 'run_tests', 'open_pr', 'close_pr', 'create_task', 'update_task', 'request_qa'].some(tool => name === `mcp__regent__regent_${tool}`)) return null
+  if (['project_profiles', 'create_project', 'use_repo', 'status', 'ask_human', 'cancel', 'worktree', 'install', 'run_tests', 'open_pr', 'close_pr', 'create_task', 'update_task', 'request_qa'].some(tool => name === `mcp__regent__regent_${tool}`)) return null
   if (name === 'Bash') {
     const command = args.command ?? ''
     const native = env.REGENT_PERMISSION_MODE === 'repository'

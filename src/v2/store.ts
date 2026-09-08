@@ -136,7 +136,7 @@ export class Store {
   run(id: string): Run | undefined {
     return this.db.prepare('SELECT * FROM runs WHERE id=?').get(id) as unknown as Run | undefined
   }
-  accept(input: Inbound, cwd: string, idleHours: number): { duplicate: boolean; runId: string | null; command: string | null } {
+  accept(input: Inbound, cwd: string, idleHours: number, switchContext = false): { duplicate: boolean; runId: string | null; command: string | null } {
     return this.transaction(() => {
       const previous = this.db.prepare('SELECT run_id FROM inbound WHERE adapter=? AND event_id=?').get(input.adapter, input.eventId)
       if (previous) return { duplicate: true, runId: previous.run_id as string | null, command: null }
@@ -161,6 +161,7 @@ export class Store {
         this.db.prepare("UPDATE gates SET state='answered',answer=? WHERE conversation_key=? AND state='pending'").run(redact(input.text), input.key)
         if (conversation.state !== 'running') this.state(input.key, 'queued')
       }
+      if (switchContext && id) this.db.prepare('UPDATE conversations SET cwd=?,session_id=NULL WHERE key=?').run(cwd, input.key)
       return { duplicate: false, runId: id, command }
     })
   }
