@@ -25,6 +25,15 @@ before retrying: repository tools own reconciliation of their external effects.
 
 ## Select a repository
 
+New conversations can select context before Claude starts: use `--repo <path>` in
+the local CLI or `repo: <path>` as the first line in Slack, followed by the request.
+Paths are workspace-relative or absolute and must remain inside the workspace.
+Without this optional selector, a new conversation uses the default repository;
+existing conversations keep their selected repository. Invalid explicit paths do
+not silently fall back. Natural-language names and URLs are resolved by the agent
+using repository context, not a Regent registry. On an existing conversation, a
+different selector asks the agent to perform the handoff below before working.
+
 `regent_use_repo(repo, handoff)` selects an existing repository inside the effective
 workspace. Paths are absolute or relative to that workspace, not the current cwd.
 The handoff describes the human objective, decisions and unfinished work.
@@ -63,8 +72,9 @@ Trusted scripts/MCPs are not an OS sandbox; external databases, ports, deploymen
 and arbitrary absolute writes inside scripts are not isolated by Git worktrees.
 Incremental Slack context and independent room creation are implemented. A room
 keeps the same conversation key, selected repository, Claude session and native
-worktree. It does not trigger project provisioning or tracker creation. Next:
-minimal onboarding, explicit initial repository selection and real Slack acceptance.
+worktree. It does not trigger project provisioning or tracker creation. Minimal
+onboarding is available through `pnpm regent setup`; explicit initial repository
+selection is implemented. Next: real Slack acceptance flows.
 
 The previous profile tools were removed. Existing manifest files are neither read
 nor deleted; move any useful commands into the repository's own skills or scripts.

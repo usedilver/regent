@@ -42,10 +42,12 @@ gates de Regent. El aislamiento Git por conversación sí es obligatorio. El con
 vigente y los pendientes están en [docs/v2.md](docs/v2.md).
 
 ```sh
+pnpm regent setup --repo /ruta/a/repos/proyecto --team T012345 --user U012345
 pnpm start                 # servidor (Slack), escucha en 127.0.0.1
 pnpm dev                   # igual, con recarga al guardar (src/, config/, .env)
 pnpm test                  # suite v2
 pnpm regent ask "Explica este repositorio" --conversation revision
+pnpm regent ask "Revisa este proyecto" --repo otro-repo --conversation otra-revision
 pnpm regent patch "Corrige el fallo y abre un PR" --conversation correccion
 pnpm regent runs
 pnpm regent tail <run_id> --follow
@@ -59,11 +61,35 @@ flujo del repo, no una compuerta propia de Regent.
 En CLI las opciones se muestran como texto. El arranque actualiza SQLite al esquema 6
 y conserva las sesiones y preguntas pendientes de versiones anteriores.
 
-Antes de iniciar: copia `regent.example.yaml` a `config/regent.yaml` y completa
-`auth.mode`, `slack.workspace_team_id` y `slack.allowed_users`. Necesita
+El setup crea `config/regent.yaml` (o `REGENT_CONFIG`) sin sobrescribir archivos
+existentes ni abrir la base de sesiones. Solo guarda modo, permisos, workspace,
+repo predeterminado e IDs de Slack. El workspace por defecto es la carpeta padre
+del repo; usa `--workspace /ruta/a/Projects` para permitir otros proyectos dentro
+de esa carpeta. `--mode team` admite repetir `--user`; `indie` permite uno solo.
+`--permissions native` aplica permisos nativos; el valor por defecto `bypass` no
+aplica `allow/ask/deny`. No guarda secretos ni valida conexiones externas.
+También puedes copiar `regent.example.yaml` a `config/regent.yaml` manualmente.
+Antes de iniciar necesita
 `SLACK_BOT_TOKEN` y `SLACK_APP_TOKEN` de una app con `slack-manifest-v2.json`
 (Agent messaging). Define `repos.path` y `repos.default_repo` para el contexto inicial.
 Notion/Jira son opcionales y se configuran en el repo mediante sus propias herramientas.
+
+Para elegir un repo directamente al iniciar un hilo o DM nuevo, puedes escribir:
+
+```text
+@Regent
+repo: ruta/relativa/al/workspace
+Revisa este bug y explícame la causa.
+```
+
+También admite rutas absolutas dentro del workspace y nombres con espacios.
+En CLI el equivalente es `--repo <ruta>`. Una ruta inválida no crea una sesión
+ni cae silenciosamente al repo predeterminado. Sin selector se conserva el repo
+actual o, en una conversación nueva, el predeterminado. La sintaxis es opcional:
+puedes seguir describiendo proyectos y URLs normalmente; el agente los interpreta
+usando el contexto del repo. En una conversación existente, un selector diferente
+se entrega al agente como instrucción de cambio mediante `regent_use_repo`, con
+handoff y sesión nueva; no cambia el cwd de un proceso en marcha.
 
 En canales y salas el bot actúa solo con @mención; sin mención acepta únicamente
 la respuesta del autor cuando el bot le preguntó algo (o los comandos exactos
