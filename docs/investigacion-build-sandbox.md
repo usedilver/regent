@@ -1,8 +1,86 @@
 # Investigación: builds/workers que fallan dentro de regent (sandbox de Claude Code)
 
-Bitácora abierta. Iniciada 2026-09-08. **Estado: SIN RESOLVER — hay que cerrarlo.**
+Bitácora abierta. Iniciada 2026-09-08. **Estado: mecanismo reproducido; fix pendiente.**
 Documento de análisis, no contrato. Registra hallazgos, descartes y preguntas
 abiertas para seguir. Actualizar en el mismo PR que avance el tema.
+
+## Revisión con logs y reproducción (2026-09-08)
+
+**La hipótesis principal cambia: contaminación del entorno por `node --watch`,
+no sandbox.** La sección histórica de abajo conserva hipótesis anteriores y sus
+experimentos reportados; no debe leerse como diagnóstico vigente.
+
+### Evidencia nueva
+
+- Run SQLite `27046cbf-59ed-4b18-b719-5fdbe8497e7f`: estado `interrupted`, intent
+  `ask`, duración 601187 ms. Registró 33 tool_use y 33 tool_result.
+- El evento 2889 solicitó Bash con `dangerouslyDisableSandbox: true`; su resultado
+  2890 reprodujo `Unexpected response from worker: undefined`.
+- Settings actuales de usuario, padre Talently y app no definen `sandbox.enabled`.
+  No prueba retrospectivamente todo el entorno, pero no hay base para recomendar
+  desactivar aislamiento como arreglo de este incidente.
+- Node 22.20.0, módulo interno `internal/main/watch_mode`, agrega siempre
+  `WATCH_REPORT_DEPENDENCIES: '1'` al proceso supervisado, también con watch-path.
+- Los loaders de Node consultan esa variable y, si existe `process.send`, emiten
+  objetos IPC `watch:require` / `watch:import`.
+- `jest-worker` incluido en Next 16.3.4 espera mensajes cuyo primer elemento sea
+  un código numérico. Un objeto de reporte de imports tiene `message[0]` undefined,
+  y produce exactamente la excepción observada.
+- `core.ts` hereda process.env y `runner.ts` no filtra esa variable antes de lanzar
+  Claude. No hace falta que Claude tenga IPC: la variable llega hasta los forks de
+  Next, que sí tienen un canal IPC.
+
+Reproducción mínima efectuada con el jest-worker instalado en la app, sin Claude,
+sin DB, sin build y sin sandbox adicional:
+
+```text
+Worker con una función ping() -> "worker-ok"
+Mismo Worker, WATCH_REPORT_DEPENDENCIES=1 -> exit 1
+TypeError: Unexpected response from worker: undefined
+```
+
+Fixtures de diagnóstico local: `/private/tmp/regent-worker-probe.cjs` y
+`/private/tmp/regent-worker-fixture.cjs`. No forman parte del producto.
+También se inspeccionó el código embebido del propio Node con
+`process.binding('natives')`, solo como diagnóstico, no como API de implementación.
+La reproducción explica por qué las pruebas desde shell o claude -p fuera de
+pnpm dev no fallaban. Falta repetir el build completo desde Regent con el fix;
+no afirmar aún que el proyecto completo compila o está desplegado.
+
+### Otros hallazgos del mismo turno
+
+- Los comandos `pnpm build | ...; echo ${PIPESTATUS[0]}` terminaron con
+  `BUILD_EXIT:` vacío. No son evidencia fiable del exit code en esta shell.
+  Ejecutar build directamente o capturar su estado sin una tubería que lo oculte.
+- Al final, las escrituras de limpieza fueron rechazadas por el margen de cierre,
+  no por permisos de carpeta. Los logs contienen dos denegaciones por deadline.
+- El worktree real sigue sucio y conserva `_dbcheck.mjs`; la limpieza y el commit
+  no están terminados. No se modificaron esos archivos durante esta revisión.
+- La `.worktreeinclude` del worktree real sí incluye `.env.local`; no atribuir el
+  fallo de este run a su ausencia basándose en otro worktree de prueba.
+- Slack muestra `message_not_in_streaming_state`: error independiente del build.
+  `finishReply` intenta stopStream y, ante cualquier error, publica otra respuesta
+  con el diagnóstico técnico. Debe reconciliar un stream ya cerrado y continuar
+  con la actualización final, sin duplicar ni filtrar el error interno. No hay
+  trazas HTTP suficientes para concluir quién cerró primero ese stream.
+
+### Correcciones pendientes, en orden
+
+1. Filtrar `WATCH_REPORT_DEPENDENCIES` en la frontera de spawn de `startRunner`,
+   sobre la copia del entorno, sin alterar process.env ni desactivar watch en Regent.
+2. Test de regresión de herencia y worker IPC; no filtrar indiscriminadamente
+   variables legítimas del repo ni introducir excepciones globales de sandbox.
+3. Repetir el build del worktree real vía Regent; después decidir si existe otro
+   fallo de aplicación. No usar deploy cloud como sustituto del diagnóstico.
+4. Hacer idempotente la finalización de Slack y cubrir stream ya cerrado y
+   respuesta perdida tras stop; conservar una respuesta autoritativa.
+5. Retomar limpieza, commit y despliegue del proyecto en un turno separado.
+   El límite ask de 10 minutos es un problema adicional de flujo, no la causa IPC.
+
+La política preview/cloud build puede seguir siendo útil, pero no corrige la
+contaminación que también puede afectar tests y otros procesos con workers.
+
+## Investigación anterior (hipótesis, no conclusiones vigentes)
 
 ## Síntoma
 
