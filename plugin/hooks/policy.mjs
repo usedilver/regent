@@ -15,7 +15,9 @@ export function denial(input, env = process.env) {
   if (['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(name)) {
     const file = args.file_path ?? args.notebook_path
     if (typeof file !== 'string' || !file) return 'Indica la ruta del archivo.'
-    if (/\.credentials\.json|\.env(?:\b|$)|\.claude\.json/.test(file)) return 'No modificar archivos de credenciales mediante herramientas de edicion.'
+    // .env/.env.local del proyecto son config de build del propio agente; core.permission ya
+    // confina Write/Edit al worktree, así que solo puede tocar los suyos. Credenciales duras no.
+    if (/\.credentials\.json|\.claude\.json/.test(file)) return 'No modificar archivos de credenciales mediante herramientas de edicion.'
     try {
       const root = fs.realpathSync(env.REGENT_ROOT)
       const requested = path.resolve(env.REGENT_CWD ?? root, file)
@@ -27,7 +29,7 @@ export function denial(input, env = process.env) {
         }
       }
       const resolved = path.resolve(fs.realpathSync(parent), path.relative(parent, requested))
-      if (/\.credentials\.json|\.env(?:\b|$)|\.claude\.json/.test(resolved)) return 'No modificar archivos de credenciales mediante herramientas de edicion.'
+      if (/\.credentials\.json|\.claude\.json/.test(resolved)) return 'No modificar archivos de credenciales mediante herramientas de edicion.'
       const relative = path.relative(root, resolved)
       if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return 'La edicion debe estar dentro del workspace autorizado.'
       return null

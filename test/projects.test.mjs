@@ -74,7 +74,8 @@ try {
         assert.ok(permit(tool_name, { [field]: path.join(repo, 'answer.txt') }))
         assert.ok(permit(tool_name, { [field]: path.join(root, 'escape/outside.txt') }))
         assert.ok(permit(tool_name, { [field]: path.join(os.tmpdir(), 'outside.txt') }))
-        assert.ok(permit(tool_name, { [field]: '.env' }))
+        assert.equal(permit(tool_name, { [field]: '.env.local' }), null) // build config del proyecto: editable dentro del worktree
+        assert.ok(permit(tool_name, { [field]: '.credentials.json' }))   // credencial dura: sigue bloqueada
       }
       assert.equal(permit('Write', { file_path: '.claude/settings.json' }), null)
       assert.equal(permit('Write', { file_path: '.mcp.json' }), null)
