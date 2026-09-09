@@ -27,7 +27,10 @@ cancelación del acceso (baneo). La advertencia no autoriza el uso compartido: `
 exige un único usuario y rechaza instrucciones de los demás. Para un equipo, usa
 `team` con API key. Ver [Consumer Terms, secciones 2 y 12](https://www.anthropic.com/legal/consumer-terms).
 
-El aviso aparece al configurar la instancia y al iniciar el servidor o una consulta por CLI.
+El arranque individual con exactamente un usuario muestra solo una linea informativa.
+La advertencia de uso compartido aparece si la lista esta vacia o contiene varios
+usuarios; esa configuracion se rechaza. Si hay una API key en modo individual,
+se mantiene el aviso independiente sobre posible facturacion API.
 Los límites de Pro/Max siguen aplicando; regent no garantiza uso ilimitado ni ausencia
 de sanciones. Si `ANTHROPIC_API_KEY` está presente, el CLI puede facturar por API:
 revisa su autenticación para usar tu suscripción.

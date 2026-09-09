@@ -107,11 +107,16 @@ try {
     assert.throws(() => assertAuth({ ...config, auth: { mode: 'team' } }, {}), /API_KEY/)
     assert.throws(() => ConfigSchema.parse({ ...config, limits: { max_concurrent_runs: 0 } }))
   })
-  await check('indie: explicit Pro/Max warning without requiring or exposing API credentials', () => {
+  await check('indie: quiet valid startup, invalid audience warning and separate API billing notice', () => {
     const notice = authNotice(config, {})
     assert.match(notice, /Pro\/Max/)
-    assert.match(notice, /baneo/)
-    assert.match(notice, /No se requiere API key/)
+    assert.doesNotMatch(notice, /ADVERTENCIA|baneo|Terminos/)
+    assert.equal(notice.split('\n').length, 1)
+    for (const allowed_users of [[], ['U1', 'U2']]) {
+      const invalid = { ...config, slack: { ...config.slack, allowed_users } }
+      assert.match(authNotice(invalid, {}), /ADVERTENCIA/)
+      assert.throws(() => assertAuth(invalid, {}), /exactamente un usuario/)
+    }
     assert.doesNotMatch(notice, /esta presente/)
     const withKey = authNotice(config, { ANTHROPIC_API_KEY: 'fixture-private-key' })
     assert.match(withKey, /facturacion API/)

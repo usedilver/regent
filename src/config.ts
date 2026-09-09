@@ -38,11 +38,14 @@ export type Config = z.infer<typeof ConfigSchema>
 
 export function authNotice(config: Config, env: NodeJS.ProcessEnv = process.env): string {
   if (config.auth.mode === 'team') return 'Modo equipo (team): usa ANTHROPIC_API_KEY, con facturacion por consumo.'
+  const invalidAudience = new Set(config.slack.allowed_users).size !== 1
   return [
-    'Modo individual (indie): tu propio login en el binario oficial Claude Code con Pro/Max; un solo humano autorizado.',
+    invalidAudience ? 'Modo individual (indie): configuracion de usuarios invalida.' : 'Modo individual (indie): tu propio login en el binario oficial Claude Code con Pro/Max; un solo humano autorizado.',
+    ...(invalidAudience ? [
     'ADVERTENCIA: compartir la cuenta o permitir que otras personas usen tu suscripcion mediante el bot puede incumplir los terminos de Anthropic y provocar suspension o cancelacion del acceso (baneo).',
     'La advertencia no autoriza el uso compartido. Para varias personas, usa team con API key. No se requiere API key en indie.',
     'Terminos: https://www.anthropic.com/legal/consumer-terms (secciones 2 y 12).',
+    ] : []),
     ...(env.ANTHROPIC_API_KEY?.trim() ? ['ANTHROPIC_API_KEY esta presente: Claude puede usar facturacion API en lugar de tu plan. Revisa la autenticacion del CLI.'] : []),
   ].join('\n')
 }
