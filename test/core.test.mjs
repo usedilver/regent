@@ -402,7 +402,7 @@ try {
     assert.ok(buttons.every(b => b.value === 'q1' && b.text.text.length <= 75))
     await output.question(c, { id: 'q2', text: 'Pregunta libre', options: [] })
     assert.equal(calls[1].text, 'Pregunta libre')
-    assert.equal(calls[1].blocks, undefined)
+    assert.deepEqual(calls[1].blocks, [{ type: 'markdown', text: 'Pregunta libre' }])
   })
   await check('durable questions survive reopen and suppress stale deliveries', async () => {
     const file = path.join(tmp, 'question-delivery.sqlite')
@@ -626,7 +626,7 @@ try {
     }
     store.close()
   })
-  await check('mcp_degraded notice appears once per conversation, not on every message', async () => {
+  await check('unrelated MCP startup failures stay in events, never in chat', async () => {
     const f = fixture({ runnerOverrides: { command: process.execPath, prefixArgs: [fake], env: { FAKE_CLAUDE_SCENARIO: 'mcp-degraded' } } })
     try {
       for (const id of ['deg-1', 'deg-2']) {
@@ -634,7 +634,8 @@ try {
         while (f.core.active.size) await Promise.allSettled([...f.core.active.values()].map(a => a.done))
       }
       const degraded = f.messages.filter(m => m.kind === 'notice' && String(m.args[1]).includes('MCP externos'))
-      assert.equal(degraded.length, 1)
+      assert.equal(degraded.length, 0)
+      assert.equal(f.store.db.prepare("SELECT count(*) n FROM events WHERE kind='mcp_degraded'").get().n, 2)
     } finally { await f.close() }
   })
   await check('agent env: the default repo .env is loaded so its MCP ${VARS} resolve', async () => {

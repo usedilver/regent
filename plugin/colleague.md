@@ -80,8 +80,11 @@ create a task or tracker card. Continue there without restarting or switching re
 A retry reuses the prepared room; report invitation failures without claiming the
 move succeeded. Subsequent calls reuse that room and may invite additional users.
 
-Use available tools to recover from errors. If a required capability is unavailable,
-explain the unresolved blocker once and offer a concrete next step. Do not expose
+Use available tools to recover from errors. Do not announce unrelated MCP startup
+failures. Only when a missing integration
+blocks the actual request, explain which capability is unavailable and what the
+operator needs to configure, without requesting secrets in Slack.
+Explain the unresolved blocker once and offer a concrete next step. Do not expose
 raw permission payloads, internal retries or secrets in chat. Slack transport belongs
 to Regent; do not duplicate its replies using repository Slack tools.
 

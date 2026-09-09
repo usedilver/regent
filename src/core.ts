@@ -31,7 +31,6 @@ export class Core {
   store: Store; config: Config; output: Output; cwd: string; toolsUrl = ''
   active = new Map<string, Active>()
   preparing = new Set<string>()
-  degradedNotified = new Map<string, string>()
   secretKeys: string[] = ownEnvKeys()
   stopping = false
   runner: typeof startRunner
@@ -181,14 +180,6 @@ export class Core {
         if (event.kind === 'tool_use') active.lastTool = event.name
         if (event.kind === 'text_delta') this.publish(active, () => this.output.delta(conversation, run, event.text))
         if (event.kind === 'api_retry') this.publish(active, () => this.output.notice(conversation, 'Claude esta reintentando por un limite de tasa o error del proveedor.'))
-        if (event.kind === 'mcp_degraded') {
-          // Once per conversation and per degraded set: repeating it on every message is noise.
-          const summary = event.servers.join(', ')
-          if (this.degradedNotified.get(conversation.key) !== summary) {
-            this.degradedNotified.set(conversation.key, summary)
-            this.publish(active, () => this.output.notice(conversation, `Algunos MCP externos no conectaron: ${summary}. Continuo sin ellos; avisare si la tarea los necesita.`))
-          }
-        }
         // Tool failures remain in the event log and model context; the final reply
         // reports unresolved blockers instead of broadcasting every retry.
       }
@@ -290,7 +281,6 @@ export class Core {
       active.contextChanged = true
       active.waiting = true
       active.resumeAfterWait = true
-      this.degradedNotified.delete(conversation.key)
       setTimeout(() => active.controller?.cancel('Cambio de contexto'), 100)
       return { repo: target, switching: true, instruction: 'Termina el turno. Regent continuara con una sesion nueva y el entorno del repositorio seleccionado.' }
     }

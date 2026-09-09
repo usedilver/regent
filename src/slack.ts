@@ -1,4 +1,5 @@
 import pkg from '@slack/bolt'
+import { replyPayloads } from './slack-format.ts'
 import { SlackConnection } from './slack-connection.ts'
 import { appLabel, messageBody, threadToMarkdown } from './slack-thread.ts'
 import type { Config } from './config.ts'
@@ -92,7 +93,18 @@ export class SlackOutput implements Output {
   }
   async notice(c: Conversation, text: string): Promise<void> {
     text = redact(text)
-    for (let offset = 0; offset < text.length; offset += 3500) await this.api('chat.postMessage', { channel: c.channel, thread_ts: c.thread ?? undefined, text: text.slice(offset, offset + 3500), unfurl_links: false })
+    for (const payload of replyPayloads(text)) await this.sendReply('chat.postMessage', { channel: c.channel, thread_ts: c.thread ?? undefined, unfurl_links: false, unfurl_media: false, ...payload })
+  }
+  async sendReply(method: string, args: any): Promise<void> {
+    try { await this.api(method, args) }
+    catch (error) {
+      const code = (error as any)?.data?.error ?? (error as Error).message
+      if (!/\b(invalid_blocks|unsupported_block_type)\b/.test(code ?? '') || args.blocks?.[0]?.type !== 'markdown') throw error
+      // Keep the same message and all content when Markdown blocks are unavailable.
+      const blocks: any[] = []
+      for (let i = 0; i < args.text.length; i += 2800) blocks.push({ type: 'section', text: { type: 'plain_text', text: args.text.slice(i, i + 2800), emoji: false } })
+      await this.api(method, { ...args, blocks, mrkdwn: false })
+    }
   }
   latestThread = new Map<string, string>()
   /** DMs anchor each response to its request; a room converses at channel root. */
@@ -207,11 +219,9 @@ export class SlackOutput implements Output {
           if (code !== 'message_not_in_streaming_state' && !/\bmessage_not_in_streaming_state\b/.test((error as Error).message ?? '')) throw error
         }
         // The authoritative result can differ from interim assistant messages.
-        if (text.length <= 3500) await this.api('chat.update', { channel: stream.channel, ts: stream.ts, text: redact(text) })
-        else {
-          await this.api('chat.update', { channel: stream.channel, ts: stream.ts, text: redact(text.slice(0, 3500)) })
-          await this.notice({ ...c, channel: stream.channel, thread: stream.thread ?? null }, text.slice(3500))
-        }
+        const [first, ...rest] = replyPayloads(text)
+        await this.sendReply('chat.update', { channel: stream.channel, ts: stream.ts, ...first })
+        for (const payload of rest) await this.sendReply('chat.postMessage', { channel: stream.channel, thread_ts: stream.thread, unfurl_links: false, unfurl_media: false, ...payload })
       } else await this.notice({ ...c, channel: stream.channel, thread: stream.thread ?? null }, text)
     } catch (error) {
       // Preserve the known message for DurableOutput to retry after a network
