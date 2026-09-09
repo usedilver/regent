@@ -105,12 +105,13 @@ try {
   assert.ok(calls.some(c => c.method === 'chat.stopStream'))
   assert.equal(calls.at(-1).args.blocks[1].status, 'complete')
   assert.equal(calls.at(-1).args.blocks[1].type, 'task_card')
-  const list = calls.at(-1).args.blocks[1].output.elements[0]
-  assert.equal(list.type, 'rich_text_list')
-  assert.equal(list.style, 'bullet')
+  const summary = calls.at(-1).args.blocks[1].output.elements[0]
+  assert.equal(summary.type, 'rich_text_section')
+  assert.equal(summary.elements[0].text, '1 ejecucion terminada')
   const payload = activities.payload({ state: mixed, mode: 'blocks' })
-  assert.deepEqual(payload.blocks[1].output.elements[0].elements.map(item => item.elements[0].text),
-    ['1 ejecucion terminada', '1 con error', '1 en curso'])
+  assert.equal(payload.blocks[1].output.elements[0].elements[0].text,
+    '1 ejecucion terminada\n1 con error\n1 en curso')
+  assert.ok(!JSON.stringify(payload).includes('rich_text_list'))
   assert.match(JSON.stringify(calls.at(-1).args.blocks[1].details), /Read/)
   const count = calls.length
   activities = new SlackActivities(api, store)

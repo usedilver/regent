@@ -6,8 +6,8 @@ Contrato principal: [Regent v2](v2.md).
 
 ## Implementacion entregada
 
-Los contadores finales usan elementos separados de una lista (terminadas, con
-error, en curso/sin confirmar), no una frase separada por punto y coma.
+Los contadores finales usan lineas separadas (terminadas, con error, en curso/sin
+confirmar), sin punto y coma ni vinetas internas: la tarjeta ya tiene un punto nativo.
 Futuro, sin activar: [modo detallado Bash/MCP y enmascarado](slack-detailed-progress.md).
 
 Bash: `command-display.ts` permite mostrar un vocabulario exacto de comandos
