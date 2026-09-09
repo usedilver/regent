@@ -13,7 +13,7 @@ repos:
   agent_env_files: []
   readonly_mcp: []
 slack:
-  progress_mode: auto # plan de actividades; plain usa texto actualizado en el mismo mensaje.
+  progress_mode: auto # tarjetas de actividades; plain usa texto actualizado en el mismo mensaje.
   workspace_team_id: T_REPLACE
   allowed_users: [U_REPLACE] # Solo tu usuario; obligatorio en indie, nunca una lista vacia.
 limits:
@@ -22,6 +22,7 @@ limits:
   stall_sec: 300
   cancel_grace_sec: 60
 budget:
+  # Solo se aplica en auth.mode: team; no limita la suscripcion individual.
   max_cost_usd_per_run: 8
   max_cost_usd_per_user_day: 25
 session:

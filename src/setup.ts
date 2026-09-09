@@ -32,7 +32,7 @@ export function setup(args: string[], file = process.env.REGENT_CONFIG ?? path.j
     `Permisos: ${config.permission_mode}${config.permission_mode === 'bypass' ? ' (no aplica allow/ask/deny nativos; los hooks no son un sandbox)' : ''}.`,
     authNotice(config), 'Configura SLACK_BOT_TOKEN y SLACK_APP_TOKEN en el entorno del servidor.',
     config.auth.mode === 'team' ? 'Configura ANTHROPIC_API_KEY en el servidor.' : 'Autentica el CLI oficial Claude Code con tu cuenta personal.',
-    'Instala la app Slack con slack-manifest-v2.json y ejecuta pnpm start. El setup no valida conexiones ni modifica los repositorios.'].join('\n')
+    'Instala la app Slack con slack-manifest.json y ejecuta pnpm start. El setup no valida conexiones ni modifica los repositorios.'].join('\n')
 }
 
 export function requestArgs(args: string[]) {

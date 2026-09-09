@@ -45,8 +45,7 @@ try {
     const store = new Store(':memory:')
     const config = ConfigSchema.parse({ permission_mode, auth: { mode: 'indie' },
       repos: { path: root, default_repo: 'repo' },
-      slack: { workspace_team_id: 'T1', allowed_users: ['U1'] },
-      policy: { room: 'always', small_fix: { max_files: 1 }, fast_track: false } })
+      slack: { workspace_team_id: 'T1', allowed_users: ['U1'] } })
     let options
     const core = new Core({ store, config, cwd: root,
       output: { async notice() {}, async status() {}, async delta() {}, async finish() {} },

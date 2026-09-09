@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { setup, requestArgs } from '../src/setup.ts'
-import { loadConfig, workspaceDir, defaultRepoDir } from '../src/config.ts'
+import { ConfigSchema, loadConfig, workspaceDir, defaultRepoDir } from '../src/config.ts'
 import { repositoryRequest, isolationFor } from '../src/repository.ts'
 import { Store } from '../src/store.ts'
 import { Core } from '../src/core.ts'
@@ -24,6 +24,22 @@ try {
   const original = fs.readFileSync(configFile, 'utf8')
   assert.doesNotMatch(original, /TOKEN|API_KEY|notion|policy|projects|skills/)
   const config = loadConfig(configFile)
+  assert.equal(config.permission_mode, 'bypass')
+  assert.equal(config.slack.progress_mode, 'auto')
+  assert.deepEqual(config.models, { ask: null, patch: null, task: null })
+  assert.deepEqual(config.limits.max_run_sec, { ask: 600, patch: 1800, task: 3600 })
+  assert.deepEqual(config.repos.agent_env_files, [])
+  for (const key of ['policy', 'mcp', 'projects', 'notion']) {
+    assert.throws(() => ConfigSchema.parse({ ...config, [key]: {} }), /Unrecognized key/)
+  }
+  for (const [section, keys] of [
+    ['repos', ['default_base_branch', 'base_branches', 'test_commands']],
+    ['slack', ['ops_channel', 'digest_channel']], ['models', ['project']],
+  ]) for (const key of keys) {
+    assert.throws(() => ConfigSchema.parse({ ...config, [section]: { ...config[section], [key]: null } }), /Unrecognized key/)
+  }
+  assert.throws(() => ConfigSchema.parse({ ...config, limits: { ...config.limits,
+    max_run_sec: { ...config.limits.max_run_sec, project_step: 900 } } }), /Unrecognized key/)
   assert.equal(workspaceDir(config), root)
   assert.equal(defaultRepoDir(config, root), repo)
   assert.equal(fs.statSync(configFile).mode & 0o777, 0o600)

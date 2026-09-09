@@ -16,34 +16,23 @@ export const ConfigSchema = z.object({
     path: z.string().min(1),
     workspace_root: z.string().min(1).nullable().default(null),
     default_repo: z.string().min(1).nullable().default(null),
-    default_base_branch: z.string().nullable().default('develop'),
-    base_branches: z.record(z.string(), z.string()).default({}),
     agent_env_files: z.array(z.string()).default([]),
     readonly_mcp: z.array(z.string()).default([]),
-    test_commands: z.record(z.string(), z.array(z.string().min(1)).min(1)).default({}),
-  }),
+  }).strict(),
   slack: z.object({
     progress_mode: z.enum(['auto', 'plain']).default('auto'),
     workspace_team_id: z.string().min(1),
     allowed_users: z.array(z.string().min(1)).default([]),
-    ops_channel: z.string().optional(),
-    digest_channel: z.string().optional(),
-  }),
+  }).strict(),
   limits: z.object({
     max_concurrent_runs: z.number().int().min(1).max(32).default(3),
-    max_run_sec: z.object({ ask: positive.default(600), patch: positive.default(1800), task: positive.default(3600), project_step: positive.default(900) }).prefault({}),
+    max_run_sec: z.object({ ask: positive.default(600), patch: positive.default(1800), task: positive.default(3600) }).strict().prefault({}),
     stall_sec: positive.default(300),
     cancel_grace_sec: positive.default(60),
   }).prefault({}),
   budget: z.object({ max_cost_usd_per_run: positive.default(8), max_cost_usd_per_user_day: positive.default(25) }).prefault({}),
   session: z.object({ idle_reset_hours: positive.default(24) }).prefault({}),
-  models: z.object({ ask: z.string().nullable().default(null), patch: z.string().nullable().default(null), task: z.string().nullable().default(null), project: z.string().nullable().default(null) }).prefault({}),
-  // Legado, ignorado: el backlog es del repo (su MCP de Notion, sus skills), no de regent.
-  notion: z.record(z.string(), z.unknown()).default({}),
-  // Former workflow configuration is accepted but never used by v2 execution.
-  policy: z.unknown().optional(),
-  mcp: z.record(z.string(), z.unknown()).default({}),
-  projects: z.record(z.string(), z.unknown()).default({}),
+  models: z.object({ ask: z.string().nullable().default(null), patch: z.string().nullable().default(null), task: z.string().nullable().default(null) }).strict().prefault({}),
 }).strict()
 export type Config = z.infer<typeof ConfigSchema>
 
