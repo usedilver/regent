@@ -6,6 +6,19 @@ Contrato principal: [Regent v2](v2.md).
 
 ## Implementacion entregada
 
+Actualizacion tras prueba visual: `auto` ahora utiliza tarjetas `timeline`, no
+el plan agrupado. En salas y al cerrar se publican bloques `task_card`. Los
+titulos incluyen la herramienta activa; los detalles finales listan hasta ocho
+nombres por categoria, validados y sin argumentos ni resultados de herramientas.
+Los registros anteriores sin nombre siguen mostrando su categoria.
+
+Corregido el contador concatenado: `task_update` solo envia ID, titulo y estado.
+No se reenvian snapshots por `output` o `details`, ya que se acumulan durante el
+stream. Los contadores finales se escriben mediante `chat.update`, que reemplaza
+el contenido. Las tarjetas siguen agrupadas por categoria para evitar cientos
+de bloques; no representan pasos de negocio inferidos. La apariencia es nativa
+de Slack. El comportamiento anterior descrito abajo queda como referencia.
+
 - `src/activities.ts`: correlacion por ID y padre, deduplicacion y agrupacion de
   llamadas observadas. No publica inputs, comandos, rutas, resultados ni thinking.
   Una llamada completada no afirma que el objetivo de negocio este verificado.

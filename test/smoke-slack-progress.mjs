@@ -43,5 +43,5 @@ try {
   const record = activities.get(runId)
   assert.equal(record.sent, record.revision)
   assert.equal(record.closed, true)
-  console.log('Real Slack task stream and final plan accepted')
+  console.log('Real Slack timeline stream and final task cards accepted')
 } finally { store.close() }

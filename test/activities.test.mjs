@@ -48,14 +48,19 @@ try {
   activities.event(c, run, use)
   await activities.flush()
   assert.equal(calls[0].method, 'chat.startStream')
-  assert.equal(calls[0].args.chunks[1].id, 'read')
+  assert.equal(calls[0].args.chunks[0].id, 'read')
+  assert.equal(calls[0].args.task_display_mode, 'timeline')
+  assert.match(calls[0].args.chunks[0].title, /Read/)
+  assert.ok(!('output' in calls[0].args.chunks[0]))
   activities.event(c, run, { kind: 'tool_result', id: 'one' })
   await activities.flush()
   store.finish(run.id, 'completed', '', '')
   activities.terminal(run)
   await flush(run)
   assert.ok(calls.some(c => c.method === 'chat.stopStream'))
-  assert.equal(calls.at(-1).args.blocks[0].tasks[0].status, 'complete')
+  assert.equal(calls.at(-1).args.blocks[1].status, 'complete')
+  assert.equal(calls.at(-1).args.blocks[1].type, 'task_card')
+  assert.match(JSON.stringify(calls.at(-1).args.blocks[1].details), /Read/)
   const count = calls.length
   activities = new SlackActivities(api, store)
   await flush(run)
@@ -70,7 +75,7 @@ try {
   store.finish(roomRun.id, 'interrupted', '', '')
   activities = new SlackActivities(api, store)
   await flush(roomRun)
-  assert.equal(calls.at(-1).args.blocks[0].tasks[0].status, 'error')
+  assert.equal(calls.at(-1).args.blocks[1].status, 'error')
 
   calls = []; fail = true
   const [fallback, fallbackRun] = create('fallback', null)
@@ -107,7 +112,7 @@ try {
   await activities.flush()
   assert.notEqual(activities.get(racingRun.id).sent, activities.get(racingRun.id).revision)
   await flush(racingRun)
-  assert.equal(calls.at(-1).args.chunks[1].status, 'error')
+  assert.equal(calls.at(-1).args.chunks[0].status, 'error')
 
   // Invalid append format closes the old stream before falling back in place.
   activities = new SlackActivities(api, store)
@@ -123,5 +128,11 @@ try {
   await flush(rejectingRun)
   assert.equal(calls.at(-1).method, 'chat.update')
   assert.equal(activities.get(rejectingRun.id).ts, '2')
+  for (const call of calls.filter(c => c.args.chunks)) {
+    for (const chunk of call.args.chunks) {
+      assert.ok(!('output' in chunk), 'Never append a full counter snapshot')
+      assert.ok(!('details' in chunk), 'Never append repeated tool lists')
+    }
+  }
   console.log('Activity correlation, privacy, stream lifecycle, rooms, recovery, fallback and moves passed')
 } finally { store.close() }

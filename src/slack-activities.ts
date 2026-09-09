@@ -58,9 +58,15 @@ export class SlackActivities {
   }
   private payload(record: Record, terminal?: string) {
     const view = activityView(terminal ? { ...record.state, terminal } : record.state)
+    const rich = (text: string) => ({ type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'text', text }] }] })
     return { text: view.text, blocks: record.mode === 'plain' ? [{ type: 'section', text: { type: 'plain_text', text: view.text } }] :
-      [{ type: 'plan', title: view.title, tasks: view.tasks.map(({ id, output, ...task }) => ({ task_id: id, ...task,
-        output: { type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'text', text: output }] }] } })) }] }
+      [{ type: 'context', elements: [{ type: 'plain_text', text: view.title }] },
+        ...view.tasks.map(({ id, output, details, ...task }) => ({ type: 'task_card', task_id: id, ...task,
+          ...(details ? { details: rich(details) } : {}), output: rich(output) }))] }
+  }
+  private chunks(state: ActivityState) {
+    // Slack appends task output/details. Snapshots belong in chat.update, never appendStream.
+    return activityView(state).tasks.map(({ id, title, status }) => ({ type: 'task_update', id, title, status }))
   }
   private async drain() {
     for (const row of this.store.db.prepare("SELECT run_id,data FROM activity_progress WHERE json_extract(data,'$.sent') != json_extract(data,'$.revision') OR json_extract(data,'$.state.terminal') IS NULL").all()) {
@@ -79,13 +85,12 @@ export class SlackActivities {
           record.mode = this.plain ? 'plain' : record.desired.thread ? 'stream' : 'blocks'
         }
         if (this.plain && record.mode !== 'plain') { await this.stop(record); record.mode = 'plain' }
-        const view = activityView(record.state)
         if (!record.ts) {
           record.delivered = record.desired
           const args = { channel: record.desired.channel, thread_ts: record.desired.thread }
           const response = record.mode === 'stream' ? await this.api('chat.startStream', { ...args,
             recipient_user_id: record.desired.author, recipient_team_id: record.desired.team,
-            task_display_mode: 'plan', chunks: [{ type: 'plan_update', title: view.title }, ...view.tasks.map(t => ({ type: 'task_update', ...t }))] }) :
+            task_display_mode: 'timeline', chunks: this.chunks(record.state) }) :
             await this.api('chat.postMessage', { ...args, ...this.payload(record), unfurl_links: false })
           if (!response.ts) throw new Error('missing_progress_ts')
           record.ts = response.ts
@@ -93,7 +98,7 @@ export class SlackActivities {
           this.merge(id, record, false)
         } else if (record.mode === 'stream' && !record.closed) {
           try { await this.api('chat.appendStream', { channel: record.delivered!.channel, ts: record.ts,
-            chunks: [{ type: 'plan_update', title: view.title }, ...view.tasks.map(t => ({ type: 'task_update', ...t }))] }) }
+            chunks: this.chunks(record.state) }) }
           catch (error) { if (!/\bmessage_not_in_streaming_state\b/.test(code(error))) throw error; record.closed = true; record.mode = 'blocks' }
         }
         if (record.state.terminal) await this.stop(record)
