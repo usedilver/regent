@@ -6,6 +6,10 @@ Contrato principal: [Regent v2](v2.md).
 
 ## Implementacion entregada
 
+Los contadores finales usan elementos separados de una lista (terminadas, con
+error, en curso/sin confirmar), no una frase separada por punto y coma.
+Futuro, sin activar: [modo detallado Bash/MCP y enmascarado](slack-detailed-progress.md).
+
 Bash: `command-display.ts` permite mostrar un vocabulario exacto de comandos
 publicos (`pnpm test`, `npm run build`, `git diff --stat`, etc.). Se muestra el
 comando en el titulo durante streaming y en los detalles finales. Si hay argumentos

@@ -13,6 +13,7 @@ config/*
 docs/*
 !docs/despliegue.md
 !docs/v2.md
+!docs/slack-detailed-progress.md
 
 # estado de instancia (runtime local: logs, salas, colas, worktrees de cards)
 log/

@@ -54,7 +54,11 @@ export function activityView(state: ActivityState) {
     return { id, title: `${heading}${current ? `: ${current}` : ''}`,
     details: tools.join('\n'),
     status: n.running && !state.terminal ? 'in_progress' : n.error || n.running ? 'error' : 'complete',
-    output: `${n.complete} ${n.complete === 1 ? 'ejecucion terminada' : 'ejecuciones terminadas'}${n.error ? `; ${n.error} con error` : ''}${n.running ? `; ${n.running} ${state.terminal ? 'sin confirmar' : 'en curso'}` : ''}`,
+    output: [
+      `${n.complete} ${n.complete === 1 ? 'ejecucion terminada' : 'ejecuciones terminadas'}`,
+      ...(n.error ? [`${n.error} con error`] : []),
+      ...(n.running ? [`${n.running} ${state.terminal ? 'sin confirmar' : 'en curso'}`] : []),
+    ].join('\n'),
   } })
   return { title, tasks, text: [title, ...tasks.map(t => `${t.title}: ${t.output}`)].join('\n') }
 }

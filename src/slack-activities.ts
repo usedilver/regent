@@ -62,7 +62,9 @@ export class SlackActivities {
     return { text: view.text, blocks: record.mode === 'plain' ? [{ type: 'section', text: { type: 'plain_text', text: view.text } }] :
       [{ type: 'context', elements: [{ type: 'plain_text', text: view.title }] },
         ...view.tasks.map(({ id, output, details, ...task }) => ({ type: 'task_card', task_id: id, ...task,
-          ...(details ? { details: rich(details) } : {}), output: rich(output) }))] }
+          ...(details ? { details: rich(details) } : {}),
+          output: { type: 'rich_text', elements: [{ type: 'rich_text_list', style: 'bullet',
+            elements: output.split('\n').map(text => ({ type: 'rich_text_section', elements: [{ type: 'text', text }] })) }] } }))] }
   }
   private chunks(state: ActivityState) {
     // Slack appends task output/details. Snapshots belong in chat.update, never appendStream.

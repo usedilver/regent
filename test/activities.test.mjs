@@ -43,6 +43,13 @@ for (const [command, operation] of [
 }
 
 const state = { calls: {} }
+const mixed = { calls: {
+  a: { group: 'command', tool: 'Bash', status: 'complete' },
+  b: { group: 'command', tool: 'Bash', status: 'error' },
+  c: { group: 'command', tool: 'Bash', status: 'running' },
+} }
+assert.equal(activityView(mixed).tasks[0].output, '1 ejecucion terminada\n1 con error\n1 en curso')
+assert.match(activityView({ ...mixed, terminal: 'completed' }).tasks[0].output, /\n1 sin confirmar$/)
 const use = { kind: 'tool_use', id: 'one', name: 'Read', input: { password: 'secret-value' } }
 assert.equal(activityEvent(state, use), true)
 assert.equal(activityEvent(state, use), false)
@@ -98,6 +105,12 @@ try {
   assert.ok(calls.some(c => c.method === 'chat.stopStream'))
   assert.equal(calls.at(-1).args.blocks[1].status, 'complete')
   assert.equal(calls.at(-1).args.blocks[1].type, 'task_card')
+  const list = calls.at(-1).args.blocks[1].output.elements[0]
+  assert.equal(list.type, 'rich_text_list')
+  assert.equal(list.style, 'bullet')
+  const payload = activities.payload({ state: mixed, mode: 'blocks' })
+  assert.deepEqual(payload.blocks[1].output.elements[0].elements.map(item => item.elements[0].text),
+    ['1 ejecucion terminada', '1 con error', '1 en curso'])
   assert.match(JSON.stringify(calls.at(-1).args.blocks[1].details), /Read/)
   const count = calls.length
   activities = new SlackActivities(api, store)
