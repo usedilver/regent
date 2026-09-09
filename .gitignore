@@ -3,17 +3,15 @@
 .env.*
 !.env.example
 
-# config/ es TU instancia (la genera `pnpm setup`): workflow, process.md
+# config/ contiene la instancia local (pnpm regent setup).
 config/*
 !config/README.md
+!config/regent.example.yaml
 
-# TEMPORAL — docs internos pendientes de revisión antes de publicar:
-# plan.md e investigacion-*.md nombran clientes y estrategia. Al depurarlos,
-# borra esta regla y commitea al menos docs/despliegue.md (es del producto).
+# Los docs viven en Notion (proyecto regent), no en el repo.
 docs/*
-!docs/despliegue.md
 
-# estado de instancia (runtime local: logs, salas, colas, worktrees de cards)
+# estado local de la instancia (logs, sesiones y worktrees)
 log/
 tmp/
 worktrees/
@@ -21,6 +19,7 @@ projects/
 
 # dependencias y sistema
 node_modules/
+.pnpm-store/
 .DS_Store
 
 # settings locales de claude code (permisos de esta máquina)

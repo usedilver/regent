@@ -1,0 +1,73 @@
+import type { Conversation, Output, Run } from './types.ts'
+import { Store, redact } from './store.ts'
+
+/** Persist visible outcomes before delivery; retries survive Socket Mode outages. */
+export class DurableOutput implements Output {
+  store: Store; delegate: Output
+  inflight = new Map<string, Promise<void>>()
+  timer?: NodeJS.Timeout
+  closing?: Promise<void>
+  constructor(store: Store, delegate: Output) { this.store = store; this.delegate = delegate }
+  animates(c: Conversation): boolean { return this.delegate.animates?.(c) ?? false }
+  activity(c: Conversation, run: Run, event: import('./runner.ts').RunnerEvent) { this.delegate.activity?.(c, run, event) }
+  start(): void {
+    this.timer = setInterval(() => { void this.flush() }, 5000)
+    void this.flush()
+  }
+  async flush(): Promise<void> {
+    const keys = this.store.db.prepare("SELECT DISTINCT conversation_key FROM deliveries WHERE state='pending'").all()
+    for (const row of keys) await this.flushKey(row.conversation_key as string).catch(() => {})
+    await this.recoverProgress()
+  }
+  flushKey(key: string): Promise<void> {
+    const previous = this.inflight.get(key) ?? Promise.resolve()
+    const work = previous.catch(() => {}).then(async () => {
+      const rows = this.store.db.prepare("SELECT * FROM deliveries WHERE conversation_key=? AND state='pending' ORDER BY id").all(key)
+      for (const row of rows) {
+        try {
+          const args = JSON.parse(row.args as string)
+          if (row.kind === 'notice') await this.delegate.notice(args[0], args[1])
+          else if (row.kind === 'status') await this.delegate.status(args[0], args[1])
+          else if (row.kind === 'question') {
+            const current = this.store.db.prepare('SELECT state,destination FROM gates WHERE question_id=?').get(args[1].id)
+            if (current?.state === 'pending') {
+              if (current.destination) args[0] = JSON.parse(current.destination as string)
+              if (this.delegate.question) await this.delegate.question(args[0], args[1])
+              else await this.delegate.notice(args[0], [args[1].text, ...args[1].options.map((o: string, i: number) => `${i + 1}. ${o}`)].join('\n'))
+            }
+          }
+          else if (row.kind === 'finish') await this.delegate.finish(args[0], args[1], args[2])
+          else throw new Error(`Tipo de entrega no soportado: ${row.kind}`)
+          this.store.db.prepare("UPDATE deliveries SET state='sent',attempts=attempts+1,error=NULL WHERE id=?").run(row.id)
+        } catch (error) {
+          this.store.db.prepare('UPDATE deliveries SET attempts=attempts+1,error=? WHERE id=?').run(redact((error as Error).message), row.id)
+          throw error
+        }
+      }
+    }).finally(() => { if (this.inflight.get(key) === work) this.inflight.delete(key) })
+    this.inflight.set(key, work)
+    return work
+  }
+  enqueue(kind: string, args: unknown[], key: string): Promise<void> {
+    this.store.db.prepare('INSERT INTO deliveries(conversation_key,kind,args) VALUES(?,?,?)').run(key, kind, redact(JSON.stringify(args)))
+    return this.flushKey(key)
+  }
+  notice(c: Conversation, text: string) { return this.enqueue('notice', [c, text], c.key) }
+  status(c: Conversation, status: 'processing' | 'active' | 'suspended') { return this.enqueue('status', [c, status], c.key) }
+  delta(c: Conversation, run: Run, text: string) { return this.delegate.delta(c, run, text) }
+  // Progress is an ephemeral, self-updating heartbeat: deliver best-effort, never persist/retry.
+  progress(c: Conversation, run: Run, text: string) { return this.delegate.progress?.(c, run, text) ?? Promise.resolve() }
+  recoverProgress() { return this.delegate.recoverProgress?.() ?? Promise.resolve() }
+  finish(c: Conversation, run: Run, text: string) { return this.enqueue('finish', [c, run, text], c.key) }
+  question(c: Conversation, question: { id: string; text: string; options: string[] }) { return this.enqueue('question', [c, question], c.key) }
+  moved(run: Run) { return this.delegate.moved?.(run) ?? Promise.resolve() }
+  close(): Promise<void> {
+    if (this.closing) return this.closing
+    clearInterval(this.timer)
+    this.closing = (async () => {
+      await Promise.allSettled(this.inflight.values())
+      await this.recoverProgress()
+    })()
+    return this.closing
+  }
+}

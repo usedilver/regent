@@ -1,57 +1,26 @@
 {
   "display_information": {
     "name": "Regent",
-    "description": "Agentes del backlog: salas por tarea, roles, intervención en vivo",
-    "background_color": "#4a154b"
+    "description": "Consultas sobre codigo y datos con contexto por conversacion"
   },
   "features": {
-    "bot_user": {
-      "display_name": "Regent",
-      "always_online": true
-    },
+    "bot_user": { "display_name": "Regent", "always_online": true },
     "agent_view": {
-      "agent_description": "Crea y da seguimiento a tareas del backlog: cards en Notion, salas por tarea y agentes por rol trabajando el repo.",
-      "suggested_prompts": []
+      "agent_description": "Regent responde preguntas sobre los repositorios y datos del equipo.",
+      "suggested_prompts": [
+        { "title": "Investigar un error", "message": "Ayudame a encontrar la causa de este error." },
+        { "title": "Entender el codigo", "message": "Explicame como funciona este flujo en el repositorio." },
+        { "title": "Consultar datos", "message": "Ayudame a verificar esta pregunta con datos de solo lectura." }
+      ]
     },
-    "app_home": {
-      "home_tab_enabled": false,
-      "messages_tab_enabled": true,
-      "messages_tab_read_only_enabled": false
-    }
+    "app_home": { "home_tab_enabled": false, "messages_tab_enabled": true, "messages_tab_read_only_enabled": false }
   },
   "oauth_config": {
-    "scopes": {
-      "bot": [
-        "channels:manage",
-        "channels:read",
-        "channels:history",
-        "chat:write",
-        "chat:write.customize",
-        "app_mentions:read",
-        "users:read",
-        "users:read.email",
-        "assistant:write",
-        "im:history",
-        "groups:history",
-        "mpim:history",
-        "files:read",
-        "groups:read"
-      ]
-    }
+    "scopes": { "bot": ["app_mentions:read", "chat:write", "channels:history", "groups:history", "groups:read", "groups:write", "im:history", "users:read", "files:read"] }
   },
   "settings": {
-    "event_subscriptions": {
-      "bot_events": [
-        "app_mention",
-        "assistant_thread_started",
-        "message.channels",
-        "message.groups",
-        "message.im"
-      ]
-    },
-    "interactivity": {
-      "is_enabled": false
-    },
+    "event_subscriptions": { "bot_events": ["app_mention", "message.channels", "message.groups", "message.im", "agent_session_stopped"] },
+    "interactivity": { "is_enabled": true },
     "socket_mode_enabled": true,
     "token_rotation_enabled": false
   }

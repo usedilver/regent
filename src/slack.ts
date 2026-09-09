@@ -1,0 +1,430 @@
+import pkg from '@slack/bolt'
+import { SlackActivities } from './slack-activities.ts'
+import { replyPayloads } from './slack-format.ts'
+import { SlackConnection } from './slack-connection.ts'
+import { appLabel, messageBody, threadToMarkdown } from './slack-thread.ts'
+import type { Config } from './config.ts'
+import type { Core } from './core.ts'
+import type { Conversation, Output, Run } from './types.ts'
+import { redact, type Store } from './store.ts'
+import type { Rooms } from './types.ts'
+import type { HistoryMessage, HistorySource } from './history.ts'
+
+export async function gatherHistory(api: Api, source: HistorySource, botId: string, readFile: (file: any) => Promise<string>, signal?: AbortSignal, includeOwn = false): Promise<HistoryMessage[]> {
+  const messages = new Map<string, any>()
+  const stamp = (ts: string) => { const [seconds, fraction = ''] = ts.split('.'); return BigInt(seconds) * 1000000n + BigInt(fraction.padEnd(6, '0')) }
+  const collect = async (thread?: string) => {
+    let cursor: string | undefined
+    const cursors = new Set<string>()
+    do {
+      signal?.throwIfAborted()
+      const result = await api(thread ? 'conversations.replies' : 'conversations.history', {
+        channel: source.channel, ...(thread ? { ts: thread } : {}), latest: source.latest, inclusive: true, limit: 100, cursor,
+      })
+      for (const message of result.messages ?? []) {
+        if (!message.ts) throw new Error('Slack devolvio un mensaje sin timestamp.')
+        if (!source.latest || stamp(message.ts) <= stamp(source.latest)) messages.set(message.ts, message)
+      }
+      if (messages.size > 2000) throw new Error('Historial Slack demasiado grande; usa un hilo mas acotado.')
+      cursor = result.response_metadata?.next_cursor || undefined
+      if (result.has_more && !cursor) throw new Error('Slack devolvio historial incompleto sin cursor de continuacion.')
+      if (cursor && cursors.has(cursor)) throw new Error('Slack repitio el cursor de historial.')
+      if (cursor) cursors.add(cursor)
+    } while (cursor)
+  }
+  await collect(source.thread)
+  if (!source.thread) {
+    // Old channel roots may have fresh replies, so do not advance only a channel timestamp.
+    for (const message of [...messages.values()]) if (message.reply_count) await collect(message.ts)
+  }
+  const result: HistoryMessage[] = []
+  for (const m of [...messages.values()].sort((a, b) => stamp(a.ts) < stamp(b.ts) ? -1 : stamp(a.ts) > stamp(b.ts) ? 1 : 0)) {
+    signal?.throwIfAborted()
+    if ((!includeOwn && m.user === botId) || m.subtype === 'message_deleted') continue
+    const id = `${source.channel}:${m.ts}`
+    const author = m.bot_id ? appLabel(m) : `@${m.user ?? 'unknown'}`
+    const label = `${author}${m.thread_ts && m.thread_ts !== m.ts ? ` (hilo ${m.thread_ts})` : ''}`
+    const body = messageBody(m)
+    if (body) result.push({ id, text: `${label}: ${body}` })
+    const files = (await Promise.all((m.files ?? []).map(readFile))).join('\n')
+    if (files) result.push({ id: `${id}:files`, text: `${label}: ${files}` })
+  }
+  return result
+}
+
+type Api = (method: string, args: Record<string, any>) => Promise<any>
+type Stream = { ts?: string; pending: string; sent: string; timer?: NodeJS.Timeout; chain: Promise<void>; failed?: boolean; channel: string; thread?: string }
+
+/**
+ * Regla de invocacion (codigo, no criterio del modelo): en canales, hilos y salas el
+ * bot solo actua con @mencion. Sin mencion se acepta unicamente al autor de la
+ * conversacion cuando el bot le pidio algo (waiting_human/interrupted) o para los
+ * comandos exactos de control. En DM todo se procesa: es un 1:1 con el bot.
+ */
+export function accepts(input: { dm: boolean; mention: boolean; author: string; text: string; conversation?: { author: string; state: string } | null }): boolean {
+  if (input.dm || input.mention) return true
+  const c = input.conversation
+  if (!c || c.author !== input.author) return false
+  if (['waiting_human', 'interrupted'].includes(c.state)) return true
+  return ['stop', 'para', 'reset', 'nuevo'].includes(input.text.trim().toLowerCase())
+}
+
+export class SlackOutput implements Output {
+  api: Api
+  streams = new Map<string, Stream>()
+  flushMs: number
+  progressMsgs = new Map<string, { channel: string; ts: string }>()
+  nativeStatuses = new Set<string>()
+  store?: Store
+  activities?: SlackActivities
+  activity(c: Conversation, run: Run, event: import('./runner.ts').RunnerEvent): void { this.activities?.event(c, run, event) }
+  constructor(api: Api, flushMs = 3000) { this.api = api; this.flushMs = flushMs }
+  /** The native "está trabajando…" indicator (agents.sessions.setStatus) needs a thread anchor.
+   * Rooms converse at channel root with no anchor, so it can't animate there — the core falls
+   * back to the updating progress message instead. */
+  animates(c: Conversation): boolean { return this.nativeStatuses.has(JSON.stringify([c.channel, this.anchor(c)])) }
+  async question(c: Conversation, question: { id: string; text: string; options: string[] }): Promise<void> {
+    if (!question.options.length) return this.notice(c, question.text)
+    const options = question.options.map((o, i) => `${i + 1}. ${redact(o)}`).join('\n')
+    await this.api('chat.postMessage', { channel: c.channel, thread_ts: c.thread ?? undefined,
+      text: `${redact(question.text)}\n${options}`, unfurl_links: false, blocks: [
+        { type: 'section', text: { type: 'plain_text', text: redact(question.text) } },
+        { type: 'section', text: { type: 'plain_text', text: options } },
+        { type: 'actions', elements: question.options.map((_, i) => ({ type: 'button',
+          text: { type: 'plain_text', text: `Opcion ${i + 1}` }, action_id: `regent_question_${i}`, value: question.id })) },
+      ] })
+  }
+  async notice(c: Conversation, text: string): Promise<void> {
+    text = redact(text)
+    for (const payload of replyPayloads(text)) await this.sendReply('chat.postMessage', { channel: c.channel, thread_ts: c.thread ?? undefined, unfurl_links: false, unfurl_media: false, ...payload })
+  }
+  async sendReply(method: string, args: any): Promise<void> {
+    try { await this.api(method, args) }
+    catch (error) {
+      const code = (error as any)?.data?.error ?? (error as Error).message
+      if (!/\b(invalid_blocks|unsupported_block_type)\b/.test(code ?? '') || args.blocks?.[0]?.type !== 'markdown') throw error
+      // Keep the same message and all content when Markdown blocks are unavailable.
+      const blocks: any[] = []
+      for (let i = 0; i < args.text.length; i += 2800) blocks.push({ type: 'section', text: { type: 'plain_text', text: args.text.slice(i, i + 2800), emoji: false } })
+      await this.api(method, { ...args, blocks, mrkdwn: false })
+    }
+  }
+  latestThread = new Map<string, string>()
+  /** DMs anchor each response to its request; a room converses at channel root. */
+  anchor(c: Conversation): string | undefined {
+    return c.thread ?? (c.channel.startsWith('D') ? this.latestThread.get(c.key) : undefined)
+  }
+  async status(c: Conversation, status: 'processing' | 'active' | 'suspended'): Promise<void> {
+    const thread = this.anchor(c)
+    // agents.sessions.setStatus needs a thread anchor. Without one (rooms), it just fails; the
+    // core's updating progress message covers that case, so skip quietly — no duplicate text ack.
+    if (thread === undefined) return
+    const key = JSON.stringify([c.channel, thread])
+    try {
+      await this.api('agents.sessions.setStatus', { channel_id: c.channel, thread_ts: thread, status, initiator_user_id: c.author })
+      if (status === 'processing') this.nativeStatuses.add(key)
+      else this.nativeStatuses.delete(key)
+    } catch (error) {
+      this.nativeStatuses.delete(key)
+      console.error(`[slack v2] setStatus ${status}: ${redact((error as Error).message)}`)
+    }
+  }
+  /** Surfaces without a native indicator (rooms): post one "working…" message and refresh it in
+   * place on each tick, so there are no repeated posts. clearProgress removes it when done. */
+  async progress(c: Conversation, run: Run, text: string): Promise<void> {
+    if (this.activities?.get(run.id)) { await this.clearProgress(run); return }
+    let existing = this.progressMessage(run.id)
+    if (existing && existing.channel !== c.channel) {
+      await this.clearProgress(run)
+      if (this.progressMessage(run.id)) return
+      existing = undefined
+    }
+    try {
+      if (existing) await this.api('chat.update', { channel: existing.channel, ts: existing.ts, text: redact(text) })
+      else {
+        const result = await this.api('chat.postMessage', { channel: c.channel, thread_ts: this.anchor(c), text: redact(text), unfurl_links: false })
+        if (result.ts) {
+          if (this.store) this.store.db.prepare('INSERT OR REPLACE INTO slack_progress VALUES(?,?,?)').run(run.id, c.channel, result.ts)
+          else this.progressMsgs.set(run.id, { channel: c.channel, ts: result.ts })
+        }
+      }
+    } catch (error) {
+      if (existing && (error as Error).message.includes('message_not_found')) this.forgetProgress(run.id, existing.ts)
+      console.error(`[slack v2] progress: ${redact((error as Error).message)}`)
+    }
+  }
+  /** Remove the run's progress message once the real reply lands (or the conversation moves). */
+  async clearProgress(run: Run): Promise<void> {
+    const p = this.progressMessage(run.id)
+    if (!p) return
+    try { await this.api('chat.delete', { channel: p.channel, ts: p.ts }) }
+    catch (error) {
+      if (!(error as Error).message.includes('message_not_found')) {
+        console.error(`[slack v2] clearProgress: ${redact((error as Error).message)}`)
+        return
+      }
+    }
+    this.forgetProgress(run.id, p.ts)
+  }
+  forgetProgress(id: string, ts: string): void {
+    this.progressMsgs.delete(id)
+    this.store?.db.prepare('DELETE FROM slack_progress WHERE run_id=? AND ts=?').run(id, ts)
+  }
+  progressMessage(id: string): { channel: string; ts: string } | undefined {
+    return this.store ? this.store.db.prepare('SELECT channel,ts FROM slack_progress WHERE run_id=?').get(id) as { channel: string; ts: string } | undefined : this.progressMsgs.get(id)
+  }
+  async recoverProgress(): Promise<void> {
+    await this.activities?.flush()
+    if (!this.store) return
+    const rows = this.store.db.prepare("SELECT p.run_id FROM slack_progress p LEFT JOIN runs r ON r.id=p.run_id LEFT JOIN conversations c ON c.key=r.conversation_key WHERE r.id IS NULL OR r.state!='running' OR c.channel!=p.channel OR EXISTS(SELECT 1 FROM activity_progress a WHERE a.run_id=p.run_id)").all()
+    for (const row of rows) await this.clearProgress({ id: row.run_id } as Run)
+  }
+  async delta(c: Conversation, run: Run, text: string): Promise<void> {
+    let stream = this.streams.get(run.id)
+    if (!stream) {
+      stream = { pending: '', sent: '', chain: Promise.resolve(), channel: c.channel, thread: this.anchor(c) }
+      this.streams.set(run.id, stream)
+    }
+    stream.pending += text
+    if (!stream.timer) stream.timer = setTimeout(() => {
+      stream!.timer = undefined
+      stream!.chain = stream!.chain.then(() => this.flush(c, run, stream!)).catch(() => { stream!.failed = true })
+    }, this.flushMs)
+  }
+  async flush(c: Conversation, run: Run, stream: Stream): Promise<void> {
+    if (!stream.pending || stream.failed) return
+    // Redact complete lines: token and key/value pairs can span many deltas.
+    const end = stream.pending.lastIndexOf('\n', 11000) + 1
+    if (!end) return
+    const raw = stream.pending.slice(0, end)
+    const text = redact(raw)
+    if (!stream.ts) {
+      const result = await this.api('chat.startStream', { channel: stream.channel, thread_ts: stream.thread, recipient_user_id: run.author, recipient_team_id: c.team, markdown_text: text })
+      if (!result.ts) throw new Error('Slack no devolvio ts del stream.')
+      stream.ts = result.ts
+    } else await this.api('chat.appendStream', { channel: stream.channel, ts: stream.ts, markdown_text: text })
+    stream.sent += text
+    stream.pending = stream.pending.slice(raw.length)
+  }
+  async finish(c: Conversation, run: Run, text: string): Promise<void> {
+    this.activities?.terminal(run)
+    await this.finishReply(c, run, text)
+    await this.clearProgress(run)
+  }
+  async finishReply(c: Conversation, run: Run, text: string): Promise<void> {
+    text = redact(text)
+    const stream = this.streams.get(run.id)
+    if (!stream) return this.notice({ ...c, thread: this.anchor(c) ?? null }, text)
+    clearTimeout(stream.timer)
+    await stream.chain
+    try {
+      if (stream.ts) {
+        try { await this.api('chat.stopStream', { channel: stream.channel, ts: stream.ts }) }
+        catch (error) {
+          const code = (error as any)?.data?.error
+          if (code !== 'message_not_in_streaming_state' && !/\bmessage_not_in_streaming_state\b/.test((error as Error).message ?? '')) throw error
+        }
+        // The authoritative result can differ from interim assistant messages.
+        const [first, ...rest] = replyPayloads(text)
+        await this.sendReply('chat.update', { channel: stream.channel, ts: stream.ts, ...first })
+        for (const payload of rest) await this.sendReply('chat.postMessage', { channel: stream.channel, thread_ts: stream.thread, unfurl_links: false, unfurl_media: false, ...payload })
+      } else await this.notice({ ...c, channel: stream.channel, thread: stream.thread ?? null }, text)
+    } catch (error) {
+      // Preserve the known message for DurableOutput to retry after a network
+      // failure, instead of posting a duplicate answer with an internal error.
+      throw error
+    }
+    this.streams.delete(run.id)
+  }
+  /** The conversation moved to its room: close the origin stream so the rest lands there. */
+  async moved(run: Run): Promise<void> {
+    this.activities?.move(run)
+    await this.clearProgress(run)
+    const stream = this.streams.get(run.id)
+    if (!stream) return
+    this.streams.delete(run.id)
+    clearTimeout(stream.timer)
+    await stream.chain.catch(() => {})
+    if (stream.failed || !stream.ts) return
+    try {
+      const tail = redact(stream.pending)
+      if (tail.trim()) await this.api('chat.appendStream', { channel: stream.channel, ts: stream.ts, markdown_text: tail })
+      await this.api('chat.stopStream', { channel: stream.channel, ts: stream.ts })
+    } catch (error) { console.error(`[slack v2] cierre de stream al mover: ${redact((error as Error).message)}`) }
+  }
+}
+
+export async function readSlackFile(file: any, token: string, download: typeof fetch = fetch): Promise<string> {
+  const label = `[archivo: ${file.title ?? file.name ?? file.id}]`
+  const textLike = file.mode === 'snippet' || /^text\//.test(file.mimetype ?? '') || /^(log|txt|json|yaml|yml|md|csv|diff|patch|xml)$/i.test(file.filetype ?? '')
+  if (!textLike || !file.url_private_download || (file.size ?? 0) > 200 * 1024) return file.preview ? `${label}\n${file.preview}` : label
+  try {
+    const url = new URL(file.url_private_download)
+    if (url.protocol !== 'https:' || url.hostname !== 'files.slack.com') return `${label} (URL de descarga no autorizada)`
+    const response = await download(url, { headers: { authorization: `Bearer ${token}` }, redirect: 'error', signal: AbortSignal.timeout(5000) })
+    if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`)
+    const chunks: Buffer[] = []; let size = 0
+    for await (const chunk of response.body) {
+      size += chunk.length
+      if (size > 200 * 1024) throw new Error('archivo mayor a 200 KB')
+      chunks.push(Buffer.from(chunk))
+    }
+    return `${label}\n${Buffer.concat(chunks).toString('utf8').slice(0, 12000)}`
+  } catch (error) { return `${label} (no pude leerlo: ${(error as Error).message})` }
+}
+
+export async function gatherThread(api: Api, channel: string, thread: string, readFile: (file: any) => Promise<string> = file => readSlackFile(file, '')): Promise<string> {
+  const lines: string[] = []
+  let cursor: string | undefined
+  do {
+    const result = await api('conversations.replies', { channel, ts: thread, limit: 100, cursor })
+    for (const message of result.messages ?? []) {
+      const author = message.bot_id ? appLabel(message) : `@${message.user ?? 'unknown'}`
+      const files = (await Promise.all((message.files ?? []).map(readFile))).join('\n')
+      const text = [messageBody(message), files].filter(Boolean).join('\n')
+      if (text) lines.push(`${author}: ${text}`)
+    }
+    cursor = result.response_metadata?.next_cursor || undefined
+  } while (cursor)
+  return threadToMarkdown(lines.join('\n'))
+}
+
+export function createRoomApi(api: Api, team: string, bot: () => string): Rooms {
+  const rooms: Rooms = {
+    async validateUser(id) {
+      const { user } = await api('users.info', { user: id })
+      if (!user || user.deleted || user.is_bot || user.is_stranger || user.team_id !== team) throw new Error(`No puedo invitar al usuario ${id} de este workspace.`)
+    },
+    async find(name) {
+      let cursor: string | undefined
+      const seen = new Set<string>()
+      do {
+        const result = await api('conversations.list', { types: 'private_channel', exclude_archived: true, limit: 200, cursor })
+        const channel = result.channels?.find((c: any) => c.name === name && c.is_member && c.creator === bot())
+        if (channel) return channel.id
+        cursor = result.response_metadata?.next_cursor || undefined
+        if (cursor && seen.has(cursor)) throw new Error('Slack repitio el cursor de salas.')
+        if (cursor) seen.add(cursor)
+      } while (cursor)
+      return undefined
+    },
+    async create(name) {
+      try {
+        const result = await api('conversations.create', { name, is_private: true })
+        if (!result.channel?.id) throw new Error('Slack no devolvio la sala creada.')
+        return result.channel.id
+      } catch (error) {
+        if ((error as Error).message.includes('name_taken')) {
+          const channel = await rooms.find(name)
+          if (channel) return channel
+        }
+        throw error
+      }
+    },
+    async invite(channel, user) {
+      try { await api('conversations.invite', { channel, users: user }) }
+      catch (error) { if (!(error as Error).message.includes('already_in_channel')) throw error }
+    },
+  }
+  return rooms
+}
+
+export function conversationRoute(store: Store, event: { channel: string; channel_type?: string; thread_ts?: string; ts: string }) {
+  const dm = event.channel_type === 'im' || event.channel.startsWith('D')
+  const existing = store.db.prepare("SELECT key FROM conversations WHERE adapter='slack' AND channel=? AND thread IS NULL").get(event.channel)
+  const pending = store.db.prepare("SELECT conversation_key FROM room_transfers WHERE channel=? AND state='pending'").get(event.channel)
+  const room = Boolean(existing) && !dm
+  const key = (existing?.key ?? pending?.conversation_key) as string ?? (dm ? `slack:${event.channel}` : `slack:${event.channel}:${event.thread_ts ?? event.ts}`)
+  const destination = store.conversation(key)
+  return { dm, room, key, pending: Boolean(pending), thread: dm ? undefined : room ? event.thread_ts : event.thread_ts ?? event.ts,
+    redirect: destination && destination.channel !== event.channel ? destination.channel : undefined }
+}
+
+export function createSlack(config: Config) {
+  const app = new pkg.App({ token: process.env.SLACK_BOT_TOKEN, appToken: process.env.SLACK_APP_TOKEN, socketMode: true,
+    clientOptions: { timeout: 10000, retryConfig: { retries: 2 } } })
+  const api: Api = async (method, args) => {
+    const response = await app.client.apiCall(method, args)
+    if (!response.ok) throw new Error(`${method}: ${response.error}`)
+    return response
+  }
+  const output = new SlackOutput(api)
+  const rooms = createRoomApi(api, config.slack.workspace_team_id, () => botId)
+  let core: Core, botId = ''
+  const membership = new Map<string, { allowed: boolean; checkedAt: number }>()
+  const receiver = app.receiver as any
+  const connection = new SlackConnection(receiver.client, message => console.warn(`[slack v2] ${redact(message)}`))
+
+  const handle = async (event: any, body: any, mention = false) => {
+    if (event.bot_id || event.user === botId || (event.subtype && event.subtype !== 'file_share') || !event.user || !event.ts) return
+    if (event.user_team && event.user_team !== config.slack.workspace_team_id) return
+    const { dm, room, key, thread } = conversationRoute(core.store, event)
+    // app_mention and message may have different event IDs for the same message.
+    if (!mention && !dm && (event.text ?? '').includes(`<@${botId}>`)) return
+    const text = messageBody(event).replaceAll(`<@${botId}>`, '').trim()
+    if (!accepts({ dm, mention, author: event.user, text, conversation: core.store.conversation(key) })) return
+    const input = { adapter: 'slack' as const, eventId: `message:${event.channel}:${event.ts}`, key, channel: event.channel,
+      thread, replyThread: event.thread_ts ?? (room ? undefined : event.ts), team: body.team_id, author: event.user, text: text || 'Revisa el contexto de este hilo.',
+      history: { channel: event.channel, thread: room || (dm && !event.thread_ts) ? undefined : event.thread_ts ?? event.ts,
+        latest: event.ts, trigger: `${event.channel}:${event.ts}` } }
+    if (!core.authorized(input)) return
+    if (!config.slack.allowed_users.length) {
+      let entry = membership.get(event.user)
+      if (!entry || Date.now() - entry.checkedAt > 300000) {
+        const { user } = await api('users.info', { user: event.user })
+        entry = { allowed: Boolean(user && !user.is_bot && !user.deleted && !user.is_stranger && user.team_id === config.slack.workspace_team_id), checkedAt: Date.now() }
+        membership.set(event.user, entry)
+      }
+      if (!entry.allowed) return
+    }
+    const { redirect, pending } = conversationRoute(core.store, event)
+    if (pending) {
+      await api('chat.postMessage', { channel: event.channel, thread_ts: event.thread_ts ?? event.ts, text: 'El traslado aun no termina. Continua en la conversacion de origen hasta que se confirme la sala.' })
+      return
+    }
+    if (redirect) {
+      await api('chat.postMessage', { channel: event.channel, thread_ts: event.thread_ts ?? event.ts, text: `Continuamos en <#${redirect}>.` })
+      return
+    }
+    output.latestThread.set(key, event.thread_ts ?? event.ts)
+    try {
+      await core.submit(input)
+    } catch (error) {
+      await api('chat.postMessage', { channel: event.channel, thread_ts: event.thread_ts ?? event.ts, text: `No pude procesar el mensaje: ${redact((error as Error).message)}` })
+    }
+  }
+  app.event('app_mention', async ({ event, body }) => handle(event, body, true))
+  app.message(async ({ message, body }) => handle(message, body))
+  app.event('agent_session_stopped' as any, async ({ event, body }: any) => {
+    const { key } = conversationRoute(core.store, event)
+    const input = { adapter: 'slack' as const, key, eventId: body.event_id, channel: event.channel, thread: event.channel.startsWith('D') ? undefined : event.thread_ts, team: body.team_id, author: event.user, text: 'stop' }
+    if (core.authorized(input) && core.store.conversation(key)?.channel === event.channel) await core.submit(input)
+  })
+  app.action(/^regent_question_([0-4])$/, async ({ ack, body, action, respond }: any) => {
+    await ack()
+    try {
+      if (body.user?.team_id && body.user.team_id !== config.slack.workspace_team_id) throw new Error('Usuario de otro workspace.')
+      const result = await core.answerQuestion(action.value, Number(action.action_id.replace('regent_question_', '')),
+        body.user.id, body.team?.id, body.channel?.id, body.message?.thread_ts ?? null)
+      await respond({ text: result.duplicate ? 'La pregunta ya fue respondida.' : 'Respuesta registrada.', replace_original: false, response_type: 'ephemeral' })
+    } catch (error) { await respond({ text: redact((error as Error).message), replace_original: false, response_type: 'ephemeral' }) }
+  })
+  app.error(async error => { console.error(`[slack v2] ${redact(error.message)}`) })
+  return {
+    output,
+    rooms,
+    connected: () => connection.connected,
+    async start(value: Core) {
+      core = value
+      output.store = core.store
+      output.activities = new SlackActivities(api, core.store, config.slack.progress_mode === 'plain')
+      core.rooms = rooms
+      const auth = await api('auth.test', {})
+      if (auth.team_id !== config.slack.workspace_team_id) throw new Error('El token Slack pertenece a otro workspace.')
+      botId = auth.user_id
+      core.historyLoader = (source, signal, includeOwn) => gatherHistory(api, source, botId, file => readSlackFile(file, process.env.SLACK_BOT_TOKEN!), signal, includeOwn)
+      await connection.start(() => app.start())
+    },
+    async stop() { await connection.stop(() => app.stop()) },
+  }
+}

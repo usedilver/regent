@@ -1,0 +1,34 @@
+# Public template; the local instance uses config/regent.yaml (ignored by Git).
+name: Regent
+# bypass (default): el agente usa todas las herramientas y MCPs del repo; los hooks
+# de regent filtran secretos y readonly_mcp, pero no son un sandbox de seguridad.
+# native: respeta allow/ask/deny del repo; en headless lo no permitido se auto-deniega.
+permission_mode: bypass
+auth:
+  # Pro/Max personal via Claude Code. Compartir la cuenta puede causar suspension/baneo.
+  mode: indie
+repos:
+  path: /absolute/path/to/repos
+  workspace_root: null
+  default_repo: null # Relativo al workspace; null usa el workspace como contexto inicial.
+  agent_env_files: []
+  readonly_mcp: []
+slack:
+  progress_mode: auto # tarjetas de actividades; plain usa texto actualizado en el mismo mensaje.
+  workspace_team_id: T_REPLACE
+  allowed_users: [U_REPLACE] # Recomendado: tu ID. [] abre acceso a usuarios del workspace; indie advierte.
+limits:
+  max_concurrent_runs: 3
+  max_run_sec: { ask: 600, patch: 1800, task: 3600 }
+  stall_sec: 300
+  cancel_grace_sec: 60
+budget:
+  # Solo se aplica en auth.mode: team; no limita la suscripcion individual.
+  max_cost_usd_per_run: 8
+  max_cost_usd_per_user_day: 25
+session:
+  idle_reset_hours: 24
+models:
+  ask: null
+  patch: null
+  task: null

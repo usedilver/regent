@@ -3,18 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Agents that work your board, in your tools \u2014 humans keep the gates. Notion/Slack \u2192 Claude Code, self-hosted.",
+  "description": "Conversational Slack client for Claude Code CLI, with repository-owned context and workflows.",
   "scripts": {
     "start": "node src/server.ts",
-    "test": "node test/bridge-config.test.mjs && node test/board-detect.test.mjs && node test/stay-phase.test.mjs && node test/slack-admin.test.mjs && node test/env-perms.test.mjs && node test/setup-idempotence.test.mjs && node test/agent-gate.test.mjs && node test/base-branch.test.mjs && node test/trust-seed.test.mjs && node test/prompt-props.test.mjs && node test/agent-env.test.mjs && node test/workspace.test.mjs && node test/slack-thread.test.mjs && node test/real-move.test.mjs && node test/md-blocks.test.mjs && node test/claude-settings.test.mjs && node test/notion-rich.test.mjs && node test/answer.test.mjs && node test/router.test.mjs && node test/webhook.test.mjs",
-    "validate": "node src/validate.ts",
-    "dev": "node --watch-path=src --watch-path=agents --watch-path=config --watch-path=.env --watch-preserve-output src/server.ts",
-    "setup": "node src/setup.ts",
-    "slack:roles": "node src/setup-slack-roles.ts"
+    "dev": "node --watch-path=src --watch-path=plugin --watch-path=config --watch-path=.env --watch-preserve-output src/server.ts",
+    "test": "node test/core.test.mjs && node test/projects.test.mjs && node test/history.test.mjs && node test/rooms.test.mjs && node test/setup.test.mjs && node test/progress.test.mjs && node test/slack-connection.test.mjs && node test/slack-thread.test.mjs && node test/claude-settings.test.mjs && node test/slack-format.test.mjs && node test/activities.test.mjs",
+    "smoke": "node test/smoke.mjs",
+    "regent": "node src/cli.ts"
   },
   "dependencies": {
-    "@notionhq/client": "^5.24.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@slack/bolt": "^5.0.0",
+    "shell-quote": "^1.10.0",
     "yaml": "^2.9.0",
     "zod": "^4.5.2"
   },
