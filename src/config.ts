@@ -38,13 +38,16 @@ export type Config = z.infer<typeof ConfigSchema>
 
 export function authNotice(config: Config, env: NodeJS.ProcessEnv = process.env): string {
   if (config.auth.mode === 'team') return 'Modo equipo (team): usa ANTHROPIC_API_KEY, con facturacion por consumo.'
-  const invalidAudience = new Set(config.slack.allowed_users).size !== 1
-  if (invalidAudience) return [
+  const sharedAudience = new Set(config.slack.allowed_users).size !== 1
+  if (sharedAudience) return [
     '------------------------------------------------------------',
-    'ADVERTENCIA: ARRANQUE BLOQUEADO',
-    'indie requiere exactamente un usuario en slack.allowed_users.',
+    'ADVERTENCIA: ACCESO AMPLIADO EN MODO INDIVIDUAL',
+    config.slack.allowed_users.length ? 'Varios usuarios autorizados a usar la misma cuenta.' : 'allowed_users: [] permite usuarios activos del workspace.',
     'Compartir la suscripcion puede causar suspension de la cuenta.',
     'Deja solo tu ID o usa auth.mode: team con ANTHROPIC_API_KEY.',
+    'Terminos: https://www.anthropic.com/legal/consumer-terms',
+    'El servidor continuara; esta advertencia no autoriza el uso.',
+    ...(env.ANTHROPIC_API_KEY?.trim() ? ['ANTHROPIC_API_KEY presente: puede aplicar facturacion API.'] : []),
     '------------------------------------------------------------',
   ].join('\n')
   return [
@@ -55,9 +58,6 @@ export function authNotice(config: Config, env: NodeJS.ProcessEnv = process.env)
 
 export function assertAuth(config: Config, env: NodeJS.ProcessEnv = process.env): void {
   if (config.auth.mode === 'team' && !env.ANTHROPIC_API_KEY?.trim()) throw new Error('auth.mode team requiere ANTHROPIC_API_KEY en el servidor.')
-  if (config.auth.mode === 'indie' && new Set(config.slack.allowed_users).size !== 1) {
-    throw new Error('auth.mode indie requiere exactamente un usuario en slack.allowed_users (tu ID de Slack); no necesita API key. Usa team para varias personas.')
-  }
 }
 
 export function loadConfig(file = process.env.REGENT_CONFIG ?? path.join(BRIDGE_DIR, 'config/regent.yaml')): Config {

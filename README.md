@@ -3,7 +3,7 @@
 ## Autenticación
 
 regent ejecuta el binario oficial `claude` con las credenciales del operador. En v2,
-`auth.mode: indie` exige exactamente un usuario autorizado y usa su login local;
+`auth.mode: indie` usa su login local y recomienda un unico usuario autorizado;
 `auth.mode: team` exige `ANTHROPIC_API_KEY`. regent no ofrece un login de Claude ni
 extrae tokens OAuth. Revisa los [términos actuales de Claude Code](https://code.claude.com/docs/en/legal-and-compliance)
 para tu modalidad de uso; la guardia de arranque valida la configuración, no sustituye esos términos.
@@ -24,12 +24,15 @@ slack:
 **Advertencia:** compartir tu cuenta o permitir que otras personas usen tu suscripción
 mediante el bot puede incumplir los términos de Anthropic y provocar suspensión o
 cancelación del acceso (baneo). La advertencia no autoriza el uso compartido: `indie`
-exige un único usuario y rechaza instrucciones de los demás. Para un equipo, usa
+advierte si hay varios usuarios o acceso abierto, pero no bloquea el arranque. Para un equipo, usa
 `team` con API key. Ver [Consumer Terms, secciones 2 y 12](https://www.anthropic.com/legal/consumer-terms).
 
 El arranque individual con exactamente un usuario muestra solo una linea informativa.
 La advertencia de uso compartido aparece si la lista esta vacia o contiene varios
-usuarios; esa configuracion se rechaza. Si hay una API key en modo individual,
+usuarios; el servidor continua, sin que esto constituya autorizacion del proveedor.
+`allowed_users: []` permite usuarios activos del workspace verificados por Slack;
+los bots siguen excluidos. Una lista explicita restringe el acceso a esos IDs.
+Si hay una API key en modo individual,
 se mantiene el aviso independiente sobre posible facturacion API.
 Los límites de Pro/Max siguen aplicando; regent no garantiza uso ilimitado ni ausencia
 de sanciones. Si `ANTHROPIC_API_KEY` está presente, el CLI puede facturar por API:
@@ -68,7 +71,7 @@ El setup crea `config/regent.yaml` (o `REGENT_CONFIG`) sin sobrescribir archivos
 existentes ni abrir la base de sesiones. Solo guarda modo, permisos, workspace,
 repo predeterminado e IDs de Slack. El workspace por defecto es la carpeta padre
 del repo; usa `--workspace /ruta/a/Projects` para permitir otros proyectos dentro
-de esa carpeta. `--mode team` admite repetir `--user`; `indie` permite uno solo.
+de esa carpeta. Puedes repetir `--user`; en `indie`, varios usuarios muestran una advertencia.
 `--permissions native` aplica permisos nativos; el valor por defecto `bypass` no
 aplica `allow/ask/deny`. No guarda secretos ni valida conexiones externas.
 También puedes copiar [config/regent.example.yaml](config/regent.example.yaml) a

@@ -102,8 +102,8 @@ try {
     assert.equal(config.limits.max_concurrent_runs, 3)
     assert.equal(config.limits.max_run_sec.ask, 600)
     assert.doesNotThrow(() => assertAuth(config, {}))
-    assert.throws(() => assertAuth({ ...config, slack: { ...config.slack, allowed_users: [] } }, {}), /exactamente un/)
-    assert.throws(() => assertAuth({ ...config, slack: { ...config.slack, allowed_users: ['U1', 'U2'] } }, {}), /exactamente un/)
+    assert.doesNotThrow(() => assertAuth({ ...config, slack: { ...config.slack, allowed_users: [] } }, {}))
+    assert.doesNotThrow(() => assertAuth({ ...config, slack: { ...config.slack, allowed_users: ['U1', 'U2'] } }, {}))
     assert.throws(() => assertAuth({ ...config, auth: { mode: 'team' } }, {}), /API_KEY/)
     assert.throws(() => ConfigSchema.parse({ ...config, limits: { max_concurrent_runs: 0 } }))
   })
@@ -115,7 +115,8 @@ try {
     for (const allowed_users of [[], ['U1', 'U2']]) {
       const invalid = { ...config, slack: { ...config.slack, allowed_users } }
       assert.match(authNotice(invalid, {}), /ADVERTENCIA/)
-      assert.throws(() => assertAuth(invalid, {}), /exactamente un usuario/)
+      assert.match(authNotice(invalid, {}), /https:\/\/www.anthropic.com\/legal\/consumer-terms/)
+      assert.doesNotThrow(() => assertAuth(invalid, {}))
     }
     assert.doesNotMatch(notice, /esta presente/)
     const withKey = authNotice(config, { ANTHROPIC_API_KEY: 'fixture-private-key' })

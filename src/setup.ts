@@ -21,7 +21,6 @@ export function setup(args: string[], file = process.env.REGENT_CONFIG ?? path.j
     repos: { path: workspace, default_repo: path.relative(workspace, repo) || '.' },
     slack: { workspace_team_id: values.team, allowed_users: [...new Set(values.user)] } }
   const config = ConfigSchema.parse(minimal)
-  if (config.auth.mode === 'indie' && config.slack.allowed_users.length !== 1) throw new Error('indie requiere un solo usuario; usa --mode team para varias personas.')
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
   try { fs.writeFileSync(file, YAML.stringify(minimal), { flag: 'wx', mode: 0o600 }) }
   catch (error) {

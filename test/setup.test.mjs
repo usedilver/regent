@@ -31,14 +31,15 @@ try {
   for (const allowed_users of [[], ['U1', 'U2']]) {
     const invalidFile = path.join(root, 'invalid-auth.json')
     fs.writeFileSync(invalidFile, JSON.stringify({ ...config, slack: { ...config.slack, allowed_users } }))
-    const stopped = spawnSync(process.execPath, ['src/server.ts'], {
+    const stopped = spawnSync(process.execPath, ['--input-type=module', '-e',
+      "import {loadConfig,assertAuth,authNotice} from './src/config.ts'; const c=loadConfig(); assertAuth(c); console.log(authNotice(c)); console.log('startup-continues');"], {
       env: { ...process.env, REGENT_CONFIG: invalidFile }, encoding: 'utf8', timeout: 10000,
     })
-    assert.equal(stopped.status, 1)
-    assert.equal((stopped.stderr.match(/ADVERTENCIA/g) ?? []).length, 1)
-    assert.match(stopped.stderr, /ARRANQUE BLOQUEADO/)
+    assert.equal(stopped.status, 0)
+    assert.equal((stopped.stdout.match(/ADVERTENCIA/g) ?? []).length, 1)
+    assert.match(stopped.stdout, /startup-continues/)
     assert.doesNotMatch(stopped.stderr, /at assertAuth|throw new Error|file:\/\//)
-    assert.doesNotMatch(stopped.stdout, /Modo individual|ADVERTENCIA/)
+    assert.doesNotMatch(stopped.stdout, /ARRANQUE BLOQUEADO/)
   }
   assert.equal(config.permission_mode, 'bypass')
   assert.equal(config.slack.progress_mode, 'auto')
@@ -62,7 +63,7 @@ try {
   assert.throws(() => setup(['--repo', other, '--team', 'T1', '--user', 'U1'], configFile), /no se sobrescribio/)
   assert.equal(fs.readFileSync(configFile, 'utf8'), original)
   assert.throws(() => setup(['--repo', repo, '--workspace', other, '--team', 'T1', '--user', 'U1'], path.join(root, 'invalid.yaml')), /workspace/)
-  assert.throws(() => setup(['--repo', repo, '--team', 'T1', '--user', 'U1', '--user', 'U2'], path.join(root, 'invalid.yaml')), /solo usuario/)
+  assert.match(setup(['--repo', repo, '--team', 'T1', '--user', 'U1', '--user', 'U2'], path.join(root, 'shared.yaml')), /ADVERTENCIA/)
   assert.ok(!fs.existsSync(path.join(root, 'invalid.yaml')))
   assert.throws(() => loadConfig(path.join(root, 'missing.yaml')), /regent setup/)
   const teamFile = path.join(root, 'team.yaml')

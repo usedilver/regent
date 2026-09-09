@@ -14,6 +14,9 @@ root `.env`. The retired v1 `workflow.json` and `process.md` are not loaded.
 ## Active Settings
 
 - `auth.mode` and `slack.workspace_team_id` / `allowed_users`: identity and access.
+  Indie warns, but does not stop, with zero or multiple authorized users.
+  An empty list admits verified active workspace users, not bots. This warning
+  does not establish provider permission; prefer team/API for shared usage.
 - `permission_mode`: make this explicit. Default `bypass` skips native permission
   rules; `native` respects them. Regent hooks are not a shell sandbox.
 - `repos.path` / `default_repo`: workspace and initial context. Optional
