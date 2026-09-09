@@ -7,13 +7,8 @@
 config/*
 !config/README.md
 
-# TEMPORAL — docs internos pendientes de revisión antes de publicar:
-# plan.md e investigacion-*.md nombran clientes y estrategia. Al depurarlos,
-# borra esta regla y commitea al menos docs/despliegue.md (es del producto).
+# Los docs viven en Notion (proyecto regent), no en el repo.
 docs/*
-!docs/despliegue.md
-!docs/v2.md
-!docs/slack-detailed-progress.md
 
 # estado de instancia (runtime local: logs, salas, colas, worktrees de cards)
 log/

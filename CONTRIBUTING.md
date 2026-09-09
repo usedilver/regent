@@ -17,5 +17,5 @@ Run `pnpm test` for changes to execution or adapters. Tests use
 temporary repositories, SQLite databases, a fake Claude process and local HTTP
 servers. They do not require provider tokens. The real-Claude smoke is opt-in.
 
-Keep delivery status in `docs/v2.md` accurate: a fake integration test does not mark
+Keep delivery status in Notion (project **regent**) accurate: a fake integration test does not mark
 a production smoke or a week of real usage complete.

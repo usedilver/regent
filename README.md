@@ -39,7 +39,7 @@ primera interfaz. El repo predeterminado aporta contexto; cada repo define sus
 skills, MCPs, reglas y flujo de trabajo. No requiere Notion ni crear una tarea
 para conversar. El flujo de desarrollo pertenece al repo, sin tareas, planes ni
 gates de Regent. El aislamiento Git por conversación sí es obligatorio. El contrato
-vigente y los pendientes están en [docs/v2.md](docs/v2.md).
+vigente y los pendientes están en Notion (proyecto **regent**, cuenta Dilver).
 
 ```sh
 pnpm regent setup --repo /ruta/a/repos/proyecto --team T012345 --user U012345
