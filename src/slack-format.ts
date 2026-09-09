@@ -1,11 +1,12 @@
 // Normalize only prose. Code examples and existing link destinations stay literal.
 export function normalizeEmailLinks(text: string): string {
   const email = '[A-Za-z0-9.!#$%&\x27*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)+'
-  const links = new RegExp('\\[([^\\]\\n]*)\\]\\(([^\\s)]+)\\)|<mailto:(' + email + ')>|(?<![A-Za-z0-9_/:])mailto:(' + email + ')', 'gi')
-  const prose = (part: string) => part.replace(links, (whole, label, target, angle, bare) => {
+  const links = new RegExp('\\[([^\\]\\n]*)\\]\\(([^\\s)]+)\\)|<(?:mailto:)?(' + email + ')>|(?<![A-Za-z0-9_/:])mailto:(' + email + ')|https?://[^\\s<>]+|(?<![A-Za-z0-9_@/:.+-])(' + email + ')', 'gi')
+  const prose = (part: string) => part.replace(links, (whole, label, target, angle, bare, plain) => {
     if (target) return /^mailto:/i.test(target) && /^mailto:/i.test(label) ? `[${label.slice(7)}](${target})` : whole
-    const address = angle ?? bare
-    // Sentence punctuation is not part of the domain.
+    const address = angle ?? bare ?? plain
+    if (!address) return whole
+    // Slack converts bare emails to links without a text label; explicitly supply one.
     return `[${address}](mailto:${address})`
   })
   let fence: string | undefined

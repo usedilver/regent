@@ -8,6 +8,13 @@ assert.equal(normalizeEmailLinks(`Email: mailto:${address}.`), `Email: ${link}.`
 assert.equal(normalizeEmailLinks(`<mailto:${address}>`), link)
 assert.equal(normalizeEmailLinks(`[mailto:${address}](mailto:${address})`), link)
 assert.equal(normalizeEmailLinks(link), link)
+assert.equal(normalizeEmailLinks(`- **Email:** ${address} *(cuenta interna)*`), `- **Email:** ${link} *(cuenta interna)*`)
+assert.equal(normalizeEmailLinks(`<${address}>`), link)
+assert.equal(normalizeEmailLinks(`https://example.com/${address}`), `https://example.com/${address}`)
+assert.equal(normalizeEmailLinks(`https://${address}/path`), `https://${address}/path`)
+assert.equal(normalizeEmailLinks(`\`${address}\``), `\`${address}\``)
+assert.equal(normalizeEmailLinks(normalizeEmailLinks(`Email: ${address}`)), `Email: ${link}`)
+assert.equal(replyPayloads(`- **Email:** ${address}`)[0].blocks[0].text, `- **Email:** ${link}`)
 assert.equal(normalizeEmailLinks(`[Contactar](mailto:${address}?subject=Hola)`), `[Contactar](mailto:${address}?subject=Hola)`)
 for (const code of ['`mailto:person@example.com`', '``mailto:person@example.com``',
   '```text\nmailto:person@example.com\n```', '~~~\nmailto:person@example.com\n~~~',

@@ -115,6 +115,8 @@ y la autorización configurada: ser invitado no amplía `slack.allowed_users`.
 El indicador nativo de trabajo se usa cuando Slack confirma el estado del hilo.
 Las respuestas finales y avisos normalizan enlaces de correo para mostrar la
 direccion sin el prefijo `mailto:`; este se conserva en el destino del enlace.
+Tambien se etiquetan explicitamente los correos planos: la conversion Markdown
+de Slack puede generar enlaces sin etiqueta y mostrar el esquema `mailto:`.
 Los ejemplos de codigo permanecen literales. El texto provisional del stream
 no se normaliza hasta reemplazarlo por la respuesta final.
 Las salas actuales son canales privados normales: en su raíz se muestra un único
