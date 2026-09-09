@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { setup, requestArgs } from '../src/setup.ts'
 import { ConfigSchema, loadConfig, workspaceDir, defaultRepoDir } from '../src/config.ts'
 import { repositoryRequest, isolationFor } from '../src/repository.ts'
@@ -28,6 +28,18 @@ try {
   const original = fs.readFileSync(configFile, 'utf8')
   assert.doesNotMatch(original, /TOKEN|API_KEY|notion|policy|projects|skills/)
   const config = loadConfig(configFile)
+  for (const allowed_users of [[], ['U1', 'U2']]) {
+    const invalidFile = path.join(root, 'invalid-auth.json')
+    fs.writeFileSync(invalidFile, JSON.stringify({ ...config, slack: { ...config.slack, allowed_users } }))
+    const stopped = spawnSync(process.execPath, ['src/server.ts'], {
+      env: { ...process.env, REGENT_CONFIG: invalidFile }, encoding: 'utf8', timeout: 10000,
+    })
+    assert.equal(stopped.status, 1)
+    assert.equal((stopped.stderr.match(/ADVERTENCIA/g) ?? []).length, 1)
+    assert.match(stopped.stderr, /ARRANQUE BLOQUEADO/)
+    assert.doesNotMatch(stopped.stderr, /at assertAuth|throw new Error|file:\/\//)
+    assert.doesNotMatch(stopped.stdout, /Modo individual|ADVERTENCIA/)
+  }
   assert.equal(config.permission_mode, 'bypass')
   assert.equal(config.slack.progress_mode, 'auto')
   assert.deepEqual(config.models, { ask: null, patch: null, task: null })

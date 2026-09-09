@@ -11,8 +11,12 @@ import { assertIsolationVersion } from './runner.ts'
 
 loadEnv()
 const config = loadConfig()
+try { assertAuth(config) }
+catch (error) {
+  console.error(config.auth.mode === 'indie' ? authNotice(config) : (error as Error).message)
+  process.exit(1)
+}
 console.log(authNotice(config))
-assertAuth(config)
 const cwd = workspaceDir(config)
 const claudeVersion = execFileSync('claude', ['--version'], { encoding: 'utf8', timeout: 10000 }).trim()
 assertIsolationVersion(claudeVersion)
