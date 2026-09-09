@@ -1,7 +1,51 @@
 # Migracion del progreso visual de Slack
 
-Fecha: 2026-09-08. Estado: propuesta, sin cambios de runtime implementados.
+Fecha: 2026-09-08. Estado: primera implementacion entregada; validacion visual
+del flujo completo con Claude pendiente.
 Contrato principal: [Regent v2](v2.md).
+
+## Implementacion entregada
+
+- `src/activities.ts`: correlacion por ID y padre, deduplicacion y agrupacion de
+  llamadas observadas. No publica inputs, comandos, rutas, resultados ni thinking.
+  Una llamada completada no afirma que el objetivo de negocio este verificado.
+- `src/slack-activities.ts`: un mensaje de actividades por turno. En hilos/DM usa
+  `task_update` con `task_display_mode: plan`; en salas sin hilo usa `plan` con
+  `chat.postMessage`/`chat.update`. El indicador y stop nativos se conservan.
+  El texto del indicador nativo no cambia: lo dinamico vive en el plan adicional.
+- La respuesta Markdown mantiene su propio mensaje/stream; no reemplaza el plan.
+  Se agrupa por lectura, edicion, comandos, delegacion, skills y herramientas
+  externas, no por nombres de proyectos ni tickets. Sin herramientas no hay plan.
+- SQLite v8 agrega `activity_progress`: snapshot seguro, revision, destino,
+  timestamp y estado de entrega. Reinicios reintentan snapshots pendientes y
+  cierran actividades de turnos terminados. Tras mover la conversacion se cierra
+  el mensaje anterior y se publica en el destino, sin herramientas ejecutadas otra vez.
+- Actualizaciones agrupadas (minimo 3 segundos por turno), recuperacion cada
+  5 segundos y reintento con Retry-After. Formato no disponible degrada a bloques
+  y luego texto simple. `slack.progress_mode: plain` fuerza el formato sencillo.
+- Las llamadas en background no se dan por completadas al lanzarse. Si no llega
+  confirmacion correlacionada, al cerrar quedan como "sin confirmar". No se
+  implementa aun seguimiento independiente posterior al fin del turno.
+- Se limita a 2000 llamadas seguidas por turno y siete grupos visuales. No hay
+  garantia exactly-once si Slack acepta una publicacion y se pierde su respuesta
+  antes de guardar el timestamp. Los errores de red mantienen entrega pendiente.
+
+### Verificacion
+
+`test/activities.test.mjs` cubre correlacion, privacidad, duplicados, streams,
+salas, interrupcion, recuperacion del adaptador, fallback y traslado.
+Se ejecuta con `pnpm test` junto con las suites existentes.
+
+Prueba real en DM del workspace: `chat.startStream`, `chat.appendStream`,
+`chat.stopStream` y `chat.update` con el plan fueron aceptados por Slack.
+Script opt-in: `REGENT_SLACK_SMOKE_USER=U_ID node test/smoke-slack-progress.mjs`.
+Solo envia datos sinteticos a un usuario autorizado; no ejecuta Claude.
+No necesita `conversations.open` ni ampliar scopes para abrir el DM.
+
+Pendiente: inspeccion visual desktop/mobile y flujo real Claude en hilo y sala,
+incluyendo stop y traslado durante una llamada. La aceptacion HTTP no sustituye
+esa inspeccion. Las secciones siguientes conservan el diseno de referencia;
+checklists de la propuesta no constituyen pruebas ya ejecutadas.
 
 ## Objetivo y alcance
 
