@@ -11,6 +11,10 @@ import { Core } from '../src/core.ts'
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-setup-')))
 const configFile = path.join(root, 'config/regent.yaml')
+// Keep the public template in sync with the runtime schema and documented location.
+const example = loadConfig(path.resolve('config/regent.example.yaml'))
+assert.equal(example.permission_mode, 'bypass')
+assert.deepEqual(Object.keys(example.models).sort(), ['ask', 'patch', 'task'])
 let core, store
 try {
   const repo = path.join(root, 'default'), other = path.join(root, 'other repo')

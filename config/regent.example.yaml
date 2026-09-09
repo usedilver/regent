@@ -1,3 +1,4 @@
+# Public template; the local instance uses config/regent.yaml (ignored by Git).
 name: Regent
 # bypass (default): el agente usa todas las herramientas y MCPs del repo; los hooks
 # de regent filtran secretos y readonly_mcp, pero no son un sandbox de seguridad.

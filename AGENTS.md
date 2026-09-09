@@ -10,9 +10,10 @@ Do not reintroduce mandatory boards, tickets, or approval pipelines.
   commands; `core.ts`, `runner.ts`, and `store.ts` handle execution and persistence.
 - `plugin/`: CLI protocol and permission hooks, not business-specific skills.
 - `test/`: executable tests, fake Claude process, and IPC fixtures.
-- `config/regent.yaml`: ignored instance configuration; see `regent.example.yaml`.
-- `docs/`: architecture, investigations, and deployment guidance. Historical
-  deployment instructions live in `docs/archive/`.
+- `config/`: public `regent.example.yaml`, configuration guide, and ignored local
+  `regent.yaml`. Root `.env.example` documents service environment variables.
+- `README.md` and `CONTRIBUTING.md`: public usage and contribution guidance.
+  Architecture investigations and roadmap live in Notion, not a local `docs/` tree.
 - `slack-manifest.json`: Slack app configuration. There is no frontend asset tree.
 
 ## Development Commands
@@ -49,8 +50,9 @@ is configured. Distinguish simulated tests from real Slack/provider verification
 
 Follow history: `fix:`, `refactor:`, `docs:`, or scoped prefixes such as `fix(slack):`.
 Keep commits focused. PRs should describe behavior, relevant issues, tests performed,
-and operational risks. Include screenshots for Slack rendering changes and update
-`docs/v2.md` when delivery status changes.
+and operational risks. Include screenshots for Slack rendering changes, keep public
+guides current, and record delivery status in the project's Notion documentation
+when access is available.
 
 ## Security & State
 

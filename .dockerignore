@@ -4,7 +4,9 @@ tmp
 worktrees
 .env
 .env.*
-config
+config/*
+!config/README.md
+!config/regent.example.yaml
 .claude
 projects
 .git

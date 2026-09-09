@@ -6,11 +6,12 @@
 # config/ contiene la instancia local (pnpm regent setup).
 config/*
 !config/README.md
+!config/regent.example.yaml
 
 # Los docs viven en Notion (proyecto regent), no en el repo.
 docs/*
 
-# estado de instancia (runtime local: logs, salas, colas, worktrees de cards)
+# estado local de la instancia (logs, sesiones y worktrees)
 log/
 tmp/
 worktrees/

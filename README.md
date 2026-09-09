@@ -45,7 +45,7 @@ vigente y los pendientes están en Notion (proyecto **regent**, cuenta Dilver).
 pnpm regent setup --repo /ruta/a/repos/proyecto --team T012345 --user U012345
 pnpm start                 # servidor (Slack), escucha en 127.0.0.1
 pnpm dev                   # igual, con recarga al guardar (src/, config/, .env)
-pnpm test                  # suite v2
+pnpm test                  # suite automatizada
 pnpm regent ask "Explica este repositorio" --conversation revision
 pnpm regent ask "Revisa este proyecto" --repo otro-repo --conversation otra-revision
 pnpm regent patch "Corrige el fallo y abre un PR" --conversation correccion
@@ -58,7 +58,7 @@ en el hilo. También puedes responder con tus propias palabras. La respuesta con
 la misma conversación; un botón ya respondido o de una pregunta reemplazada no vuelve
 a ejecutar trabajo. El significado de una aprobación lo determina la pregunta y el
 flujo del repo, no una compuerta propia de Regent.
-En CLI las opciones se muestran como texto. El arranque actualiza SQLite al esquema 7
+En CLI las opciones se muestran como texto. El arranque actualiza SQLite al esquema 8
 y conserva las sesiones y preguntas pendientes de versiones anteriores.
 
 El setup crea `config/regent.yaml` (o `REGENT_CONFIG`) sin sobrescribir archivos
@@ -68,7 +68,9 @@ del repo; usa `--workspace /ruta/a/Projects` para permitir otros proyectos dentr
 de esa carpeta. `--mode team` admite repetir `--user`; `indie` permite uno solo.
 `--permissions native` aplica permisos nativos; el valor por defecto `bypass` no
 aplica `allow/ask/deny`. No guarda secretos ni valida conexiones externas.
-También puedes copiar `regent.example.yaml` a `config/regent.yaml` manualmente.
+También puedes copiar [config/regent.example.yaml](config/regent.example.yaml) a
+`config/regent.yaml` manualmente. La [guía de configuración](config/README.md)
+explica los campos activos, valores predeterminados y opciones retiradas.
 Antes de iniciar necesita
 `SLACK_BOT_TOKEN` y `SLACK_APP_TOKEN` de una app con `slack-manifest.json`
 (Agent messaging). Define `repos.path` y `repos.default_repo` para el contexto inicial.
@@ -155,7 +157,8 @@ Sin worktree válido se bloquean edición y comandos, sin fallback al checkout c
 
 No hay tareas locales nuevas, gates de plan/QA, digest ni seguimiento automático
 de merges. Se retiraron `tasks`, `gates`, `gate` y `sync` de la CLI y el webhook
-de GitHub. Las opciones antiguas de `policy` se aceptan pero no tienen efecto.
+de GitHub. Las opciones antiguas de `policy` y otros campos sin uso se rechazan;
+consulta la [guía de migración](config/README.md#removed-inactive-fields).
 Las tablas históricas permanecen en SQLite, sin ejecutar su flujo anterior.
 
 Node >=22.20 y Claude Code >=2.1.263 son necesarios para este aislamiento.
