@@ -456,6 +456,15 @@ export function createSlack(config: Config) {
       if (auth.team_id !== config.slack.workspace_team_id) throw new Error('El token Slack pertenece a otro workspace.')
       botId = auth.user_id
       core.historyLoader = (source, signal, includeOwn) => gatherHistory(api, source, botId, file => readSlackFile(file, process.env.SLACK_BOT_TOKEN!), signal, includeOwn)
+      const idCache = new Map<string, { name?: string; email?: string }>()
+      core.identities = async id => {
+        const hit = idCache.get(id); if (hit) return hit
+        try {
+          const { user } = await api('users.info', { user: id })
+          const who = { name: user?.profile?.real_name || user?.real_name || undefined, email: user?.profile?.email || undefined }
+          idCache.set(id, who); return who
+        } catch { return {} }
+      }
       await connection.start(() => app.start())
     },
     async stop() { await connection.stop(() => app.stop()) },
