@@ -1,6 +1,20 @@
 import assert from 'node:assert/strict'
-import { replyPayloads } from '../src/slack-format.ts'
+import { normalizeEmailLinks, replyPayloads } from '../src/slack-format.ts'
 import { SlackOutput } from '../src/slack.ts'
+
+const address = 'person+test@example.com'
+const link = `[${address}](mailto:${address})`
+assert.equal(normalizeEmailLinks(`Email: mailto:${address}.`), `Email: ${link}.`)
+assert.equal(normalizeEmailLinks(`<mailto:${address}>`), link)
+assert.equal(normalizeEmailLinks(`[mailto:${address}](mailto:${address})`), link)
+assert.equal(normalizeEmailLinks(link), link)
+assert.equal(normalizeEmailLinks(`[Contactar](mailto:${address}?subject=Hola)`), `[Contactar](mailto:${address}?subject=Hola)`)
+for (const code of ['`mailto:person@example.com`', '``mailto:person@example.com``',
+  '```text\nmailto:person@example.com\n```', '~~~\nmailto:person@example.com\n~~~',
+  '```\nmailto:person@example.com', '    mailto:person@example.com', '`mailto:person@example.com']) {
+  assert.equal(normalizeEmailLinks(code), code)
+}
+assert.equal(replyPayloads(`Email: mailto:${address}`)[0].blocks[0].text, `Email: ${link}`)
 
 const text = '### Resultado\n**Cliente:** ejemplo\n- **Crear y editar**\n[Repo](https://example.com/a_b)\n```js\nconst value = "**literal**"\n```\n| A | B |\n|---|---|\n| 1 | 2 |'
 assert.deepEqual(replyPayloads(text), [{ text, blocks: [{ type: 'markdown', text }] }])
@@ -18,6 +32,8 @@ await output.delta(c, { id: 'stream', author: 'U1' }, 'Progreso\n')
 await new Promise(resolve => setTimeout(resolve, 25))
 await output.finish(c, { id: 'stream' }, text)
 assert.equal(calls.find(c => c.method === 'chat.update').args.blocks[0].text, text)
+await output.finish(c, { id: 'email' }, `mailto:${address}`)
+assert.equal(calls.at(-1).args.blocks[0].text, link)
 
 let attempts = 0
 const fallback = new SlackOutput(async (_method, args) => {
