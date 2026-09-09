@@ -51,4 +51,24 @@ const fallback = new SlackOutput(async (_method, args) => {
 })
 await fallback.notice(c, text)
 assert.equal(attempts, 2)
+// finish idempotente: un fallo a mitad de una respuesta multipagina no duplica
+// paginas al reintentar (mismas paginas ya enviadas se actualizan, no se reponen).
+const posted = []
+let failOnce = true
+const retry = new SlackOutput(async (method, args) => {
+  if (method === 'chat.postMessage') {
+    if (failOnce && posted.length === 2) { failOnce = false; throw new Error('network') }
+    posted.push(args.blocks[0].text.text)
+    return { ts: `ts-${posted.length}` }
+  }
+  if (method === 'chat.update') return { ts: args.ts }
+  return { ts: 'x' }
+})
+const big = ('Bloque de prueba '.repeat(200)).repeat(7)
+const bigPages = replyPayloads(big).map(p => p.blocks[0].text.text)
+assert.ok(bigPages.length >= 4)
+await retry.finish(c, { id: 'retry' }, big).catch(() => {})
+await retry.finish(c, { id: 'retry' }, big)
+assert.deepEqual(posted, bigPages)
+
 console.log('Slack Markdown payloads, final stream updates and literal fallback passed')

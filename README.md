@@ -64,7 +64,7 @@ en el hilo. También puedes responder con tus propias palabras. La respuesta con
 la misma conversación; un botón ya respondido o de una pregunta reemplazada no vuelve
 a ejecutar trabajo. El significado de una aprobación lo determina la pregunta y el
 flujo del repo, no una compuerta propia de Regent.
-En CLI las opciones se muestran como texto. El arranque actualiza SQLite al esquema 8
+En CLI las opciones se muestran como texto. El arranque actualiza SQLite al esquema 9
 y conserva las sesiones y preguntas pendientes de versiones anteriores.
 
 El setup crea `config/regent.yaml` (o `REGENT_CONFIG`) sin sobrescribir archivos

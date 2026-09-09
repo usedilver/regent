@@ -98,16 +98,32 @@ export class SlackOutput implements Output {
     text = redact(text)
     for (const payload of replyPayloads(text)) await this.sendReply('chat.postMessage', { channel: c.channel, thread_ts: c.thread ?? undefined, unfurl_links: false, unfurl_media: false, ...payload })
   }
-  async sendReply(method: string, args: any): Promise<void> {
-    try { await this.api(method, args) }
+  async sendReply(method: string, args: any): Promise<any> {
+    try { return await this.api(method, args) }
     catch (error) {
       const code = (error as any)?.data?.error ?? (error as Error).message
       if (!/\b(invalid_blocks|unsupported_block_type)\b/.test(code ?? '') || args.blocks?.[0]?.type !== 'markdown') throw error
       // Keep the same message and all content when Markdown blocks are unavailable.
       const blocks: any[] = []
       for (let i = 0; i < args.text.length; i += 2800) blocks.push({ type: 'section', text: { type: 'plain_text', text: args.text.slice(i, i + 2800), emoji: false } })
-      await this.api(method, { ...args, blocks, mrkdwn: false })
+      return await this.api(method, { ...args, blocks, mrkdwn: false })
     }
+  }
+  // Per-page ts of the final reply, so a retry (same process or after a restart)
+  // updates pages already posted instead of posting duplicates. Persisted when a
+  // store is attached; in-memory otherwise (tests), like the progress message.
+  finishPagesMem = new Map<string, Map<number, { channel: string; ts: string }>>()
+  recordFinishPage(runId: string, page: number, channel: string, ts: string): void {
+    if (this.store) this.store.db.prepare('INSERT OR REPLACE INTO slack_finish(run_id,page,channel,ts) VALUES(?,?,?,?)').run(runId, page, channel, ts)
+    else { const m = this.finishPagesMem.get(runId) ?? new Map(); m.set(page, { channel, ts }); this.finishPagesMem.set(runId, m) }
+  }
+  finishPage(runId: string, page: number): { channel: string; ts: string } | undefined {
+    if (this.store) return this.store.db.prepare('SELECT channel,ts FROM slack_finish WHERE run_id=? AND page=?').get(runId, page) as { channel: string; ts: string } | undefined
+    return this.finishPagesMem.get(runId)?.get(page)
+  }
+  clearFinishPages(runId: string): void {
+    if (this.store) this.store.db.prepare('DELETE FROM slack_finish WHERE run_id=?').run(runId)
+    else this.finishPagesMem.delete(runId)
   }
   latestThread = new Map<string, string>()
   /** DMs anchor each response to its request; a room converses at channel root. */
@@ -214,26 +230,43 @@ export class SlackOutput implements Output {
   async finishReply(c: Conversation, run: Run, text: string): Promise<void> {
     text = redact(text)
     const stream = this.streams.get(run.id)
-    if (!stream) return this.notice({ ...c, thread: this.anchor(c) ?? null }, text)
-    clearTimeout(stream.timer)
-    await stream.chain
-    try {
+    let firstTs: string | undefined
+    let channel: string
+    let thread: string | null | undefined
+    if (stream) {
+      clearTimeout(stream.timer)
+      await stream.chain
+      channel = stream.channel
+      thread = stream.thread ?? null
       if (stream.ts) {
         try { await this.api('chat.stopStream', { channel: stream.channel, ts: stream.ts }) }
         catch (error) {
           const code = (error as any)?.data?.error
           if (code !== 'message_not_in_streaming_state' && !/\bmessage_not_in_streaming_state\b/.test((error as Error).message ?? '')) throw error
         }
-        // The authoritative result can differ from interim assistant messages.
-        const [first, ...rest] = replyPayloads(text)
-        await this.sendReply('chat.update', { channel: stream.channel, ts: stream.ts, ...first })
-        for (const payload of rest) await this.sendReply('chat.postMessage', { channel: stream.channel, thread_ts: stream.thread, unfurl_links: false, unfurl_media: false, ...payload })
-      } else await this.notice({ ...c, channel: stream.channel, thread: stream.thread ?? null }, text)
-    } catch (error) {
-      // Preserve the known message for DurableOutput to retry after a network
-      // failure, instead of posting a duplicate answer with an internal error.
-      throw error
+        // Page 0 replaces the streamed message; the authoritative result can differ from it.
+        firstTs = stream.ts
+      }
+    } else {
+      channel = c.channel
+      thread = this.anchor(c) ?? c.thread ?? null
     }
+    // Idempotent multi-page send: on a retry, a page already posted is updated in
+    // place, never re-posted. A mid-send failure below rethrows for DurableOutput
+    // to retry the whole finish; the pages already recorded are not duplicated.
+    const pages = replyPayloads(text)
+    for (let i = 0; i < pages.length; i++) {
+      const saved = this.finishPage(run.id, i)
+      if (saved) { await this.sendReply('chat.update', { channel: saved.channel, ts: saved.ts, ...pages[i] }); continue }
+      if (i === 0 && firstTs) {
+        await this.sendReply('chat.update', { channel, ts: firstTs, ...pages[i] })
+        this.recordFinishPage(run.id, i, channel, firstTs)
+      } else {
+        const result = await this.sendReply('chat.postMessage', { channel, thread_ts: thread ?? undefined, unfurl_links: false, unfurl_media: false, ...pages[i] })
+        if (result?.ts) this.recordFinishPage(run.id, i, channel, result.ts)
+      }
+    }
+    this.clearFinishPages(run.id)
     this.streams.delete(run.id)
   }
   /** The conversation moved to its room: close the origin stream so the rest lands there. */
