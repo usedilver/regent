@@ -6,6 +6,14 @@ Contrato principal: [Regent v2](v2.md).
 
 ## Implementacion entregada
 
+Bash: `command-display.ts` permite mostrar un vocabulario exacto de comandos
+publicos (`pnpm test`, `npm run build`, `git diff --stat`, etc.). Se muestra el
+comando en el titulo durante streaming y en los detalles finales. No se aceptan
+rutas, argumentos libres, variables, saltos de linea, operadores ni scripts
+arbitrarios; cualquier comando fuera de la lista conserva el rotulo Bash.
+Solo el comando validado entra al snapshot de progreso; no se usa la descripcion
+libre de Bash. Esta lista controla presentacion, nunca permisos de ejecucion.
+
 Actualizacion tras prueba visual: `auto` ahora utiliza tarjetas `timeline`, no
 el plan agrupado. En salas y al cerrar se publican bloques `task_card`. Los
 titulos incluyen la herramienta activa; los detalles finales listan hasta ocho

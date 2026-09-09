@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
 import { redact } from './store.ts'
+import { commandDisplay } from './command-display.ts'
 
 export type ActivityState = {
-  calls: Record<string, { group: string; tool?: string; status: 'running' | 'complete' | 'error' }>
+  calls: Record<string, { group: string; tool?: string; command?: string; status: 'running' | 'complete' | 'error' }>
   terminal?: string
 }
 const titles: Record<string, string> = {
@@ -25,7 +26,8 @@ export function activityEvent(state: ActivityState, event: any): boolean {
     if (state.calls[id] || Object.keys(state.calls).length >= 2000) return false
     const name = typeof event.name === 'string' ? event.name : ''
     const tool = /^[A-Za-z0-9_:-]{1,120}$/.test(name) && redact(name) === name ? name : undefined
-    state.calls[id] = { group: group(name), tool, status: 'running' }
+    const command = name === 'Bash' ? commandDisplay(event.input?.command)?.command : undefined
+    state.calls[id] = { group: group(name), tool, command, status: 'running' }
   } else {
     const call = state.calls[id]
     if (!call || call.status !== 'running') return false
@@ -44,9 +46,12 @@ export function activityView(state: ActivityState) {
   const title = state.terminal === 'completed' ? 'Turno finalizado' : state.terminal === 'waiting_human' ? 'Esperando tu respuesta' : state.terminal === 'moved' ? 'Continuamos en la sala' : state.terminal ? 'Turno detenido' : 'Progreso'
   const tasks = [...groups].map(([id, n]) => {
     const calls = Object.values(state.calls).filter(call => call.group === id)
-    const tools = [...new Set(calls.map(call => call.tool).filter(Boolean))].slice(0, 8)
-    const current = calls.findLast(call => call.status === 'running' && call.tool)?.tool ?? tools.at(-1)
-    return { id, title: `${titles[id]}${current ? `: ${current}` : ''}`,
+    const display = (call: typeof calls[number]) => commandDisplay(call.command)?.command ?? call.tool
+    const tools = [...new Set(calls.map(display).filter(Boolean))].slice(0, 8)
+    const active = calls.findLast(call => call.status === 'running' && call.tool) ?? calls.at(-1)
+    const current = active ? display(active) : undefined
+    const heading = commandDisplay(active?.command)?.title ?? titles[id]
+    return { id, title: `${heading}${current ? `: ${current}` : ''}`,
     details: tools.join('\n'),
     status: n.running && !state.terminal ? 'in_progress' : n.error || n.running ? 'error' : 'complete',
     output: `${n.complete} ${n.complete === 1 ? 'ejecucion terminada' : 'ejecuciones terminadas'}${n.error ? `; ${n.error} con error` : ''}${n.running ? `; ${n.running} ${state.terminal ? 'sin confirmar' : 'en curso'}` : ''}`,

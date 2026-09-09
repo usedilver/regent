@@ -3,6 +3,26 @@ import { Store } from '../src/store.ts'
 import { activityEvent, activityView } from '../src/activities.ts'
 import { SlackActivities } from '../src/slack-activities.ts'
 import { normalizeEvent } from '../src/runner.ts'
+import { commandDisplay } from '../src/command-display.ts'
+
+for (const command of ['pnpm test', 'npm run build', 'yarn lint', 'git diff --stat']) {
+  assert.equal(commandDisplay(command)?.command, command)
+  const state = { calls: {} }
+  activityEvent(state, { kind: 'tool_use', id: 'bash', name: 'Bash', input: { command } })
+  assert.ok(activityView(state).tasks[0].title.includes(command))
+  assert.equal(activityView(state).tasks[0].details, command)
+}
+for (const command of [undefined, {}, 'pnpm test\n', 'pnpm test && env', 'pnpm test; env', 'pnpm test | cat',
+  'TOKEN=secret pnpm test', 'pnpm test --token secret', 'git diff private-file', 'git -C /private/repo status',
+  'curl https://example.com', 'echo secret', 'bash -c "pnpm test"', 'pnpm test > log', 'pnpm test #secret',
+  'pnpm test $(env)', 'pnpm test `env`', 'npm run private-client', 'pnpm test\u001b[0m']) {
+  assert.equal(commandDisplay(command), undefined)
+  const state = { calls: {} }
+  activityEvent(state, { kind: 'tool_use', id: 'bash', name: 'Bash', input: { command, description: 'secret' } })
+  assert.equal(activityView(state).tasks[0].title, 'Ejecutando comandos: Bash')
+  assert.equal(Object.values(state.calls)[0].command, undefined)
+  assert.ok(!JSON.stringify(state).includes('secret'))
+}
 
 const state = { calls: {} }
 const use = { kind: 'tool_use', id: 'one', name: 'Read', input: { password: 'secret-value' } }
