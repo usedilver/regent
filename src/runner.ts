@@ -51,8 +51,8 @@ export function normalizeEvent(raw: any): RunnerEvent[] {
     const event = raw.event
     if (event?.type === 'content_block_delta' && event.delta?.type === 'text_delta') return [{ kind: 'text_delta', text: event.delta.text }]
   }
-  if (raw.type === 'assistant') return (raw.message?.content ?? []).filter((c: any) => c.type === 'tool_use').map((c: any) => ({ kind: 'tool_use', name: c.name, input: c.input }))
-  if (raw.type === 'user') return (raw.message?.content ?? []).filter((c: any) => c.type === 'tool_result').map((c: any) => ({ kind: 'tool_result', id: c.tool_use_id, error: c.is_error, content: c.content }))
+  if (raw.type === 'assistant') return (raw.message?.content ?? []).filter((c: any) => c.type === 'tool_use').map((c: any) => ({ kind: 'tool_use', id: c.id, parentId: raw.parent_tool_use_id, name: c.name, input: c.input }))
+  if (raw.type === 'user') return (raw.message?.content ?? []).filter((c: any) => c.type === 'tool_result').map((c: any) => ({ kind: 'tool_result', id: c.tool_use_id, parentId: raw.parent_tool_use_id, background: Boolean(raw.tool_use_result?.backgroundTaskId || /running in (?:the )?background/i.test(JSON.stringify(c.content))), error: c.is_error, content: c.content }))
   if (raw.type === 'result') return [{ kind: 'result', text: raw.result ?? '', cost: raw.total_cost_usd ?? 0, usage: raw.usage ?? {}, error: Boolean(raw.is_error), errors: raw.errors ?? [], denials: raw.permission_denials ?? [], subtype: raw.subtype }]
   return []
 }

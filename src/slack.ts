@@ -1,4 +1,5 @@
 import pkg from '@slack/bolt'
+import { SlackActivities } from './slack-activities.ts'
 import { replyPayloads } from './slack-format.ts'
 import { SlackConnection } from './slack-connection.ts'
 import { appLabel, messageBody, threadToMarkdown } from './slack-thread.ts'
@@ -75,6 +76,8 @@ export class SlackOutput implements Output {
   progressMsgs = new Map<string, { channel: string; ts: string }>()
   nativeStatuses = new Set<string>()
   store?: Store
+  activities?: SlackActivities
+  activity(c: Conversation, run: Run, event: import('./runner.ts').RunnerEvent): void { this.activities?.event(c, run, event) }
   constructor(api: Api, flushMs = 3000) { this.api = api; this.flushMs = flushMs }
   /** The native "está trabajando…" indicator (agents.sessions.setStatus) needs a thread anchor.
    * Rooms converse at channel root with no anchor, so it can't animate there — the core falls
@@ -129,6 +132,7 @@ export class SlackOutput implements Output {
   /** Surfaces without a native indicator (rooms): post one "working…" message and refresh it in
    * place on each tick, so there are no repeated posts. clearProgress removes it when done. */
   async progress(c: Conversation, run: Run, text: string): Promise<void> {
+    if (this.activities?.get(run.id)) { await this.clearProgress(run); return }
     let existing = this.progressMessage(run.id)
     if (existing && existing.channel !== c.channel) {
       await this.clearProgress(run)
@@ -170,8 +174,9 @@ export class SlackOutput implements Output {
     return this.store ? this.store.db.prepare('SELECT channel,ts FROM slack_progress WHERE run_id=?').get(id) as { channel: string; ts: string } | undefined : this.progressMsgs.get(id)
   }
   async recoverProgress(): Promise<void> {
+    await this.activities?.flush()
     if (!this.store) return
-    const rows = this.store.db.prepare("SELECT p.run_id FROM slack_progress p LEFT JOIN runs r ON r.id=p.run_id LEFT JOIN conversations c ON c.key=r.conversation_key WHERE r.id IS NULL OR r.state!='running' OR c.channel!=p.channel").all()
+    const rows = this.store.db.prepare("SELECT p.run_id FROM slack_progress p LEFT JOIN runs r ON r.id=p.run_id LEFT JOIN conversations c ON c.key=r.conversation_key WHERE r.id IS NULL OR r.state!='running' OR c.channel!=p.channel OR EXISTS(SELECT 1 FROM activity_progress a WHERE a.run_id=p.run_id)").all()
     for (const row of rows) await this.clearProgress({ id: row.run_id } as Run)
   }
   async delta(c: Conversation, run: Run, text: string): Promise<void> {
@@ -202,6 +207,7 @@ export class SlackOutput implements Output {
     stream.pending = stream.pending.slice(raw.length)
   }
   async finish(c: Conversation, run: Run, text: string): Promise<void> {
+    this.activities?.terminal(run)
     await this.finishReply(c, run, text)
     await this.clearProgress(run)
   }
@@ -232,6 +238,7 @@ export class SlackOutput implements Output {
   }
   /** The conversation moved to its room: close the origin stream so the rest lands there. */
   async moved(run: Run): Promise<void> {
+    this.activities?.move(run)
     await this.clearProgress(run)
     const stream = this.streams.get(run.id)
     if (!stream) return
@@ -410,6 +417,7 @@ export function createSlack(config: Config) {
     async start(value: Core) {
       core = value
       output.store = core.store
+      output.activities = new SlackActivities(api, core.store, config.slack.progress_mode === 'plain')
       core.rooms = rooms
       const auth = await api('auth.test', {})
       if (auth.team_id !== config.slack.workspace_team_id) throw new Error('El token Slack pertenece a otro workspace.')

@@ -13,6 +13,7 @@ repos:
   agent_env_files: []
   readonly_mcp: []
 slack:
+  progress_mode: auto # plan de actividades; plain usa texto actualizado en el mismo mensaje.
   workspace_team_id: T_REPLACE
   allowed_users: [U_REPLACE] # Solo tu usuario; obligatorio en indie, nunca una lista vacia.
 limits:

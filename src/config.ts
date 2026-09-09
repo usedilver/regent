@@ -23,6 +23,7 @@ export const ConfigSchema = z.object({
     test_commands: z.record(z.string(), z.array(z.string().min(1)).min(1)).default({}),
   }),
   slack: z.object({
+    progress_mode: z.enum(['auto', 'plain']).default('auto'),
     workspace_team_id: z.string().min(1),
     allowed_users: z.array(z.string().min(1)).default([]),
     ops_channel: z.string().optional(),

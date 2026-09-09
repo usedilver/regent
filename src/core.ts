@@ -178,6 +178,7 @@ export class Core {
         this.store.event(run.id, event.kind, event.kind === 'text_delta' ? { characters: event.text.length } : event)
         if (event.kind === 'init' && !active.contextChanged) this.store.session(conversation.key, event.sessionId)
         if (event.kind === 'tool_use') active.lastTool = event.name
+        if (event.kind === 'tool_use' || event.kind === 'tool_result') this.output.activity?.(conversation, run, event)
         if (event.kind === 'text_delta') this.publish(active, () => this.output.delta(conversation, run, event.text))
         if (event.kind === 'api_retry') this.publish(active, () => this.output.notice(conversation, 'Claude esta reintentando por un limite de tasa o error del proveedor.'))
         // Tool failures remain in the event log and model context; the final reply

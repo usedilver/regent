@@ -45,6 +45,7 @@ export interface Run {
 }
 
 export interface Output {
+  activity?(conversation: Conversation, run: Run, event: import('./runner.ts').RunnerEvent): void
   /** True when THIS conversation shows a native "working…" indicator (needs a thread anchor):
    * skip the periodic heartbeat there. Rooms converse at channel root with no anchor, so they
    * return false and rely on the updating progress message below. */

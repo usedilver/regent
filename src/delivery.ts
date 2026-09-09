@@ -6,8 +6,10 @@ export class DurableOutput implements Output {
   store: Store; delegate: Output
   inflight = new Map<string, Promise<void>>()
   timer?: NodeJS.Timeout
+  closing?: Promise<void>
   constructor(store: Store, delegate: Output) { this.store = store; this.delegate = delegate }
   animates(c: Conversation): boolean { return this.delegate.animates?.(c) ?? false }
+  activity(c: Conversation, run: Run, event: import('./runner.ts').RunnerEvent) { this.delegate.activity?.(c, run, event) }
   start(): void {
     this.timer = setInterval(() => { void this.flush() }, 5000)
     void this.flush()
@@ -59,5 +61,13 @@ export class DurableOutput implements Output {
   finish(c: Conversation, run: Run, text: string) { return this.enqueue('finish', [c, run, text], c.key) }
   question(c: Conversation, question: { id: string; text: string; options: string[] }) { return this.enqueue('question', [c, question], c.key) }
   moved(run: Run) { return this.delegate.moved?.(run) ?? Promise.resolve() }
-  async close(): Promise<void> { clearInterval(this.timer); await Promise.allSettled(this.inflight.values()) }
+  close(): Promise<void> {
+    if (this.closing) return this.closing
+    clearInterval(this.timer)
+    this.closing = (async () => {
+      await Promise.allSettled(this.inflight.values())
+      await this.recoverProgress()
+    })()
+    return this.closing
+  }
 }
