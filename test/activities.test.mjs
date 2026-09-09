@@ -12,9 +12,9 @@ for (const command of ['pnpm test', 'npm run build', 'yarn lint', 'git diff --st
   assert.ok(activityView(state).tasks[0].title.includes(command))
   assert.equal(activityView(state).tasks[0].details, command)
 }
-for (const command of [undefined, {}, 'pnpm test\n', 'pnpm test && env', 'pnpm test; env', 'pnpm test | cat',
-  'TOKEN=secret pnpm test', 'pnpm test --token secret', 'git diff private-file', 'git -C /private/repo status',
-  'curl https://example.com', 'echo secret', 'bash -c "pnpm test"', 'pnpm test > log', 'pnpm test #secret',
+for (const command of [undefined, {}, 'pnpm test\n',
+  'TOKEN=secret pnpm test', 'git -C /private/repo status',
+  'curl https://example.com', 'echo secret', 'bash -c "pnpm test"',
   'pnpm test $(env)', 'pnpm test `env`', 'npm run private-client', 'pnpm test\u001b[0m']) {
   assert.equal(commandDisplay(command), undefined)
   const state = { calls: {} }
@@ -22,6 +22,24 @@ for (const command of [undefined, {}, 'pnpm test\n', 'pnpm test && env', 'pnpm t
   assert.equal(activityView(state).tasks[0].title, 'Ejecutando comandos: Bash')
   assert.equal(Object.values(state.calls)[0].command, undefined)
   assert.ok(!JSON.stringify(state).includes('secret'))
+}
+for (const [command, operation] of [
+  ['gh repo view private-repo --json name 2>&1', 'gh repo view'],
+  ['which vercel && vercel --version 2>&1 || echo secret', 'which vercel'],
+  ['vercel ls 2>&1 | grep private-project || echo secret', 'vercel ls'],
+  ['pnpm test --token secret', 'pnpm test'],
+  ['pnpm test && echo secret', 'pnpm test'],
+  ['pnpm test > private-file', 'pnpm test'],
+  ['pnpm test # secret', 'pnpm test'],
+  ['git diff private-file', 'git diff'],
+]) {
+  const expected = `${operation} [argumentos y resto ocultos]`
+  assert.equal(commandDisplay(command)?.command, expected)
+  const state = { calls: {} }
+  activityEvent(state, { kind: 'tool_use', id: 'bash', name: 'Bash', input: { command } })
+  assert.equal(activityView(state).tasks[0].details, expected)
+  assert.ok(!JSON.stringify(state).includes('secret'))
+  assert.ok(!JSON.stringify(state).includes('private'))
 }
 
 const state = { calls: {} }

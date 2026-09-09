@@ -8,9 +8,13 @@ Contrato principal: [Regent v2](v2.md).
 
 Bash: `command-display.ts` permite mostrar un vocabulario exacto de comandos
 publicos (`pnpm test`, `npm run build`, `git diff --stat`, etc.). Se muestra el
-comando en el titulo durante streaming y en los detalles finales. No se aceptan
-rutas, argumentos libres, variables, saltos de linea, operadores ni scripts
-arbitrarios; cualquier comando fuera de la lista conserva el rotulo Bash.
+comando en el titulo durante streaming y en los detalles finales. Si hay argumentos
+o operadores, shell-quote identifica exclusivamente la primera operacion de una
+lista conocida (incluye `gh repo view`, `which vercel`, `vercel ls`): se publica
+su nombre con `[argumentos y resto ocultos]`, nunca los valores originales.
+Variables, sustituciones, saltos de linea y scripts arbitrarios siguen opacos;
+cualquier operacion desconocida conserva Bash. No se resume toda una cadena.
+Validado contra los tres comandos del turno reportado que antes mostraba solo Bash.
 Solo el comando validado entra al snapshot de progreso; no se usa la descripcion
 libre de Bash. Esta lista controla presentacion, nunca permisos de ejecucion.
 
