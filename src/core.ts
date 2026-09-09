@@ -157,6 +157,8 @@ export class Core {
       // unless the repo re-provides that exact key in its own .env.
       for (const key of this.secretKeys) if (!(key in repoVars)) delete env[key]
       Object.assign(env, repoVars)
+      // Transport credentials stay private even when supplied by systemd, not .env.
+      for (const key of ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN', 'SLACK_SIGNING_SECRET']) delete env[key]
       // The operator's API identity is regent's, not the repo's: keep it from process.env only.
       if (process.env.ANTHROPIC_API_KEY) env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
       else delete env.ANTHROPIC_API_KEY

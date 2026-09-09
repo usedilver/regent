@@ -673,5 +673,39 @@ try {
       delete process.env.REGENT_LEAK_TOKEN
     } finally { await core.close(); store.close() }
   })
+  await check('shared service env reaches agents, repo overrides it, Slack credentials never do', async () => {
+    const keys = ['SHARED_PROVIDER_TOKEN', 'SHARED_OVERRIDE_TOKEN', 'SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN', 'SLACK_SIGNING_SECRET']
+    const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]))
+    const ws = fs.mkdtempSync(path.join(tmp, 'shared-env-'))
+    fs.mkdirSync(path.join(ws, '.git'))
+    fs.writeFileSync(path.join(ws, '.env'), 'SHARED_OVERRIDE_TOKEN=repo-value\nSLACK_BOT_TOKEN=repo-must-not-override\n')
+    const store = new Store(':memory:')
+    const captured = []
+    const core = new Core({ store, config: ConfigSchema.parse({ auth: { mode: 'indie' }, repos: { path: ws }, slack: { workspace_team_id: 'T1', allowed_users: ['U1'] } }),
+      output: Object.fromEntries(['notice','status','delta','finish'].map(k => [k, async () => {}])), cwd: fs.realpathSync(ws),
+      runner: opts => { captured.push(opts.env); return { done: Promise.resolve({ state: 'completed', text: 'ok', error: '', cost: 0, usage: {} }), cancel() {} } } })
+    try {
+      for (const key of keys) process.env[key] = 'service-value'
+      core.secretKeys = [] // Simulate credentials supplied exclusively through EnvironmentFile.
+      for (const id of ['first', 'second']) {
+        if (id === 'second') fs.unlinkSync(path.join(ws, '.env'))
+        await core.submit({ adapter: 'slack', eventId: id, key: `slack:C1:${id}`, author: 'U1', text: 'consulta', channel: 'C1', thread: id, team: 'T1' })
+        while (core.active.size) await Promise.allSettled([...core.active.values()].map(a => a.done))
+      }
+      assert.equal(captured.length, 2)
+      for (const env of captured) {
+        assert.equal(env.SHARED_PROVIDER_TOKEN, 'service-value')
+        for (const key of keys.filter(key => key.startsWith('SLACK_'))) assert.equal(env[key], undefined)
+      }
+      assert.equal(captured[0].SHARED_OVERRIDE_TOKEN, 'repo-value')
+      assert.equal(captured[1].SHARED_OVERRIDE_TOKEN, 'service-value')
+    } finally {
+      await core.close(); store.close()
+      for (const key of keys) {
+        if (previous[key] === undefined) delete process.env[key]
+        else process.env[key] = previous[key]
+      }
+    }
+  })
 } finally { fs.rmSync(tmp, { recursive: true, force: true }) }
 if (failed) process.exitCode = 1
