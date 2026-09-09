@@ -1,5 +1,22 @@
 # Auditoria de retiro de v1
 
+## Limpieza local completada
+
+Se eliminaron tmp/, worktrees/ (incluidos los worktrees de prueba v2), el almacen
+local vacio .pnpm-store/, plugin/skills vacio, metadatos .DS_Store y 33 entradas
+antiguas de log/. Se retiraron cuatro registros Git de worktrees, incluidos dos
+anidados. No se eliminaron ramas remotas ni worktrees nativos de otros proyectos.
+
+Los unicos elementos ignorados restantes son .env, config/regent.yaml,
+node_modules/ y log/v2.sqlite. PRAGMA quick_check devolvio ok y la base conserva
+24 conversaciones. El nombre v2.sqlite se mantiene por compatibilidad.
+
+Se retiraron tambien docs/plan.md, docs/investigacion-agentes-chat.md y la copia
+docs/archive/despliegue-v1.md. La documentacion v1 versionada sigue disponible en
+Git, no en el checkout. Las decisiones historicas de v2 no son runtime de v1 y se
+conservan en docs/v2-history.md. La lista inferior describe la auditoria previa;
+su referencia a conservar la guia v1 queda sustituida por esta limpieza.
+
 2026-09-08. Alcance: producto y estructura, no datos de instancia.
 
 ## Retirado

@@ -22,6 +22,7 @@ projects/
 
 # dependencias y sistema
 node_modules/
+.pnpm-store/
 .DS_Store
 
 # settings locales de claude code (permisos de esta máquina)

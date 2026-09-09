@@ -1,7 +1,7 @@
 # Despliegue de Regent
 
-Guia del runtime conversacional actual. La guia de v1 queda en
-[el archivo historico](archive/despliegue-v1.md); sus comandos no aplican aqui.
+Guia del runtime conversacional actual. La guia de v1 se retiro del checkout;
+puede consultarse en el historial Git si se necesita para una instancia antigua.
 
 ## Requisitos
 
