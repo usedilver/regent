@@ -16,7 +16,7 @@
     "app_home": { "home_tab_enabled": false, "messages_tab_enabled": true, "messages_tab_read_only_enabled": false }
   },
   "oauth_config": {
-    "scopes": { "bot": ["app_mentions:read", "chat:write", "channels:history", "groups:history", "groups:read", "groups:write", "im:history", "users:read", "files:read"] }
+    "scopes": { "bot": ["app_mentions:read", "chat:write", "channels:history", "groups:history", "groups:read", "groups:write", "im:history", "users:read", "users:read.email", "files:read"] }
   },
   "settings": {
     "event_subscriptions": { "bot_events": ["app_mention", "message.channels", "message.groups", "message.im", "agent_session_stopped"] },

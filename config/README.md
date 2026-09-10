@@ -70,6 +70,43 @@ authentication with a clean CLI configuration and read-only commands before remo
 an existing login; record CLI versions, never token values. No production deploy or
 resource creation is necessary for this check.
 
+## Slack Sender Identity
+
+Each turn uses the event sender's Slack user ID and the configured workspace ID,
+not the thread starter or the owner of a connected tool. `users.info` enriches
+that identity with optional name/email. Profiles are cached for five minutes;
+failed lookups for thirty seconds. Enrichment waits at most two seconds and yields
+to cancellation. Missing profile information does not block ordinary tasks.
+
+The manifest requests `users:read` and `users:read.email`. For an existing Slack
+app, add the email scope in OAuth & Permissions (or update the manifest), reinstall
+the app into the workspace to approve it, and restart Regent. Editing the manifest
+in Git alone does not grant an installed app new scopes. Email may still be absent.
+No user OAuth token or additional webhook is required for this lookup.
+
+Profiles are mutable data, not authorization or a universal cross-service identity.
+Skills must resolve a unique external user mapping/email match before assigning
+resources; ambiguous or missing matches require a question, never the connection
+owner as a fallback. Do not publish the profile email unnecessarily.
+
+References: [users.info](https://docs.slack.dev/reference/methods/users.info/),
+[user objects](https://docs.slack.dev/reference/objects/user-object/),
+[email scope](https://docs.slack.dev/reference/scopes/users.read.email/).
+
+## Project Environment Files
+
+Agents may read and edit project `.env` files inside their own worktree, including
+`.env.local`. The hook allows literal shell commands referencing those files, such
+as `vercel env pull .env.local` and `git check-ignore .env.local`. Commands involving
+env paths and shell operators, expansion, or directory changes require separate
+literal calls; the hook cannot safely resolve their targets. Shared checkout paths,
+other worktrees and symlink escapes remain denied for explicit env file accesses.
+Claude credentials remain blocked. Repository permission rules still apply in native mode.
+
+Keep runtime secrets ignored by Git, preserve unrelated keys when editing, and
+never print values to Slack or commit them. These hooks are not a shell sandbox:
+scripts and tools running as the same OS user can access that user's files.
+
 ## Removed Inactive Fields
 
 Before upgrading an old instance, remove these keys (they had no runtime effect):

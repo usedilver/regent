@@ -547,9 +547,10 @@ try {
     const env = { REGENT_ROOT: tmp, REGENT_READONLY_MCP: '["database-prod"]' }
     const test = (tool_name, tool_input) => denial({ tool_name, tool_input }, env)
     assert.equal(test('Grep', { pattern: 'process.env.API_KEY', path: tmp }), null)
-    assert.ok(test('Read', { file_path: `${tmp}/.env` }))
-    assert.ok(test('Grep', { pattern: 'token', path: `${tmp}/.env` }))
-    assert.ok(test('Glob', { pattern: '**/.env*' }))
+    assert.equal(test('Read', { file_path: `${tmp}/.env` }), null)
+    assert.equal(test('Grep', { pattern: 'token', path: `${tmp}/.env` }), null)
+    assert.equal(test('Glob', { pattern: '**/.env*' }), null)
+    assert.ok(test('Read', { file_path: '/other/.env' }))
     // bypass: general repo commands and operators just run (the hook is the guard, not an allowlist).
     for (const command of ['talently db list', 'find . -iname "schema*.sql"', 'npm run build', 'ls -la', 'talently 2>&1 | head -40']) assert.equal(test('Bash', { command }), null, command)
     assert.ok(test('Bash', { command: 'rm -rf /Users/x' }))
@@ -589,7 +590,8 @@ try {
     for (const command of ['ls -la', 'find . -name "*.vue"', 'pnpm lint', 'python -m pytest']) assert.equal(test('Bash', { command }), null)
     for (const name of ['WebSearch', 'ToolSearch', 'mcp__context7__query-docs', 'mcp__claude-in-chrome__read_page']) assert.equal(test(name), null)
     assert.ok(test('Read', { file_path: '/tmp/.credentials.json' }))
-    assert.ok(test('Bash', { command: 'cat .env' }))
+    assert.equal(test('Bash', { command: 'cat .env' }), null)
+    assert.ok(test('Bash', { command: 'cat ../.env' }))
     for (const command of ['git push origin main', 'gh pr create', 'git status && git push', 'git init new-project', 'git clone source target', 'gh repo create team/new --private']) {
       assert.equal(test('Bash', { command }), null, command)
     }

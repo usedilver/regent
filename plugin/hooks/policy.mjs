@@ -3,13 +3,35 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { literalCommand } from './command.mjs'
 
+function projectPath(file, env) {
+  try {
+    const root = fs.realpathSync(env.REGENT_ROOT)
+    const requested = path.resolve(env.REGENT_CWD ?? root, file)
+    let parent = requested
+    while (!fs.existsSync(parent)) {
+      // Do not treat broken symlinks as new files.
+      try { fs.lstatSync(parent); return false } catch {}
+      if (path.dirname(parent) === parent) return false
+      parent = path.dirname(parent)
+    }
+    const resolved = path.resolve(fs.realpathSync(parent), path.relative(parent, requested))
+    const relative = path.relative(root, resolved)
+    return !/\.credentials\.json|\.claude\.json/.test(resolved) && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+  } catch { return false }
+}
+
 export function denial(input, env = process.env) {
   const name = input.tool_name ?? ''
   const args = input.tool_input ?? {}
   if (name === 'Skill') return null
   if (['Read', 'Glob', 'Grep'].includes(name)) {
     const paths = [args.file_path, args.path, name === 'Glob' ? args.pattern : null, args.glob].filter(Boolean)
-    if (/\.credentials\.json|\.env(?:\b|$)|\.claude\.json/.test(JSON.stringify(paths))) return 'No leer archivos de credenciales; consulta codigo sin secretos.'
+    if (/\.credentials\.json|\.claude\.json/.test(JSON.stringify(paths))) return 'No leer archivos de credenciales; consulta codigo sin secretos.'
+    if (/\.env(?:\b|$)/.test(JSON.stringify(paths))) {
+      const base = args.path ?? env.REGENT_CWD ?? env.REGENT_ROOT
+      const targets = name === 'Read' ? [args.file_path] : [base, ...(name === 'Glob' ? [args.pattern] : [args.glob]).filter(Boolean).map(p => path.resolve(base, p))]
+      if (!targets.every(p => typeof p === 'string' && projectPath(p, env))) return 'Los archivos de entorno deben estar dentro del worktree de esta conversacion.'
+    }
     return null
   }
   if (['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(name)) {
@@ -40,7 +62,7 @@ export function denial(input, env = process.env) {
     const command = args.command ?? ''
     // Heuristic guards in both modes, not a shell sandbox: credential references,
     // download-to-interpreter pipelines and recursive deletion of absolute paths.
-    if (/\.credentials\.json|\.env(?:\b|$)|\.claude\.json/.test(command)) return 'No leer archivos de credenciales.'
+    if (/\.credentials\.json|\.claude\.json/.test(command)) return 'No leer archivos de credenciales.'
     if (/\b(?:curl|wget|fetch)\b[\s\S]*\|\s*(?:sudo\s+)?(?:sh|bash|zsh|ash|dash|python[0-9.]*|node|perl|ruby)\b/.test(command)) return 'No canalizar una descarga a un interprete.'
     const rmMatch = command.match(/(?:^|[;&|]\s*|\s)rm\s+([^;&|]+)/)
     if (rmMatch) {
@@ -50,7 +72,12 @@ export function denial(input, env = process.env) {
       if (/r/i.test(flags) && /f/i.test(flags) && targets.some(t => /^(?:\/|~|\$HOME|\$\{HOME\})/.test(t))) return 'No borrar recursivamente rutas absolutas o del home.'
     }
     const words = literalCommand(command)
-    if (words && /\.credentials\.json|\.env\b|\.claude\.json/.test(words.join(' '))) return 'No leer archivos de credenciales.'
+    if (words && /\.credentials\.json|\.claude\.json/.test(words.join(' '))) return 'No leer archivos de credenciales.'
+    if (/\.env\b/.test(command) || (words && /\.env\b/.test(words.join(' ')))) {
+      const files = words?.filter(word => /\.env\b/.test(word))
+      if (!files?.length || words.some(word => /^-C|^(?:cd|pushd|--cwd|--directory|--chdir|--prefix|--work-tree|--git-dir)(?:=|$)/.test(word)) ||
+          !files.every(file => !/[:=*?]/.test(file) && projectPath(file, env))) return 'Usa rutas literales de entorno dentro del worktree, sin cambiar de directorio ni operadores de shell.'
+    }
     // Git, gh and repository scripts follow the same runtime permissions as other
     // shell tools. In bypass mode this abstention is not a filesystem sandbox.
     return null

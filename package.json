@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/server.ts",
     "dev": "node --watch-path=src --watch-path=plugin --watch-path=config --watch-path=.env --watch-preserve-output src/server.ts",
-    "test": "node test/core.test.mjs && node test/projects.test.mjs && node test/history.test.mjs && node test/rooms.test.mjs && node test/setup.test.mjs && node test/progress.test.mjs && node test/slack-connection.test.mjs && node test/slack-thread.test.mjs && node test/claude-settings.test.mjs && node test/slack-format.test.mjs && node test/activities.test.mjs",
+    "test": "node test/core.test.mjs && node test/projects.test.mjs && node test/history.test.mjs && node test/rooms.test.mjs && node test/setup.test.mjs && node test/progress.test.mjs && node test/slack-connection.test.mjs && node test/slack-thread.test.mjs && node test/claude-settings.test.mjs && node test/slack-format.test.mjs && node test/activities.test.mjs && node test/identity.test.mjs",
     "smoke": "node test/smoke.mjs",
     "regent": "node src/cli.ts"
   },
