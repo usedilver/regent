@@ -3,6 +3,7 @@ import { StringDecoder } from 'node:string_decoder'
 import path from 'node:path'
 import { BRIDGE_DIR } from './env.ts'
 import { ensureTrusted, ensureBypassAccepted } from './claude-settings.ts'
+import type { ImageInput } from './images.ts'
 
 export interface RunnerEvent { kind: string; [key: string]: any }
 export interface RunnerResult { state: 'completed' | 'failed' | 'interrupted'; text: string; error: string; cost: number; usage: unknown }
@@ -17,6 +18,7 @@ export function assertIsolationVersion(version: string): void {
 }
 export interface RunnerOptions {
   cwd: string; prompt: string; runId: string; sessionId?: string | null; model?: string | null
+  images?: ImageInput[]
   env?: NodeJS.ProcessEnv; toolsUrl: string; token: string; readonlyMcp: string[]
   additionalDirectories?: string[]
   worktreeName?: string
@@ -30,6 +32,7 @@ export interface RunnerOptions {
 export function runnerArgs(options: RunnerOptions): string[] {
   const native = options.permissionMode === 'native'
   return ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
+    ...(options.images?.length ? ['--input-format', 'stream-json'] : []),
     '--permission-mode', native ? 'manual' : 'bypassPermissions', '--permission-prompts', 'none',
     '--setting-sources', 'user,project,local',
     ...(options.worktreeName ? ['--worktree', options.worktreeName] : []),
@@ -129,7 +132,7 @@ export function startRunner(options: RunnerOptions): { done: Promise<RunnerResul
   })
   child.stderr.on('data', data => { stderr = (stderr + data.toString()).slice(-16000) })
   child.stdin.on('error', error => { if ((error as NodeJS.ErrnoException).code !== 'EPIPE') { fatal = error.message; cancel(fatal) } })
-  child.stdin.end(options.prompt)
+  child.stdin.end(runnerInput(options))
   const startedAt = Date.now()
   const timedOut = () => cancel('Se alcanzo el tiempo maximo de ejecucion de este turno.')
   let timeout = setTimeout(timedOut, options.timeoutMs)
@@ -147,4 +150,15 @@ export function startRunner(options: RunnerOptions): { done: Promise<RunnerResul
     })
   })
   return { done, cancel, setTimeoutMs }
+}
+
+export function runnerInput(options: Pick<RunnerOptions, 'prompt' | 'images'>): string {
+  if (!options.images?.length) return options.prompt
+  return JSON.stringify({ type: 'user', message: { role: 'user', content: [
+    ...options.images.flatMap(image => [
+      { type: 'text', text: image.label },
+      { type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.data } },
+    ]),
+    { type: 'text', text: options.prompt },
+  ] }, parent_tool_use_id: null }) + '\n'
 }

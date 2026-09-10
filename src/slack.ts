@@ -3,6 +3,7 @@ import { SlackActivities } from './slack-activities.ts'
 import { replyPayloads } from './slack-format.ts'
 import { SlackConnection } from './slack-connection.ts'
 import { createIdentityResolver } from './slack-identity.ts'
+import { imageReference, slackImageLoader } from './slack-images.ts'
 import { appLabel, messageBody, threadToMarkdown } from './slack-thread.ts'
 import type { Config } from './config.ts'
 import type { Core } from './core.ts'
@@ -47,7 +48,13 @@ export async function gatherHistory(api: Api, source: HistorySource, botId: stri
     const label = `${author}${m.thread_ts && m.thread_ts !== m.ts ? ` (hilo ${m.thread_ts})` : ''}`
     const body = messageBody(m)
     if (body) result.push({ id, text: `${label}: ${body}` })
-    const files = (await Promise.all((m.files ?? []).map(readFile))).join('\n')
+    const otherFiles = []
+    for (const file of m.files ?? []) {
+      const image = imageReference(file)
+      if (image) result.push({ id: `${id}:image:${image.id}`, text: `${label}: [imagen: ${image.name}]`, image })
+      else otherFiles.push(file)
+    }
+    const files = (await Promise.all(otherFiles.map(readFile))).join('\n')
     if (files) result.push({ id: `${id}:files`, text: `${label}: ${files}` })
   }
   return result
@@ -458,6 +465,7 @@ export function createSlack(config: Config) {
       botId = auth.user_id
       core.historyLoader = (source, signal, includeOwn) => gatherHistory(api, source, botId, file => readSlackFile(file, process.env.SLACK_BOT_TOKEN!), signal, includeOwn)
       core.identities = createIdentityResolver(api, config.slack.workspace_team_id)
+      core.imageLoader = slackImageLoader(api, process.env.SLACK_BOT_TOKEN!)
       await connection.start(() => app.start())
     },
     async stop() { await connection.stop(() => app.stop()) },

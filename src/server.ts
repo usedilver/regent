@@ -21,7 +21,7 @@ const cwd = workspaceDir(config)
 const claudeVersion = execFileSync('claude', ['--version'], { encoding: 'utf8', timeout: 10000 }).trim()
 assertIsolationVersion(claudeVersion)
 const help = execFileSync('claude', ['--help'], { encoding: 'utf8', timeout: 10000 })
-for (const flag of ['--permission-prompts', '--plugin-dir', '--include-partial-messages', '--worktree']) {
+for (const flag of ['--permission-prompts', '--plugin-dir', '--include-partial-messages', '--worktree', '--input-format']) {
   if (!help.includes(flag)) throw new Error(`Actualiza Claude Code: falta ${flag}.`)
 }
 if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_APP_TOKEN) throw new Error('Configura SLACK_BOT_TOKEN y SLACK_APP_TOKEN antes de iniciar Slack v2.')
