@@ -8,8 +8,10 @@ config/*
 !config/README.md
 !config/regent.example.yaml
 
-# Los docs viven en Notion (proyecto regent), no en el repo.
+# Notas locales privadas; solo las guias publicas de adjuntos se versionan aqui.
 docs/*
+!docs/slack-images.md
+!docs/slack-attachments-roadmap.md
 
 # estado local de la instancia (logs, sesiones y worktrees)
 log/

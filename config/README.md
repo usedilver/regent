@@ -70,6 +70,14 @@ authentication with a clean CLI configuration and read-only commands before remo
 an existing login; record CLI versions, never token values. No production deploy or
 resource creation is necessary for this check.
 
+## Slack Images
+
+Image attachments shared as Slack files are sent to Claude as visual input, including
+earlier thread messages and image-only DMs. Initial limits: five images per turn,
+3 MiB each, 10 MiB total, 8000 x 8000 pixels; PNG/JPEG/GIF/WebP only. The app needs
+`files:read`. URLs pasted as text and PDF pages are not processed as images.
+See [image transport](../docs/slack-images.md) and [future formats](../docs/slack-attachments-roadmap.md).
+
 ## Slack Sender Identity
 
 Each turn uses the event sender's Slack user ID and the configured workspace ID,
