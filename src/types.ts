@@ -10,7 +10,7 @@ export interface Inbound {
   team?: string
   transcript?: string
   history?: import('./history.ts').HistorySource
-  intent?: 'ask' | 'patch' | 'task'
+  intent?: import('./intent.ts').Intent
   repo?: string
 }
 
@@ -36,7 +36,7 @@ export interface Run {
   transcript: string | null
   reply_thread: string | null
   reply_channel: string | null
-  intent: 'ask' | 'patch' | 'task'
+  intent: import('./intent.ts').Intent
   state: string
   created_at: number
   result: string | null

@@ -129,6 +129,15 @@ to substitute the tool owner's identity. Do not expose profile email unnecessari
 
 ## Execution Limits
 
+Regent routes turns to ask, patch, task or project. When creating a new independent
+app, use `regent_use_repo` with `intent: "project"` and a handoff before implementing
+it. This also works for the current repo when a turn needs a different profile;
+finish the old turn so the configured model and timeout take effect. Do not try to
+change models through shell arguments. Ordinary questions remain ask; small edits
+are patch and operational/multi-step requests are task. A profile grants time/model,
+not additional authorization. User prefixes /ask, /patch, /task and /project select
+the profile explicitly.
+
 The core state includes wrap_up_at (UTC) and timeout_ms for this turn. Keep the
 investigation proportional to the request; answer the main question before adding
 optional exploration. Pass the deadline to any subagent. At wrap_up_at, stop starting

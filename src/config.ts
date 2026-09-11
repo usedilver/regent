@@ -26,13 +26,13 @@ export const ConfigSchema = z.object({
   }).strict(),
   limits: z.object({
     max_concurrent_runs: z.number().int().min(1).max(32).default(3),
-    max_run_sec: z.object({ ask: positive.default(600), patch: positive.default(1800), task: positive.default(3600) }).strict().prefault({}),
+    max_run_sec: z.object({ ask: positive.default(600), patch: positive.default(1800), task: positive.default(3600), project: positive.default(7200) }).strict().prefault({}),
     stall_sec: positive.default(300),
     cancel_grace_sec: positive.default(60),
   }).prefault({}),
   budget: z.object({ max_cost_usd_per_run: positive.default(8), max_cost_usd_per_user_day: positive.default(25) }).prefault({}),
   session: z.object({ idle_reset_hours: positive.default(24) }).prefault({}),
-  models: z.object({ ask: z.string().nullable().default(null), patch: z.string().nullable().default(null), task: z.string().nullable().default(null) }).strict().prefault({}),
+  models: z.object({ ask: z.string().nullable().default(null), patch: z.string().nullable().default(null), task: z.string().nullable().default(null), project: z.string().nullable().default(null) }).strict().prefault({}),
 }).strict()
 export type Config = z.infer<typeof ConfigSchema>
 

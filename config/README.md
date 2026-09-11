@@ -26,12 +26,12 @@ root `.env`. The retired v1 `workflow.json` and `process.md` are not loaded.
 - `repos.readonly_mcp`: optional additional hook restrictions; not a replacement
   for read-only credentials on the data source.
 - `slack.progress_mode`: `auto` (default) for task cards, `plain` for simple text.
-- `limits`: concurrency, per-turn seconds (`ask`, `patch`, `task`), inactivity
+- `limits`: concurrency, per-turn seconds (`ask`, `patch`, `task`, `project`), inactivity
   timeout (`stall_sec`) and cancellation grace period (`cancel_grace_sec`).
 - `budget`: per-run and daily USD limits, applied only in `auth.mode: team`.
 - `session.idle_reset_hours`: resets eligible idle non-thread sessions; not a
   history retention policy.
-- `models.ask` / `patch` / `task`: optional CLI model identifiers. Null leaves
+- `models.ask` / `patch` / `task` / `project`: optional CLI model identifiers. Null leaves
   selection to Claude Code. `name` labels the server, not the Slack app profile.
 
 ## Shared Agent Credentials (Optional)
@@ -115,12 +115,31 @@ Keep runtime secrets ignored by Git, preserve unrelated keys when editing, and
 never print values to Slack or commit them. These hooks are not a shell sandbox:
 scripts and tools running as the same OS user can access that user's files.
 
+## Turn Profiles
+
+Slack no longer defaults every turn to ask. A deterministic Spanish/English router
+selects project for app creation, patch for edits, task for operational requests,
+and ask for questions. Short continuations inherit the previous turn's profile.
+Repository handoffs preserve the profile. Rules are heuristic, not a semantic guarantee:
+use `/project <request>` (a prefix in the message, not a registered Slack slash command)
+to force project, or /ask, /patch, /task for the other profiles. In Slack, put the
+prefix after the mention. Skills may set `intent` on `regent_use_repo`, including
+the current repo, to restart under the correct configured model before building.
+
+`models.project` and `limits.max_run_sec.project` are active settings again.
+Default project timeout: 7200 seconds (two hours). The other defaults remain 600,
+1800 and 3600 seconds. Set models explicitly in the instance config; public templates
+leave model IDs null. If project is null, it falls back to models.task for older
+instance configurations. Routing does not grant deployment/data permissions.
+The `routing` event records chosen intent, model and timeout without credentials.
+Changing a YAML on this machine does not update the server's ignored config.
+
 ## Removed Inactive Fields
 
 Before upgrading an old instance, remove these keys (they had no runtime effect):
 `policy`, `mcp`, `projects`, `notion`; `repos.default_base_branch`,
 `repos.base_branches`, `repos.test_commands`; `slack.ops_channel`,
-`slack.digest_channel`; `limits.max_run_sec.project_step`; `models.project`.
+`slack.digest_channel`; `limits.max_run_sec.project_step`.
 The schema now rejects them rather than silently suggesting they are supported.
 Branches, test commands, trackers and MCP setup belong to the repository.
 Omitting a supported setting uses its default, not necessarily a disabled state.

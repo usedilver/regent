@@ -14,7 +14,7 @@ const configFile = path.join(root, 'config/regent.yaml')
 // Keep the public template in sync with the runtime schema and documented location.
 const example = loadConfig(path.resolve('config/regent.example.yaml'))
 assert.equal(example.permission_mode, 'bypass')
-assert.deepEqual(Object.keys(example.models).sort(), ['ask', 'patch', 'task'])
+assert.deepEqual(Object.keys(example.models).sort(), ['ask', 'patch', 'project', 'task'])
 let core, store
 try {
   const repo = path.join(root, 'default'), other = path.join(root, 'other repo')
@@ -43,15 +43,15 @@ try {
   }
   assert.equal(config.permission_mode, 'bypass')
   assert.equal(config.slack.progress_mode, 'auto')
-  assert.deepEqual(config.models, { ask: null, patch: null, task: null })
-  assert.deepEqual(config.limits.max_run_sec, { ask: 600, patch: 1800, task: 3600 })
+  assert.deepEqual(config.models, { ask: null, patch: null, task: null, project: null })
+  assert.deepEqual(config.limits.max_run_sec, { ask: 600, patch: 1800, task: 3600, project: 7200 })
   assert.deepEqual(config.repos.agent_env_files, [])
   for (const key of ['policy', 'mcp', 'projects', 'notion']) {
     assert.throws(() => ConfigSchema.parse({ ...config, [key]: {} }), /Unrecognized key/)
   }
   for (const [section, keys] of [
     ['repos', ['default_base_branch', 'base_branches', 'test_commands']],
-    ['slack', ['ops_channel', 'digest_channel']], ['models', ['project']],
+    ['slack', ['ops_channel', 'digest_channel']],
   ]) for (const key of keys) {
     assert.throws(() => ConfigSchema.parse({ ...config, [section]: { ...config[section], [key]: null } }), /Unrecognized key/)
   }

@@ -19,7 +19,7 @@ slack:
   allowed_users: [U_REPLACE] # Recomendado: tu ID. [] abre acceso a usuarios del workspace; indie advierte.
 limits:
   max_concurrent_runs: 3
-  max_run_sec: { ask: 600, patch: 1800, task: 3600 }
+  max_run_sec: { ask: 600, patch: 1800, task: 3600, project: 7200 }
   stall_sec: 300
   cancel_grace_sec: 60
 budget:
@@ -32,3 +32,4 @@ models:
   ask: null
   patch: null
   task: null
+  project: null

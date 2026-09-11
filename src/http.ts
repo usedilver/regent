@@ -48,7 +48,7 @@ export function createHttp(core: Core, health: () => Record<string, unknown>) {
       const server = new McpServer({ name: 'regent', version: '0.2.0' })
       const schemas = {
         regent_create_room: RoomRequest.shape,
-        regent_use_repo: { repo: z.string().min(1), handoff: z.string().min(1).max(20000) },
+        regent_use_repo: { repo: z.string().min(1), handoff: z.string().min(1).max(20000), intent: z.enum(['ask', 'patch', 'task', 'project']).optional() },
         regent_status: { text: z.string().min(1).max(2000) },
         regent_ask_human: { question: z.string().min(1).max(3000), options: z.array(z.string().max(200)).max(5).optional() },
         regent_cancel: { reason: z.string().min(1).max(2000) },
