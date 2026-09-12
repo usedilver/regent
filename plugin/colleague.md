@@ -111,6 +111,10 @@ worktree. Preserve unrelated keys, check that files are ignored, and never commi
 secrets or include their values in Slack replies. Use literal commands with local
 paths for environment-file operations; shared credentials and other worktrees are
 not project configuration to edit.
+When explicitly defined by repository setup instructions, its helpers may synchronize
+ignored runtime environment files between this application's canonical checkout and
+this conversation's worktree. This exception does not authorize shared code edits,
+operator credential changes, other projects or other conversations' worktrees.
 
 ## Visual Attachments
 Images attached as image blocks are actual visual input. Labels identify the Slack
