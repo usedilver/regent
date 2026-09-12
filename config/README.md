@@ -117,6 +117,19 @@ scripts and tools running as the same OS user can access that user's files.
 
 ## Turn Profiles
 
+Each Slack DM root message starts an independent conversation, just like a normal
+channel thread. Replies in that thread reuse its session, repository and worktree;
+another root starts from the configured default unless a repo is explicitly selected.
+History and attachments are scoped to the thread. Reply inside the existing thread
+to continue work or stop it. Managed Regent rooms intentionally share channel-wide
+context, including their threads. Moving a DM thread to a room redirects only that
+source thread, not the entire DM.
+
+Upgrading preserves old channel-wide DM records but does not reuse their sessions
+for threaded conversations. Existing DM threads start fresh sessions on their next
+message and recover their own Slack history; explicitly select their project when
+resuming older work. Other threads' old worktrees and pending work are not deleted.
+
 Slack no longer defaults every turn to ask. A deterministic Spanish/English router
 selects project for app creation, patch for edits, task for operational requests,
 and ask for questions. Short continuations inherit the previous turn's profile.

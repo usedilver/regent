@@ -372,12 +372,15 @@ export function createRoomApi(api: Api, team: string, bot: () => string): Rooms 
 
 export function conversationRoute(store: Store, event: { channel: string; channel_type?: string; thread_ts?: string; ts: string }) {
   const dm = event.channel_type === 'im' || event.channel.startsWith('D')
-  const existing = store.db.prepare("SELECT key FROM conversations WHERE adapter='slack' AND channel=? AND thread IS NULL").get(event.channel)
-  const pending = store.db.prepare("SELECT conversation_key FROM room_transfers WHERE channel=? AND state='pending'").get(event.channel)
+  // Only managed rooms share channel-wide state. Legacy DM sessions must not
+  // capture new threads or redirect the entire inbox after a room transfer.
+  const existing = dm ? undefined : store.db.prepare("SELECT key FROM conversations WHERE adapter='slack' AND channel=? AND thread IS NULL").get(event.channel)
+  const pending = dm ? undefined : store.db.prepare("SELECT conversation_key FROM room_transfers WHERE channel=? AND state='pending'").get(event.channel)
   const room = Boolean(existing) && !dm
-  const key = (existing?.key ?? pending?.conversation_key) as string ?? (dm ? `slack:${event.channel}` : `slack:${event.channel}:${event.thread_ts ?? event.ts}`)
+  const key = (existing?.key ?? pending?.conversation_key) as string ?? `slack:${event.channel}:${event.thread_ts ?? event.ts}`
   const destination = store.conversation(key)
-  return { dm, room, key, pending: Boolean(pending), thread: dm ? undefined : room ? event.thread_ts : event.thread_ts ?? event.ts,
+  return { dm, room, key, pending: Boolean(pending), thread: room ? event.thread_ts : event.thread_ts ?? event.ts,
+    historyThread: room ? undefined : event.thread_ts ?? event.ts,
     redirect: destination && destination.channel !== event.channel ? destination.channel : undefined }
 }
 
@@ -399,14 +402,14 @@ export function createSlack(config: Config) {
   const handle = async (event: any, body: any, mention = false) => {
     if (event.bot_id || event.user === botId || (event.subtype && event.subtype !== 'file_share') || !event.user || !event.ts) return
     if (event.user_team && event.user_team !== config.slack.workspace_team_id) return
-    const { dm, room, key, thread } = conversationRoute(core.store, event)
+    const { dm, room, key, thread, historyThread } = conversationRoute(core.store, event)
     // app_mention and message may have different event IDs for the same message.
     if (!mention && !dm && (event.text ?? '').includes(`<@${botId}>`)) return
     const text = messageBody(event).replaceAll(`<@${botId}>`, '').trim()
     if (!accepts({ dm, mention, author: event.user, text, conversation: core.store.conversation(key) })) return
     const input = { adapter: 'slack' as const, eventId: `message:${event.channel}:${event.ts}`, key, channel: event.channel,
       thread, replyThread: event.thread_ts ?? (room ? undefined : event.ts), team: body.team_id, author: event.user, text: text || 'Revisa el contexto de este hilo.',
-      history: { channel: event.channel, thread: room || (dm && !event.thread_ts) ? undefined : event.thread_ts ?? event.ts,
+      history: { channel: event.channel, thread: historyThread,
         latest: event.ts, trigger: `${event.channel}:${event.ts}` } }
     if (!core.authorized(input)) return
     if (!config.slack.allowed_users.length) {
@@ -437,8 +440,9 @@ export function createSlack(config: Config) {
   app.event('app_mention', async ({ event, body }) => handle(event, body, true))
   app.message(async ({ message, body }) => handle(message, body))
   app.event('agent_session_stopped' as any, async ({ event, body }: any) => {
-    const { key } = conversationRoute(core.store, event)
-    const input = { adapter: 'slack' as const, key, eventId: body.event_id, channel: event.channel, thread: event.channel.startsWith('D') ? undefined : event.thread_ts, team: body.team_id, author: event.user, text: 'stop' }
+    if (!event.thread_ts && !event.ts) return
+    const { key, thread } = conversationRoute(core.store, event)
+    const input = { adapter: 'slack' as const, key, eventId: body.event_id, channel: event.channel, thread, team: body.team_id, author: event.user, text: 'stop' }
     if (core.authorized(input) && core.store.conversation(key)?.channel === event.channel) await core.submit(input)
   })
   app.action(/^regent_question_([0-4])$/, async ({ ack, body, action, respond }: any) => {

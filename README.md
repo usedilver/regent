@@ -101,7 +101,12 @@ handoff y sesión nueva; no cambia el cwd de un proceso en marcha.
 
 En canales y salas el bot actúa solo con @mención; sin mención acepta únicamente
 la respuesta del autor cuando el bot le preguntó algo (o los comandos exactos
-`stop`/`para`/`reset`/`nuevo`). En un DM todo se procesa. En cada intervención se
+`stop`/`para`/`reset`/`nuevo`). En un DM no hace falta mencionar al agente: cada
+mensaje raíz inicia una conversación independiente y las respuestas dentro de ese
+hilo conservan su repo, sesión y worktree. Para continuar o detener un trabajo,
+responde en su hilo; otro mensaje raíz no hereda el proyecto anterior.
+Las salas creadas por Regent mantienen contexto compartido de todo su canal.
+En cada intervención se
 incorporan los mensajes nuevos o modificados del hilo; en conversaciones a raíz
 de canal, también sus hilos. Capturas y mensajes entregados se guardan en SQLite
 para deduplicar entre turnos y reinicios. Las salas se crean solo cuando se piden,

@@ -280,7 +280,7 @@ try {
       assert.match(finishes[1].args[2], /prepare-second/)
     } finally { release(); await f.close() }
   })
-  await check('core: queued DM replies keep their own destination and share one session', async () => {
+  await check('core: legacy queued DM replies retain their original destinations', async () => {
     const f = fixture()
     try {
       await f.core.submit({ ...input('dm-first', 'slack:D1'), channel: 'D1', thread: undefined, replyThread: '101' })

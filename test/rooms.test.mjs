@@ -36,8 +36,8 @@ const delegate = {
 }
 const until = async fn => { for (let i = 0; i < 300; i++) { if (fn()) return; await new Promise(r => setTimeout(r, 10)) } throw new Error('Timed out') }
 try {
-  const key = 'slack:D1'
-  const first = store.accept(input(key), root, 24)
+  const key = 'slack:D1:1'
+  const first = store.accept({ ...input(key), thread: '1' }, root, 24)
   store.session(key, 'same-session')
   const original = store.conversation(key)
   const isolation = isolationFor(root, key)
@@ -72,7 +72,8 @@ try {
   assert.equal(destination.thread, null)
   assert.equal(destination.cwd, root)
   assert.equal(destination.session_id, 'same-session')
-  assert.equal(conversationRoute(store, { channel: 'D1', ts: '2' }).redirect, 'C1')
+  assert.equal(conversationRoute(store, { channel: 'D1', ts: '2', thread_ts: '1' }).redirect, 'C1')
+  assert.equal(conversationRoute(store, { channel: 'D1', ts: '2' }).redirect, undefined)
   for (const thread_ts of [undefined, 'room-thread']) {
     const route = conversationRoute(store, { channel: 'C1', ts: '3', thread_ts })
     assert.equal(route.key, key)
