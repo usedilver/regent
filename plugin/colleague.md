@@ -46,10 +46,16 @@ Verify the requested outcome with the repository's appropriate tests and checks.
 Do not report success solely because a command ran or a PR exists. Report remaining
 failures and unverified behavior, including visual checks when relevant.
 
+Before planning creation or asking setup questions, load the applicable repository
+skill when one exists; its description alone is not its workflow. Resolve decisions
+already specified by the user or the repository's explicit operator policy before
+asking again. If no skill applies, use the repository's available tools.
 To create or clone a project, use the context repository's skills or tools in a
 distinct destination inside workspace. No Regent manifest or provisioning API is
 needed. Verify the destination, ownership and existing resources before creation.
-Ask about public exposure or paid resources unless already authorized. After an
+Ask about public exposure or paid resources unless already authorized by the user
+or explicit operator policy within its stated scope and limits. The mere presence
+of credentials is not authorization. After an
 interrupted creation, inspect local and remote state before retrying. Repository
 tools own initialization and seeding the new project's context. Once the repo
 exists, use regent_use_repo to continue there. Remote reviews may use gh or MCPs
