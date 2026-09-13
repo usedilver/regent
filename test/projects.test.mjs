@@ -85,12 +85,14 @@ try {
       fs.writeFileSync(path.join(isolated.dir, '.env.local'), fs.readFileSync(path.join(isolated.dir, '.env.local'), 'utf8').replace('SECOND=old', 'SECOND=new'))
       assert.equal(fs.readFileSync(path.join(isolated.dir, '.env.local'), 'utf8'), 'FIRST=keep\nSECOND=new\n')
       if (!fs.existsSync(path.join(isolated.dir, '.env.link'))) fs.symlinkSync(path.join(repo, '.env'), path.join(isolated.dir, '.env.link'))
-      for (const tool of ['Read', 'Write', 'Edit']) {
+      for (const tool of ['Write', 'Edit']) {
         assert.ok(permit(tool, { file_path: path.join(repo, '.env') }))
         assert.ok(permit(tool, { file_path: '.env.link' }))
       }
       for (const command of ['vercel env pull .env.local', 'git check-ignore .env.local', 'cat .env.local']) assert.equal(permit('Bash', { command }), null)
-      for (const command of [`cat ${repo}/.env`, 'cat .env.link', 'cd .. && cat .env', 'git -C .. check-ignore .env', 'git -C.. check-ignore .env', 'cat ../.env']) assert.ok(permit('Bash', { command }))
+      for (const file_path of [path.join(repo, '.env'), '.env.link']) assert.equal(permit('Read', { file_path }), null)
+      for (const command of [`cat ${repo}/.env`, 'cat .env.link', 'cd .. && cat .env', 'git -C .. check-ignore .env', 'git -C.. check-ignore .env', 'cat ../.env',
+        `chmod 600 ${repo}/.env && stat ${repo}/.env`, 'grep -oE "^[A-Z_]+=" .env.local']) assert.equal(permit('Bash', { command }), null)
       assert.ok(permit('Write', { file_path: path.join(repo, 'secret-alias') }))
       assert.ok(permit('Write', { file_path: path.join(repo, 'broken-link') }))
       for (const command of ['git add answer.txt', 'git commit -m fix', 'gh pr create', 'pnpm test', 'ncard create task']) {

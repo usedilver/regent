@@ -103,13 +103,13 @@ References: [users.info](https://docs.slack.dev/reference/methods/users.info/),
 
 ## Project Environment Files
 
-Agents may read and edit project `.env` files inside their own worktree, including
-`.env.local`. The hook allows literal shell commands referencing those files, such
-as `vercel env pull .env.local` and `git check-ignore .env.local`. Commands involving
-env paths and shell operators, expansion, or directory changes require separate
-literal calls; the hook cannot safely resolve their targets. Shared checkout paths,
-other worktrees and symlink escapes remain denied for explicit env file accesses.
-Claude credentials remain blocked. Repository permission rules still apply in native mode.
+The hook does not impose special path or shell-operator restrictions on `.env`
+files, including `.env.local`. Reads and shell commands can access files outside
+the worktree when runtime permissions allow it. General Write/Edit confinement,
+including symlink escape checks, remains unchanged. Claude credential guards and
+repository permission rules in native mode still apply.
+This is not secret isolation between projects: in bypass mode the same OS user
+can read other checkouts' env files. Use OS-level isolation for untrusted projects.
 
 Keep runtime secrets ignored by Git, preserve unrelated keys when editing, and
 never print values to Slack or commit them. These hooks are not a shell sandbox:
