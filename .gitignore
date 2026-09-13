@@ -9,9 +9,7 @@ config/*
 !config/regent.example.yaml
 
 # Notas locales privadas; solo las guias publicas de adjuntos se versionan aqui.
-docs/*
-!docs/slack-images.md
-!docs/slack-attachments-roadmap.md
+docs
 
 # estado local de la instancia (logs, sesiones y worktrees)
 log/
