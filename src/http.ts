@@ -4,6 +4,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { z } from 'zod'
 import type { Core } from './core.ts'
 import { RoomRequest } from './rooms.ts'
+import { StatusRequest } from './progress.ts'
 
 export function createHttp(core: Core, health: () => Record<string, unknown>) {
   return http.createServer(async (request, response) => {
@@ -49,7 +50,7 @@ export function createHttp(core: Core, health: () => Record<string, unknown>) {
       const schemas = {
         regent_create_room: RoomRequest.shape,
         regent_use_repo: { repo: z.string().min(1), handoff: z.string().min(1).max(20000), intent: z.enum(['ask', 'patch', 'task', 'project']).optional() },
-        regent_status: { text: z.string().min(1).max(2000) },
+        regent_status: StatusRequest,
         regent_ask_human: { question: z.string().min(1).max(3000), options: z.array(z.string().max(200)).max(5).optional() },
         regent_cancel: { reason: z.string().min(1).max(2000) },
       }

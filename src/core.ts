@@ -12,7 +12,7 @@ import { Store, redact } from './store.ts'
 import type { Conversation, Inbound, Output, Run, Rooms } from './types.ts'
 import { RoomTransfers } from './rooms.ts'
 import { denial } from '../plugin/hooks/policy.mjs'
-import { progressText, interruptedText } from './progress.ts'
+import { progressText, interruptedText, StatusRequest } from './progress.ts'
 import { resolveRepository, isolationFor, repositoryRequest } from './repository.ts'
 import { History, type HistoryLoader } from './history.ts'
 
@@ -137,11 +137,11 @@ export class Core {
       console.error(`[v2] entrega fallida run=${active.run.id}: ${redact((error as Error).message)}`)
     })
   }
-  refreshProgress(active: Active): void {
+  refreshProgress(active: Active, heartbeat = false): void {
     this.publish(active, async () => {
       if (active.waiting || active.cancelled || this.stopping || !active.conversation) return
       const c = active.conversation
-      if (this.output.animates?.(c)) return
+      if (this.output.animates?.(c) && (!heartbeat || Date.now() - active.lastStatusAt < 45000)) return
       const text = active.wrapUpAt && Date.now() >= active.wrapUpAt ? 'Queda poco tiempo en este turno; los resultados incompletos quedaran pendientes.' : progressText(active.lastTool)
       if (this.output.progress) await this.output.progress(c, active.run, text)
       else await this.output.notice(c, text)
@@ -186,7 +186,7 @@ export class Core {
       // Evaluate after status delivery and on every tick: failed status and room moves
       // can change whether this conversation has a native indicator during the run.
       this.refreshProgress(active)
-      heartbeat = setInterval(() => this.refreshProgress(active), 45000)
+      heartbeat = setInterval(() => this.refreshProgress(active, true), 45000)
       const onEvent = (event: RunnerEvent) => {
         this.store.event(run.id, event.kind, event.kind === 'text_delta' ? { characters: event.text.length } : event)
         if (event.kind === 'init' && !active.contextChanged) this.store.session(conversation.key, event.sessionId)
@@ -310,10 +310,11 @@ export class Core {
       return { repo: target, switching: true, instruction: 'Termina el turno. Regent continuara con una sesion nueva y el entorno del repositorio seleccionado.' }
     }
     if (name === 'regent_status') {
-      active.lastTool = redact(args.text)
+      const message = StatusRequest.parse(args)
+      const text = redact(message.text ?? message.status!)
       if (Date.now() - active.lastStatusAt < 3000) return { throttled: true }
+      await this.output.notice(conversation, text)
       active.lastStatusAt = Date.now()
-      await this.output.notice(conversation, active.lastTool)
       return { ok: true }
     }
     if (name === 'regent_ask_human') {

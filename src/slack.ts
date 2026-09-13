@@ -153,10 +153,13 @@ export class SlackOutput implements Output {
       console.error(`[slack v2] setStatus ${status}: ${redact((error as Error).message)}`)
     }
   }
-  /** Surfaces without a native indicator (rooms): post one "working…" message and refresh it in
+  /** When native activity is unavailable: post one "working…" message and refresh it in
    * place on each tick, so there are no repeated posts. clearProgress removes it when done. */
   async progress(c: Conversation, run: Run, text: string): Promise<void> {
-    if (this.activities?.get(run.id)) { await this.clearProgress(run); return }
+    const activity = this.activities?.get(run.id)
+    if (activity?.ts && activity.delivered?.channel === c.channel && activity.delivered?.thread === this.anchor(c)) {
+      await this.clearProgress(run); return
+    }
     let existing = this.progressMessage(run.id)
     if (existing && existing.channel !== c.channel) {
       await this.clearProgress(run)
@@ -200,7 +203,7 @@ export class SlackOutput implements Output {
   async recoverProgress(): Promise<void> {
     await this.activities?.flush()
     if (!this.store) return
-    const rows = this.store.db.prepare("SELECT p.run_id FROM slack_progress p LEFT JOIN runs r ON r.id=p.run_id LEFT JOIN conversations c ON c.key=r.conversation_key WHERE r.id IS NULL OR r.state!='running' OR c.channel!=p.channel OR EXISTS(SELECT 1 FROM activity_progress a WHERE a.run_id=p.run_id)").all()
+    const rows = this.store.db.prepare("SELECT p.run_id FROM slack_progress p LEFT JOIN runs r ON r.id=p.run_id LEFT JOIN conversations c ON c.key=r.conversation_key WHERE r.id IS NULL OR r.state!='running' OR c.channel!=p.channel OR EXISTS(SELECT 1 FROM activity_progress a WHERE a.run_id=p.run_id AND json_extract(a.data,'$.ts') IS NOT NULL AND json_extract(a.data,'$.delivered.channel')=p.channel AND json_extract(a.data,'$.delivered')=json_extract(a.data,'$.desired'))").all()
     for (const row of rows) await this.clearProgress({ id: row.run_id } as Run)
   }
   async delta(c: Conversation, run: Run, text: string): Promise<void> {

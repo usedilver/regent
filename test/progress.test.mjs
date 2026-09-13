@@ -8,9 +8,11 @@ import { ConfigSchema } from '../src/config.ts'
 import { SlackOutput } from '../src/slack.ts'
 import { DurableOutput } from '../src/delivery.ts'
 import { interruptedText } from '../src/progress.ts'
+import { createHttp } from '../src/http.ts'
+import { SlackActivities } from '../src/slack-activities.ts'
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'regent-progress-'))
-let store, core, durable
+let store, core, durable, server
 const until = async fn => { for (let i = 0; i < 300; i++) { if (fn()) return; await new Promise(r => setTimeout(r, 10)) } throw new Error('Timed out') }
 const calls = []
 let failStatus = false, failDelete = false, deleted = false
@@ -83,6 +85,67 @@ try {
   const active = core.active.get(input.key)
   await active.output
   assert.equal(calls.filter(c => c.method === 'chat.postMessage').length, 0, 'Two status calls must not produce duplicate ACKs')
+  server = createHttp(core, () => ({}))
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  const tool = async args => {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/tools`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${active.token}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'regent_status', arguments: args } }),
+    })
+    return response.json()
+  }
+  for (const args of [{ text: 'Progreso text' }, { status: 'Progreso alias' }, { text: 'Preferido', status: 'Alternativo' }]) {
+    active.lastStatusAt = 0
+    const result = await tool(args)
+    assert.equal(result.error, undefined)
+    assert.equal(result.result.isError, undefined)
+    assert.equal(calls.at(-1).args.text, args.text ?? args.status)
+  }
+  const count = calls.length
+  assert.match(JSON.stringify(await tool({ status: 'Demasiado pronto' })), /throttled/)
+  for (const args of [{}, { status: '' }, { text: '   ' }, { text: 42 }, { status: 'x'.repeat(2001) }]) {
+    const result = await tool(args)
+    assert.ok(result.error || result.result.isError, 'Invalid status must return an actionable MCP error')
+  }
+  assert.equal(calls.length, count)
+  await assert.rejects(() => core.tool(active.token, 'regent_status', {}), /Mensaje de progreso/)
+  await new Promise(resolve => server.close(resolve))
+  server = undefined
+  calls.length = 0
+  // Native animation is not enough when the model posts no narrative updates.
+  core.refreshProgress(active, true)
+  await active.output
+  assert.equal(calls.length, 0, 'A recent status suppresses the heartbeat in animated threads')
+  active.lastStatusAt = Date.now() - 46000
+  core.refreshProgress(active, true)
+  await active.output
+  assert.ok(slack.progressMessage(active.run.id))
+  const posts = calls.filter(c => c.method === 'chat.postMessage').length
+  core.refreshProgress(active, true)
+  await active.output
+  assert.equal(calls.filter(c => c.method === 'chat.postMessage').length, posts, 'Heartbeat updates one message')
+
+  const activities = new SlackActivities(async () => { throw new Error('simulated transport failure') }, store)
+  slack.activities = activities
+  activities.event(active.conversation, active.run, { kind: 'tool_use', id: 'bash1', name: 'Bash', input: {} })
+  await activities.flush()
+  await slack.recoverProgress()
+  assert.ok(slack.progressMessage(active.run.id), 'An undelivered activity must not erase the fallback')
+  core.refreshProgress(active, true)
+  await active.output
+  assert.ok(slack.progressMessage(active.run.id))
+  const record = activities.get(active.run.id)
+  record.ts = 'delivered-activity'
+  record.delivered = record.desired
+  record.sent = record.revision
+  activities.save(active.run.id, record)
+  await slack.recoverProgress()
+  assert.equal(slack.progressMessage(active.run.id), undefined, 'Delivered activity replaces the fallback')
+  slack.activities = undefined
+  store.db.prepare('DELETE FROM activity_progress').run()
+  calls.length = 0
+  console.log('  OK MCP text/status alias, validation, throttling, native heartbeat and undelivered activity fallback')
   failStatus = true
   await slack.status(active.conversation, 'processing')
   core.refreshProgress(active)
@@ -136,6 +199,7 @@ try {
   assert.equal(messages.filter(text => text.includes('limite de tiempo')).length, 1)
   console.log('  OK closing margin, one warning, blocked new tools, communication allowed and honest partial result')
 } finally {
+  if (server) await new Promise(resolve => server.close(resolve))
   if (core && !core.stopping) await core.close()
   if (durable) await durable.close()
   if (store) store.close()
