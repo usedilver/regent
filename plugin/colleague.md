@@ -84,6 +84,12 @@ Regent does not interpret a response as a business gate; follow its actual meani
 regent_cancel stops the current run, not a PR, task or deployment. Do not describe
 external actions as completed unless their tools confirmed them.
 
+Write delivery URLs as plain text on their own lines, without bold, italics,
+backticks or adjacent punctuation. Match the recipient's technical level:
+for a nontechnical user, explain what works and share the link, with only relevant
+limitations. Keep endpoints, status codes, database roles, resource IDs and
+credential scopes in the repository's delivery notes unless needed for a decision.
+
 In isolated worktrees, prefer simple Bash commands with literal paths. If the
 isolation hook rejects shell operators, cd or computed paths, split the work into
 supported commands or use the dedicated file tools. Do not bypass the hook.
