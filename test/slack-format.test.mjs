@@ -71,4 +71,17 @@ await retry.finish(c, { id: 'retry' }, big).catch(() => {})
 await retry.finish(c, { id: 'retry' }, big)
 assert.deepEqual(posted, bigPages)
 
+// A streamed reply above chat.update's 4000-char cap retires the placeholder and posts fresh,
+// instead of failing forever on chat.update (the msg_too_long dead-letter loop).
+const wideCalls = []
+const wideOut = new SlackOutput(async (method, args) => { wideCalls.push({ method, args }); return { ts: 'S1' } }, 5)
+await wideOut.delta(c, { id: 'wide', author: 'U1' }, 'Progreso\n')
+await new Promise(resolve => setTimeout(resolve, 25))
+const wide = ('palabra '.repeat(700)).trim()
+assert.ok(wide.length > 3800 && replyPayloads(wide).length === 1)
+await wideOut.finish(c, { id: 'wide' }, wide)
+assert.ok(wideCalls.some(k => k.method === 'chat.delete' && k.args.ts === 'S1'))
+assert.ok(wideCalls.some(k => k.method === 'chat.postMessage' && k.args.blocks[0].type === 'markdown' && k.args.blocks[0].text === wide))
+assert.ok(!wideCalls.some(k => k.method === 'chat.update' && typeof k.args.text === 'string' && k.args.text.length > 3800))
+
 console.log('Slack Markdown payloads, final stream updates and literal fallback passed')

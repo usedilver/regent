@@ -12,6 +12,10 @@ import { redact, type Store } from './store.ts'
 import type { Rooms } from './types.ts'
 import type { HistoryMessage, HistorySource } from './history.ts'
 
+// chat.update caps its text at 4000 chars (chat.postMessage does not); a bigger page can only
+// land as a fresh post. Kept under that with a margin for multibyte counting differences.
+const CHAT_UPDATE_LIMIT = 3800
+
 export async function gatherHistory(api: Api, source: HistorySource, botId: string, readFile: (file: any) => Promise<string>, signal?: AbortSignal, includeOwn = false): Promise<HistoryMessage[]> {
   const messages = new Map<string, any>()
   const stamp = (ts: string) => { const [seconds, fraction = ''] = ts.split('.'); return BigInt(seconds) * 1000000n + BigInt(fraction.padEnd(6, '0')) }
@@ -268,14 +272,18 @@ export class SlackOutput implements Output {
     const pages = replyPayloads(text)
     for (let i = 0; i < pages.length; i++) {
       const saved = this.finishPage(run.id, i)
-      if (saved) { await this.sendReply('chat.update', { channel: saved.channel, ts: saved.ts, ...pages[i] }); continue }
-      if (i === 0 && firstTs) {
+      // Already delivered on a prior attempt: the finish text is identical across retries, so the
+      // page holds the final content — skip it. Re-updating would also breach chat.update's cap.
+      if (saved) continue
+      if (i === 0 && firstTs && pages[i].text.length <= CHAT_UPDATE_LIMIT) {
         await this.sendReply('chat.update', { channel, ts: firstTs, ...pages[i] })
         this.recordFinishPage(run.id, i, channel, firstTs)
-      } else {
-        const result = await this.sendReply('chat.postMessage', { channel, thread_ts: thread ?? undefined, unfurl_links: false, unfurl_media: false, ...pages[i] })
-        if (result?.ts) this.recordFinishPage(run.id, i, channel, result.ts)
+        continue
       }
+      // The streamed placeholder cannot hold a reply above chat.update's limit; retire it and post fresh.
+      if (i === 0 && firstTs) { await this.api('chat.delete', { channel, ts: firstTs }).catch(() => {}); firstTs = undefined }
+      const result = await this.sendReply('chat.postMessage', { channel, thread_ts: thread ?? undefined, unfurl_links: false, unfurl_media: false, ...pages[i] })
+      if (result?.ts) this.recordFinishPage(run.id, i, channel, result.ts)
     }
     this.clearFinishPages(run.id)
     this.streams.delete(run.id)
