@@ -10,6 +10,19 @@ export function redact(text: string): string {
     .replace(/((?:password|api[_-]?key|secret|access[_-]?token)\s*["']?\s*[:=]\s*["']?)[^\s"',}]+/gi, '$1[REDACTED]')
 }
 
+// Redact string values in place, never the serialized JSON: redacting the envelope can
+// corrupt structure (an escaped quote inside a matched value) and make JSON.parse fail forever.
+export function redactDeep<T>(value: T): T {
+  if (typeof value === 'string') return redact(value) as T
+  if (Array.isArray(value)) return value.map(redactDeep) as T
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value)) out[k] = redactDeep(v)
+    return out as T
+  }
+  return value
+}
+
 export class Store {
   db: DatabaseSync
   owner = randomUUID()
@@ -222,7 +235,7 @@ export class Store {
     })
   }
   event(id: string, kind: string, data: unknown): void {
-    this.db.prepare('INSERT INTO events(run_id,kind,data,created_at) VALUES(?,?,?,?)').run(id, kind, redact(JSON.stringify(data)), Date.now())
+    this.db.prepare('INSERT INTO events(run_id,kind,data,created_at) VALUES(?,?,?,?)').run(id, kind, JSON.stringify(redactDeep(data)), Date.now())
   }
   recordUsage(id: string, cost: number, tokens: unknown): void {
     if (!Number.isFinite(cost) || cost < 0) throw new Error('Costo invalido en result de Claude.')
