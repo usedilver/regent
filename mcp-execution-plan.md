@@ -160,7 +160,8 @@ conversacion. La ruta del repo es relativa al workspace del servidor, no al Mac.
 | Arranque local y configuracion para Claude Code | Completada | Node 22.20.0, Claude Code 2.1.305, endpoint loopback autenticado y cuatro herramientas verificadas usando el conector stdio; sin ejecutar trabajos |
 | Instalar configuracion local de Claude Desktop | Completada | Entrada `regent` agregada al JSON privado conservando los conectores anteriores; catalogo actualizado cargado y herramientas verificadas desde la interfaz |
 | Descubrimiento y delegacion desde el chat | Implementada | Instrucciones MCP reenviadas por stdio, herramienta de contexto y repo opcional; descubrimiento e inicio de run verificados desde Desktop con la skill del cliente |
-| Skill de delegacion del cliente Desktop | Implementada | `client-skills/regent-code/SKILL.md`, validada e importada en Personalizacion > Skills; separada de las skills de cada repo |
+| Skill de delegacion del cliente Desktop | Implementada | Instalada originalmente como `regent-code`; su fuente se movio a `client-plugin/skills/trabajar/SKILL.md` al agrupar el plugin |
+| Plugin del cliente | Parcial | Manifiesto, skill `trabajar`, MCP HTTP configurable y ZIP sin secretos; validacion del formato aprobada, instalacion integrada en Desktop pendiente |
 | Smoke real de contexto en local | Completada | Run `937a3eb0-cd01-49c6-b08b-29b5d35bda24`: Claude Code real, skill local y archivos AGENTS leidos; sin cambios de codigo ni consultas de candidatos |
 | Configurar y actualizar instancia AWS | Pendiente | Publicar codigo revisado, habilitar principales y verificar endpoint sin revelar tokens |
 | Preparar repositorio Dashboards en el servidor | Pendiente | Checkout actualizado, skill disponible y fuentes/MCP del repo configurados |
@@ -299,11 +300,57 @@ La captura local `tmp/regent-desktop-proof.png` conserva la respuesta de la app;
 los artefactos de prueba no se versionan. Continuar/cancelar desde la UI y el CRUD
 real siguen pendientes; no se infieren de este smoke de lectura.
 
-Para distribuir la skill, comprimir su carpeta conservando `regent-code/SKILL.md`
-en el ZIP e importarla en Personalizacion > Skills > Agregar Skill > Subir Skill.
-El artefacto local de esta prueba esta en `tmp/regent-code-skill.zip` (ignorado).
-La skill interna `new-dashboard` permanece en el repo del dashboard y el agente
-ejecutor sigue siendo quien lee su cuerpo y realiza cambios de codigo.
+El artefacto independiente de esta prueba permanece en `tmp/regent-code-skill.zip`
+(ignorado). Su fuente paso a `client-plugin/skills/trabajar/SKILL.md`. La instalacion
+independiente de Desktop se conserva hasta probar el plugin integrado, para no
+reemplazar una conexion verificada por un paquete que aun no tiene endpoint remoto.
+`new-dashboard` permanece en el repo del dashboard y su cuerpo lo lee el ejecutor.
+
+## Plugin del cliente y fiabilidad para el equipo
+
+`client-plugin/` agrupa la skill y la declaracion HTTP de Regent. El manifiesto pide
+endpoint y token personal con `userConfig`, marcando el token como sensible. El ZIP
+se genera con `pnpm plugin:pack` mediante una lista explicita de archivos: manifiesto,
+MCP, skill, guia y licencia. No contiene entornos, tokens, runtime ni rutas de esta
+maquina. La fuente del protocolo del ejecutor continua en `plugin/`; son paquetes
+distintos y el ejecutor no carga este plugin de delegacion como su protocolo.
+
+El flujo tiene tres decisiones diferentes:
+
+1. **Entrada del cliente.** Elegir la skill o `/regent:trabajar` carga la guia de
+   delegacion explicitamente. La seleccion por texto libre sigue siendo del modelo,
+   incluso dentro de un plugin; no es una regla ejecutada por el runtime.
+2. **Destino del servidor.** `repo` explicito prevalece; sin el se usa
+   `repos.default_repo`. En la prueba local es `data/talently-dashboards`. El default
+   no obliga a Desktop a llamar Regent ni sustituye resolver un proyecto ambiguo.
+3. **Implementacion.** `plugin/colleague.md` se agrega al prompt de Claude Code
+   despues de aceptar el trabajo. Tiene guia generica de contexto, no un selector
+   especial de dashboards. Las skills y fuentes del proyecto elegido definen el
+   cambio concreto. Cambiar este prompt no repara una llamada que nunca llego.
+
+La autenticacion, propiedad de conversaciones, validacion de rutas y deduplicacion
+se ejecutan en codigo y tienen pruebas automatizadas. La eleccion del flujo por el
+modelo y que cada resultado satisfaga el pedido necesitan evaluacion real. Actualmente
+los principales autorizados tienen acceso al workspace configurado; no existen
+listas de repos permitidos por persona. El default es un destino, no una barrera
+de permisos. Para una instancia dedicada a un solo proyecto, limitar su workspace
+al propio repo reduce el alcance sin introducir reglas de negocio en Regent.
+
+El ZIP extraido y la skill pasan sus validadores; se comprobo integridad y salida
+reproducible. Los avisos de icono y politica de privacidad corresponden al directorio
+publico, donde este paquete no se ha presentado. Estas comprobaciones no validan
+la pantalla `userConfig` de Desktop ni su conexion. No se instala ni anuncia al
+equipo como reemplazo completo todavia.
+
+Para completar esa entrega faltan el endpoint remoto accesible desde Anthropic y
+su autenticacion de cliente. Luego hay que probar en un cliente limpio la instalacion,
+entrada explicita, pedido natural, proyecto ambiguo, seguimiento y reconexion tras
+interrupcion, asi como el cambio real de dashboard con sus pruebas. Solo entonces
+retirar la skill independiente y el conector de prueba duplicados. No se abrio un
+tunel ni se desplego AWS como parte de este empaquetado.
+
+Referencia de compatibilidad: [plugins con MCP local y remoto](https://support.claude.com/en/articles/11725091-when-to-use-desktop-and-web-connectors).
+Configuracion: [manifiesto y userConfig](https://code.claude.com/docs/en/plugins-reference).
 
 ## Fuera de esta entrega
 

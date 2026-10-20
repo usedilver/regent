@@ -76,12 +76,20 @@ distintas. Usa el conector stdio incluido para Desktop; esta entrega no implemen
 El [plan de ejecucion y configuracion](mcp-execution-plan.md) documenta herramientas,
 instalacion en Desktop, pruebas y validaciones pendientes del servidor.
 
-Para pedidos de codigo en lenguaje de negocio, importar tambien la skill cliente
-[regent-code](client-skills/regent-code/SKILL.md) en Personalizacion > Skills. Ayuda a
-delegar al ejecutor antes de intentar resolver la tarea con conectores de datos del
-chat. Es independiente de las skills del repositorio: estas siguen cargandose en
-Claude Code. Un servidor conectado y sus instrucciones MCP no garantizan que el
-modelo lo elija frente a otros plugins instalados.
+El [plugin cliente](client-plugin/) agrupa la skill `trabajar` y el MCP remoto.
+Se empaqueta con `pnpm plugin:pack` en `tmp/regent-plugin.zip`, sin credenciales,
+rutas de esta maquina ni instrucciones de negocio. La entrada explicita es
+`/regent:trabajar`; tambien permite descubrimiento por lenguaje natural, cuya
+seleccion no se garantiza frente a otros plugins. Las skills de implementacion
+siguen en cada repositorio y las carga Claude Code.
+
+El manifiesto solicita endpoint y token personal mediante `userConfig` (token
+sensible). Ese esquema y el ZIP estan validados en Claude Code; la configuracion
+y conexion del plugin en el chat Desktop aun requieren prueba real. Para el chat
+se necesita un endpoint remoto accesible desde Anthropic: incluir el puente stdio
+local dentro del plugin no sustituye la conexion local de Desktop. Conserva esa
+conexion y la skill independiente ya instalada durante la prueba local. No repartir
+este paquete al equipo como una instalacion completa hasta validar el flujo remoto.
 
 Cuando Regent necesita una decisión, puede mostrar hasta cinco opciones con botones
 en el hilo. También puedes responder con tus propias palabras. La respuesta continúa

@@ -1,5 +1,5 @@
 ---
-name: regent-code
+name: trabajar
 description: Crea, modifica o elimina codigo en proyectos existentes mediante Regent. Usar para pedidos como crear un dashboard para una empresa, agregar una vista o grafico, cambiar una pantalla, corregir una app o quitar una funcionalidad cuando el cliente tiene conectado Regent. Primero descubre el repositorio con regent_context y delega la implementacion al agente del servidor. No aplica a una consulta de datos, un reporte o una visualizacion aislada que no requiera cambiar una aplicacion.
 ---
 
@@ -9,11 +9,20 @@ Esta skill conecta el pedido de negocio del chat con el agente que tiene acceso 
 repositorio. No contiene reglas de ningun proyecto: esas instrucciones y skills
 permanecen en el repo y las carga el ejecutor.
 
+El usuario puede elegir esta skill desde el plugin o invocarla con
+`/regent:trabajar` y describir el resultado que necesita. Esa entrada explicita
+evita depender solamente de que el chat detecte la skill por su descripcion.
+
 ## Descubrir el destino
 
 Busca y llama `regent_context` del conector Regent. Si el usuario indico un repo,
 pasalo; si no, descubre el predeterminado sin pedir rutas tecnicas al usuario.
 Si el destino sigue siendo ambiguo, aclara cual aplicacion quiere cambiar.
+
+Explica en una frase que proyecto se encontro y que vas a revisar o cambiar alli.
+No pidas al usuario nombres de tablas, rutas ni herramientas para poder continuar.
+El repo predeterminado es un destino configurable, no prueba que todos los pedidos
+pertenezcan a ese proyecto. Conserva un destino explicito o aclara una ambiguedad real.
 
 Un pedido de crear un dashboard puede significar extender el dashboard existente.
 Comprueba primero el contexto encontrado; no asumas que requiere otra app ni un

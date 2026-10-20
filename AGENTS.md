@@ -11,8 +11,11 @@ Do not reintroduce mandatory boards, tickets, or approval pipelines.
   `mcp.ts` exposes external jobs, `mcp-server.ts` runs without Slack, and
   `mcp-client.ts` bridges Claude Desktop stdio to the authenticated HTTP endpoint.
 - `plugin/`: CLI protocol and permission hooks, not business-specific skills.
-- `client-skills/`: generic host-client delegation skills, imported into Desktop;
-  repository-specific implementation skills remain in their own projects.
+- `client-plugin/`: distributable host plugin with a delegation skill and remote
+  MCP configuration; separate from the executor protocol in `plugin/`. Project
+  implementation skills remain in their own repositories.
+- `scripts/package-client-plugin.py`: packages only the public client manifest,
+  MCP configuration, skill, guide and license into the ignored `tmp/regent-plugin.zip`.
 - `test/`: executable tests, fake Claude process, and IPC fixtures.
 - `config/`: public `regent.example.yaml`, configuration guide, and ignored local
   `regent.yaml`. Root `.env.example` documents service environment variables.

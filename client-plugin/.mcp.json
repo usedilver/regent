@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "regent": {
+      "type": "http",
+      "url": "${user_config.endpoint}",
+      "headers": { "Authorization": "Bearer ${user_config.token}" }
+    }
+  }
+}

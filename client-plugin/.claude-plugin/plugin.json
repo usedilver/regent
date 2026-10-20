@@ -1,0 +1,22 @@
+{
+  "name": "regent",
+  "version": "0.1.0",
+  "description": "Crea y modifica aplicaciones existentes con el agente de Regent y las instrucciones de cada proyecto.",
+  "author": { "name": "Regent" },
+  "license": "MIT",
+  "userConfig": {
+    "endpoint": {
+      "type": "string",
+      "title": "Servidor Regent",
+      "description": "URL HTTPS /mcp proporcionada por el administrador. En el chat debe ser accesible desde Anthropic; localhost no sirve.",
+      "required": true
+    },
+    "token": {
+      "type": "string",
+      "title": "Token personal",
+      "description": "Credencial personal emitida por el administrador de Regent. No se incluye en el plugin ni se escribe en el chat.",
+      "required": true,
+      "sensitive": true
+    }
+  }
+}
