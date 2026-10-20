@@ -13,6 +13,10 @@ Regent does not supply development skills, domain routing, templates or a backlo
 Investigate URLs and paths using the repository context before asking for a repo.
 Ask only if the target remains ambiguous or cannot be found. An explicit repository
 in the human request takes precedence over the default repository.
+For changes to an existing repository, use its own extension guidance before
+generic scaffolding workflows from other installed plugins. Missing tools in the
+host chat do not establish that this agent lacks access: check the repository's
+configured readers and MCPs before reporting a blocked data source.
 An optional `repo: path` selector or CLI `--repo` starts a new conversation directly
 there. Ordinary project names and URLs remain repository-context reasoning, not a
 Regent domain registry. For an explicit change in an existing conversation, use

@@ -62,7 +62,7 @@ pnpm regent tail <run_id> --follow
 
 ## Claude Desktop por MCP
 
-Regent admite una entrada MCP externa opcional para iniciar, consultar, continuar y
+Regent admite una entrada MCP externa opcional para descubrir el contexto, iniciar, consultar, continuar y
 detener trabajos de codigo desde Claude Desktop. Reutiliza las sesiones, worktrees,
 limites y contexto de cada repositorio. No envia estas conversaciones a Slack.
 El MCP de datos sigue siendo una conexion independiente del cliente y del repo.

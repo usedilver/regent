@@ -6,7 +6,7 @@ import http from 'node:http'
 import { ConfigSchema, assertAuth, authNotice, defaultRepoDir } from '../src/config.ts'
 import { Store, redact } from '../src/store.ts'
 import { Core } from '../src/core.ts'
-import { startRunner, runnerArgs, assertIsolationVersion } from '../src/runner.ts'
+import { startRunner, runnerArgs, assertIsolationVersion, normalizeEvent } from '../src/runner.ts'
 import { createHttp } from '../src/http.ts'
 import { SlackOutput, accepts, gatherThread, readSlackFile } from '../src/slack.ts'
 import { DurableOutput } from '../src/delivery.ts'
@@ -36,6 +36,15 @@ function fixture(extra = {}) {
 }
 
 try {
+  await check('runner init exposes cwd and loaded skills/agents/tools for context diagnostics', () => {
+    const event = normalizeEvent({ type: 'system', subtype: 'init', session_id: 'fixture', cwd: '/fixture/worktree',
+      skills: ['new-dashboard'], agents: ['reviewer'], tools: ['Read'], apiKey: 'not-an-event-field' })[0]
+    assert.equal(event.cwd, '/fixture/worktree')
+    assert.deepEqual(event.skills, ['new-dashboard'])
+    assert.deepEqual(event.agents, ['reviewer'])
+    assert.deepEqual(event.tools, ['Read'])
+    assert.equal(event.apiKey, undefined)
+  })
   await check('repo context handoff restarts without old session or repo environment', async () => {
     const repo = fs.mkdtempSync(path.join(tmp, 'selected-'))
     fs.mkdirSync(path.join(repo, '.git'))

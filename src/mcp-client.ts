@@ -15,7 +15,7 @@ async function main() {
   const remote = new Client({ name: 'regent-desktop', version: '0.3.0' })
   try {
     await remote.connect(new StreamableHTTPClientTransport(url, { requestInit: { headers: { Authorization: `Bearer ${token}` } } }))
-    const local = new Server({ name: 'regent', version: '0.3.0' }, { capabilities: { tools: {} } })
+    const local = new Server({ name: 'regent', version: '0.3.0' }, { capabilities: { tools: {} }, instructions: remote.getInstructions() })
     local.setRequestHandler(ListToolsRequestSchema, (request, extra) => remote.listTools(request.params, { signal: extra.signal }))
     local.setRequestHandler(CallToolRequestSchema, (request, extra) => remote.callTool(request.params, undefined, { signal: extra.signal }))
     local.onclose = () => { void remote.close() }

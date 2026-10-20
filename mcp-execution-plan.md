@@ -43,7 +43,8 @@ ni otra dependencia. Desktop coordina y Claude Code ejecuta el codigo en el serv
 
 | Herramienta | Entrada principal | Resultado |
 | --- | --- | --- |
-| `regent_start` | `repo`, `prompt`, `request_id` UUID, `intent` opcional | `conversation_id`, `run_id`; comienza sin esperar a terminar el trabajo |
+| `regent_context` | `repo` opcional | Repo predeterminado/seleccionado e inventario de instrucciones, skills, agentes y MCP declarados; no ejecuta el modelo |
+| `regent_start` | `prompt`, `request_id` UUID, `repo` e `intent` opcionales | `conversation_id`, `run_id`; comienza sin esperar a terminar el trabajo y usa el repo predeterminado si se omite |
 | `regent_get_run` | `run_id` | Estado, resultado, ultimo run de la conversacion, progreso y pregunta pendiente |
 | `regent_continue` | `conversation_id`, `prompt`, UUID nuevo en `request_id` | Nuevo run en la misma sesion, repo y worktree |
 | `regent_cancel` | `conversation_id` | Pausa la conversacion, detiene el proceso activo y conserva codigo y cola |
@@ -135,13 +136,14 @@ es privado y contiene el token personal. El conector no escribe logs en stdout p
 stdout transporta MCP. HTTPS es obligatorio salvo HTTP hacia loopback, util para un
 servidor local o tunel. No acepta credenciales ni tokens dentro de la URL.
 
-Reiniciar Desktop y comprobar que aparecen las cuatro herramientas. Ejemplo:
+Reiniciar Desktop y comprobar que aparecen las cinco herramientas. Ejemplo:
 
 > En el repo `talently-code/data/talently-dashboards`, crea un grafico semanal de
 > ofertas publicadas. Sigue su skill, conserva el cache por card y abre un PR con
 > las pruebas realizadas. No hagas merge ni despliegue.
 
-Claude genera un UUID para el mensaje, llama `regent_start`, consulta el estado y
+Claude puede descubrir el repo mediante `regent_context`, genera un UUID para el mensaje,
+llama `regent_start`, consulta el estado y
 devuelve el resultado. Para editar o eliminar ese grafico puede continuar la misma
 conversacion. La ruta del repo es relativa al workspace del servidor, no al Mac.
 
@@ -153,10 +155,12 @@ conversacion. La ruta del repo es relativa al workspace del servidor, no al Mac.
 | Adaptador MCP externo y autenticacion | Implementada | `src/mcp.ts`; principales propios, deduplicacion y propiedad de conversaciones |
 | Ejecucion compartida y modo sin Slack | Implementada | `src/server.ts`, `src/mcp-server.ts`, filtros de cola/recuperacion por adaptador |
 | Conector stdio para Desktop | Implementada | `src/mcp-client.ts`; transporte HTTP autenticado con HTTPS/loopback |
-| Pruebas locales del adaptador | Completada | 13 escenarios aprobados; SDK real, HTTP/stdio reales, SQLite reabierto y CRUD simulado en un worktree Git real |
+| Pruebas locales del adaptador | Completada | 14 escenarios aprobados; SDK real, HTTP/stdio reales, descubrimiento de contexto, SQLite reabierto y CRUD simulado en un worktree Git real |
 | Regresion completa | Completada | `pnpm test` aprobado, incluida la suite MCP; `git diff --check` sin errores |
 | Arranque local y configuracion para Claude Code | Completada | Node 22.20.0, Claude Code 2.1.305, endpoint loopback autenticado y cuatro herramientas verificadas usando el conector stdio; sin ejecutar trabajos |
 | Instalar configuracion local de Claude Desktop | Completada | Entrada `regent` agregada al JSON privado conservando los conectores anteriores; transporte stdio verificado con cuatro herramientas. Falta reiniciar la app y verificar su interfaz |
+| Descubrimiento y delegacion desde el chat | Implementada | Instrucciones MCP reenviadas por stdio, herramienta de contexto y repo opcional; requiere recargar Desktop para recibir el catalogo nuevo |
+| Smoke real de contexto en local | Completada | Run `937a3eb0-cd01-49c6-b08b-29b5d35bda24`: Claude Code real, skill local y archivos AGENTS leidos; sin cambios de codigo ni consultas de candidatos |
 | Configurar y actualizar instancia AWS | Pendiente | Publicar codigo revisado, habilitar principales y verificar endpoint sin revelar tokens |
 | Preparar repositorio Dashboards en el servidor | Pendiente | Checkout actualizado, skill disponible y fuentes/MCP del repo configurados |
 | Smoke desde la app Claude Desktop | Pendiente | Iniciar, consultar, continuar y cancelar con el runtime real |
@@ -190,8 +194,9 @@ claude --mcp-config /absolute/path/to/regent/config/claude-code-mcp-local.json
 
 Comprobar la conexion mediante `/mcp`. La verificacion automatica local inicializo
 el cliente y listo las cuatro herramientas contra el proceso real del servidor;
-tambien comprobo rechazo `401` sin token. No envio solicitudes `regent_start` ni
-ejecuto el modelo. La prueba interactiva y la ejecucion real siguen pendientes.
+tambien comprobo rechazo `401` sin token. Esa primera verificacion no envio solicitudes
+`regent_start` ni ejecuto el modelo. La seccion de diagnostico documenta el smoke real
+posterior; sigue pendiente revalidar la delegacion desde la interfaz de Desktop.
 
 Tambien se agrego la misma entrada stdio al archivo privado de Claude Desktop en
 `~/Library/Application Support/Claude/claude_desktop_config.json`, preservando los
@@ -202,6 +207,64 @@ para que la app cargue la configuracion; su interfaz aun no se verifico.
 El formulario "Agregar conector personalizado" agrega conexiones remotas desde
 Anthropic y no accede al loopback de esta maquina. Para esta prueba local se utiliza
 la configuracion de la app Desktop; no se publica el runtime mediante un tunel publico.
+
+## Contexto, prioridades y diagnostico de la delegacion
+
+El chat anfitrion y el agente ejecutor no comparten automaticamente su catalogo de
+herramientas ni sus skills. La inicializacion MCP ahora informa al chat de que Regent
+puede trabajar en el repo predeterminado y comprobar sus fuentes. El puente stdio
+reenvia esas instrucciones y las descripciones de herramientas incluyen el nombre
+del proyecto para facilitar su descubrimiento. `regent_context` devuelve solo un
+inventario: no afirma que cada skill se haya invocado ni que una conexion funcione.
+
+La seleccion del contexto sigue este orden operativo:
+
+1. `repo` explicito del pedido; si se omite, `repos.default_repo` de la instancia.
+   El destino se valida contra el workspace, incluidas las rutas resueltas por symlink.
+2. Core carga el entorno del repo seleccionado y arranca Claude Code alli, con un
+   worktree propio. El entorno usa `repos.agent_env_files` si se configuro; en caso
+   contrario usa el `.env` de ese repo. No copia automaticamente el `.env` del padre.
+3. El CLI recibe `--setting-sources user,project,local` y el protocolo generico de
+   Regent. Las instrucciones propias del repo definen arquitectura y workflow; para
+   un cambio existente se usan antes que un flujo generico de scaffolding.
+4. `CLAUDE.md` puede enlazar a `AGENTS.md`. Las instrucciones de ancestros se acumulan;
+   las especificas del proyecto y las subcarpetas aportan su contexto. Una skill
+   carga su cuerpo cuando se usa, no por el solo hecho de aparecer en el catalogo.
+5. La skill canonica puede vivir dentro del submodulo en `.agents/skills/`, expuesta
+   al CLI mediante `.claude/skills/`. No necesita moverse al monorepo para Regent.
+6. Un cambio a otro repo requiere `regent_use_repo`, con handoff y sesion nueva;
+   `cd` por si solo no recarga el entorno ni los MCP. La respuesta vuelve por MCP
+   y el cliente consulta su estado; esta conversacion no publica en Slack.
+
+El 2026-10-20, ante una respuesta de Desktop afirmando no tener la BD de Talently,
+se comprobo que el runtime local tenia cero runs: el log de Desktop solo mostraba
+`initialize` y `tools/list`. No habia un fallo de acceso al submodulo en esa
+conversacion: el chat no habia llamado a Regent y seguia sus propios plugins.
+
+Despues se ejecuto el smoke real de solo lectura indicado en la tabla. El evento
+`init` y las lecturas registradas comprobaron:
+
+- Cwd dentro del worktree de `data/talently-dashboards`.
+- `new-dashboard` presente en el catalogo nativo del CLI y su SKILL.md leido, junto
+  con `AGENTS.md` y `app/AGENTS.md` del proyecto.
+- `database-prod`, `database-test` y el MCP interno `regent` reportados como
+  conectados. No se ejecutaron consultas de negocio; conexion no equivale a una
+  validacion de una consulta concreta ni de la frescura de los datos.
+- El subagente `data-analyst` esta declarado en el padre, pero no aparece como tipo
+  disponible en esta sesion del submodulo. `AGENTS.md` no es una declaracion de
+  subagente. No se copiaron agentes ni se hizo obligatorio un analista para crear vistas.
+- El agente identifico correctamente que debe extender el Next existente, no crear
+  otra app. El worktree de diagnostico quedo limpio y no se hizo commit ni despliegue.
+  Los worktrees nativos se excluyeron mediante el exclude local de Git, sin modificar
+  el `.gitignore` versionado del dashboard.
+
+Para futuras investigaciones, `log/mcp-local.log` registra herramienta, principal y
+resultado de las llamadas MCP, sin prompts ni tokens. SQLite conserva runs y eventos;
+`init` incluye cwd, skills, agentes y herramientas efectivamente anunciadas por el CLI.
+Un inventario de archivos y el catalogo real de una ejecucion son evidencias distintas.
+
+Referencias del CLI: [carga de instrucciones](https://code.claude.com/docs/en/memory)
+y [skills de proyecto](https://code.claude.com/docs/en/skills).
 
 ## Fuera de esta entrega
 

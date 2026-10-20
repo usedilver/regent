@@ -48,7 +48,8 @@ export function runnerArgs(options: RunnerOptions): string[] {
 }
 
 export function normalizeEvent(raw: any): RunnerEvent[] {
-  if (raw.type === 'system' && raw.subtype === 'init') return [{ kind: 'init', sessionId: raw.session_id, mcpServers: raw.mcp_servers ?? [], errors: raw.mcp_server_errors ?? [] }]
+  if (raw.type === 'system' && raw.subtype === 'init') return [{ kind: 'init', sessionId: raw.session_id, mcpServers: raw.mcp_servers ?? [], errors: raw.mcp_server_errors ?? [],
+    cwd: raw.cwd ?? null, skills: raw.skills ?? [], agents: raw.agents ?? [], tools: raw.tools ?? [] }]
   if (raw.type === 'system' && raw.subtype === 'api_retry') return [{ kind: 'api_retry', attempt: raw.attempt, error: raw.error }]
   if (raw.type === 'stream_event' && !raw.parent_tool_use_id) {
     const event = raw.event

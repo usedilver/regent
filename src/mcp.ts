@@ -1,4 +1,6 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
@@ -7,6 +9,7 @@ import type { Core } from './core.ts'
 import { resolveRepository } from './repository.ts'
 import { redact } from './store.ts'
 import type { Conversation, Inbound, Run } from './types.ts'
+import { repositoryContext } from './repository-context.ts'
 
 const MAX_BODY_BYTES = 1024 * 1024
 const MAX_RESULT_CHARS = 60000
@@ -31,6 +34,13 @@ export class ExternalMcp {
       ids.add(principal.id); hashes.add(tokenHash.toString('hex'))
       return { author: `mcp:${principal.id}`, tokenHash }
     })
+  }
+  defaultRepo(): string {
+    return path.relative(fs.realpathSync(this.core.cwd), fs.realpathSync(this.core.defaultCwd)) || '.'
+  }
+  instructions(): string {
+    const defaultRepo = this.defaultRepo()
+    return `Regent ejecuta un agente de codigo con acceso a los repositorios del servidor, sus skills, instrucciones y fuentes configuradas. Para crear, modificar, eliminar o investigar codigo, vistas, dashboards o graficos de esos proyectos, usa Regent. El repo predeterminado es ${JSON.stringify(defaultRepo)}. Llama regent_context para conocerlo y regent_start para delegar el pedido completo; repo es opcional y usa ese predeterminado. No deduzcas que falta acceso al repo o a sus datos porque esas herramientas no aparezcan en el chat: el agente las usa en el servidor. Primero compruebalo con Regent. Luego consulta regent_get_run hasta terminar y continua con regent_continue. No afirmes acceso a datos ni cambios realizados sin el resultado del agente. Las skills de otros plugins del chat no sustituyen las instrucciones del repo seleccionado.`
   }
   conversation(author: string, key: string): Conversation {
     const conversation = this.core.store.conversation(key)
@@ -60,18 +70,31 @@ export class ExternalMcp {
     return { conversation_id: key, run_id: accepted.runId, duplicate: accepted.duplicate, command: accepted.command }
   }
   server(author: string): McpServer {
-    const server = new McpServer({ name: 'regent', version: '0.3.0' })
+    const server = new McpServer({ name: 'regent', version: '0.3.0' }, { instructions: this.instructions() })
     const read = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     const write = { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true }
     const register = (name: string, description: string, inputSchema: Record<string, z.ZodType>, annotations: typeof read, action: (args: any) => unknown) => {
       server.registerTool(name, { description, inputSchema, annotations }, async args => {
-        try { return { content: [{ type: 'text' as const, text: JSON.stringify(await action(args)) }] } }
-        catch (error) { return { isError: true, content: [{ type: 'text' as const, text: redact((error as Error).message) }] } }
+        try {
+          const result = await action(args)
+          console.log(JSON.stringify({ event: 'mcp_tool', author, tool: name, outcome: 'ok' }))
+          return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] }
+        }
+        catch (error) {
+          console.log(JSON.stringify({ event: 'mcp_tool', author, tool: name, outcome: 'error' }))
+          return { isError: true, content: [{ type: 'text' as const, text: redact((error as Error).message) }] }
+        }
       })
     }
-    register('regent_start', 'Inicia trabajo de codigo en un repo Git del workspace. El agente lee sus instrucciones y skills. Devuelve IDs inmediatamente; consulta regent_get_run. Usa un UUID nuevo como request_id y reutilizalo solo al reintentar la misma solicitud. No promete PR ni despliegue: pide el resultado que necesites en prompt.',
-      { request_id: requestId, repo: z.string().min(1).max(1000), prompt: text, intent }, write, async args => {
-        const repo = resolveRepository(this.core.cwd, args.repo)
+    register('regent_context', `Repositorio predeterminado: ${this.defaultRepo()}. Descubre sus instrucciones, skills, agentes y nombres de MCP declarados, o los de otro repo seleccionado. Usa esta herramienta antes de afirmar que el chat no tiene acceso al proyecto o sus datos. No ejecuta el modelo ni consulta datos de negocio.`,
+      { repo: z.string().min(1).max(1000).optional() }, read, args => ({
+        ...repositoryContext(this.core.cwd, args.repo ?? this.core.defaultCwd),
+        default_repo: this.defaultRepo(),
+        next_step: 'Envia el pedido completo a regent_start. No necesitas copiar las skills al chat ni conocer los nombres de tablas.',
+      }))
+    register('regent_start', `Repositorio predeterminado: ${this.defaultRepo()}. Crea, modifica, elimina o investiga codigo, dashboards, vistas y graficos. Delega el pedido completo aunque el chat no tenga las herramientas de datos: el agente carga las skills y conexiones del repo. repo omitido usa ese predeterminado. Devuelve IDs inmediatamente; consulta regent_get_run. Usa un UUID nuevo como request_id y reutilizalo solo al reintentar la misma solicitud. Pide en prompt las pruebas, rama o PR que necesites.`,
+      { request_id: requestId, repo: z.string().min(1).max(1000).optional(), prompt: text, intent }, write, async args => {
+        const repo = resolveRepository(this.core.cwd, args.repo ?? this.core.defaultCwd)
         const key = `${author}:${args.request_id}`
         return this.submit(author, key, `start:${key}`, args.prompt, repo, args.intent)
       })
