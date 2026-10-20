@@ -76,6 +76,13 @@ distintas. Usa el conector stdio incluido para Desktop; esta entrega no implemen
 El [plan de ejecucion y configuracion](mcp-execution-plan.md) documenta herramientas,
 instalacion en Desktop, pruebas y validaciones pendientes del servidor.
 
+Para pedidos de codigo en lenguaje de negocio, importar tambien la skill cliente
+[regent-code](client-skills/regent-code/SKILL.md) en Personalizacion > Skills. Ayuda a
+delegar al ejecutor antes de intentar resolver la tarea con conectores de datos del
+chat. Es independiente de las skills del repositorio: estas siguen cargandose en
+Claude Code. Un servidor conectado y sus instrucciones MCP no garantizan que el
+modelo lo elija frente a otros plugins instalados.
+
 Cuando Regent necesita una decisión, puede mostrar hasta cinco opciones con botones
 en el hilo. También puedes responder con tus propias palabras. La respuesta continúa
 la misma conversación; un botón ya respondido o de una pregunta reemplazada no vuelve

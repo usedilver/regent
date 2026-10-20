@@ -158,17 +158,18 @@ conversacion. La ruta del repo es relativa al workspace del servidor, no al Mac.
 | Pruebas locales del adaptador | Completada | 14 escenarios aprobados; SDK real, HTTP/stdio reales, descubrimiento de contexto, SQLite reabierto y CRUD simulado en un worktree Git real |
 | Regresion completa | Completada | `pnpm test` aprobado, incluida la suite MCP; `git diff --check` sin errores |
 | Arranque local y configuracion para Claude Code | Completada | Node 22.20.0, Claude Code 2.1.305, endpoint loopback autenticado y cuatro herramientas verificadas usando el conector stdio; sin ejecutar trabajos |
-| Instalar configuracion local de Claude Desktop | Completada | Entrada `regent` agregada al JSON privado conservando los conectores anteriores; transporte stdio verificado con cuatro herramientas. Falta reiniciar la app y verificar su interfaz |
-| Descubrimiento y delegacion desde el chat | Implementada | Instrucciones MCP reenviadas por stdio, herramienta de contexto y repo opcional; requiere recargar Desktop para recibir el catalogo nuevo |
+| Instalar configuracion local de Claude Desktop | Completada | Entrada `regent` agregada al JSON privado conservando los conectores anteriores; catalogo actualizado cargado y herramientas verificadas desde la interfaz |
+| Descubrimiento y delegacion desde el chat | Implementada | Instrucciones MCP reenviadas por stdio, herramienta de contexto y repo opcional; descubrimiento e inicio de run verificados desde Desktop con la skill del cliente |
+| Skill de delegacion del cliente Desktop | Implementada | `client-skills/regent-code/SKILL.md`, validada e importada en Personalizacion > Skills; separada de las skills de cada repo |
 | Smoke real de contexto en local | Completada | Run `937a3eb0-cd01-49c6-b08b-29b5d35bda24`: Claude Code real, skill local y archivos AGENTS leidos; sin cambios de codigo ni consultas de candidatos |
 | Configurar y actualizar instancia AWS | Pendiente | Publicar codigo revisado, habilitar principales y verificar endpoint sin revelar tokens |
 | Preparar repositorio Dashboards en el servidor | Pendiente | Checkout actualizado, skill disponible y fuentes/MCP del repo configurados |
-| Smoke desde la app Claude Desktop | Pendiente | Iniciar, consultar, continuar y cancelar con el runtime real |
+| Smoke desde la app Claude Desktop | Parcial | Descubrir, iniciar y consultar completados en run `7aafe10b-b0cf-46a4-9cee-f7a1b491125e`; continuar y cancelar aun sin probar desde la interfaz |
 | Validar crear, modificar y eliminar un grafico | Pendiente | Cambios revisables en worktree/PR, pruebas del dashboard y fuente real configurada |
 
-No se marca produccion ni Desktop real como verificados por ejecutar los tests.
-El despliegue de la instancia y la configuracion privada de Desktop no han cambiado
-como parte de la implementacion local inicial.
+Los tests no certifican produccion. La prueba real de Desktop queda limitada a
+descubrimiento, inicio y lectura del resultado; no valida CRUD de dashboards ni
+despliegues. La instancia AWS no se actualizo.
 
 ## Prueba local preparada
 
@@ -196,13 +197,13 @@ Comprobar la conexion mediante `/mcp`. La verificacion automatica local iniciali
 el cliente y listo las cuatro herramientas contra el proceso real del servidor;
 tambien comprobo rechazo `401` sin token. Esa primera verificacion no envio solicitudes
 `regent_start` ni ejecuto el modelo. La seccion de diagnostico documenta el smoke real
-posterior; sigue pendiente revalidar la delegacion desde la interfaz de Desktop.
+posterior y la siguiente seccion registra la delegacion verificada desde Desktop.
 
 Tambien se agrego la misma entrada stdio al archivo privado de Claude Desktop en
 `~/Library/Application Support/Claude/claude_desktop_config.json`, preservando los
 conectores y preferencias existentes y guardando un backup privado. Se verifico el
-transporte usando esa entrada exacta. Falta cerrar completamente Desktop y abrirlo
-para que la app cargue la configuracion; su interfaz aun no se verifico.
+transporte usando esa entrada exacta. Desktop cargo el catalogo actualizado y se
+verifico su interfaz en las pruebas descritas mas abajo.
 
 El formulario "Agregar conector personalizado" agrega conexiones remotas desde
 Anthropic y no accede al loopback de esta maquina. Para esta prueba local se utiliza
@@ -265,6 +266,44 @@ Un inventario de archivos y el catalogo real de una ejecucion son evidencias dis
 
 Referencias del CLI: [carga de instrucciones](https://code.claude.com/docs/en/memory)
 y [skills de proyecto](https://code.claude.com/docs/en/skills).
+
+## Skill del cliente y reproduccion desde Desktop
+
+Una segunda prueba desde la app confirmo que las instrucciones del servidor y sus
+descripciones no bastaban para que el modelo eligiera Regent en un pedido generico
+de dashboard. El chat seguia leyendo el plugin `talently-data` bajo `/mnt/skills/`
+y buscaba su conector de SQL, aunque Regent estaba habilitado. Una llamada explicita
+a `regent_context` desde la misma interfaz funciono y devolvio el repo y su skill.
+El fallo pendiente era de seleccion de herramientas en el anfitrion.
+
+Se agrego `client-skills/regent-code/SKILL.md` para ese cliente. Esta guia generica
+descubre el repo, delega el pedido completo, consulta resultados y mantiene el alcance
+del usuario. No copia reglas del dashboard ni cambia el plugin de datos. Se importo
+su ZIP en Personalizacion > Skills y se verifico el switch habilitado. El paquete
+contiene solamente `regent-code/SKILL.md`, sin scripts ni credenciales.
+
+En un chat nuevo se probo un pedido de dashboard de Talently sin mencionar Regent,
+limitado a revisar el proyecto sin consultas ni cambios. Desktop eligio
+`regent_context` y mostro `data/talently-dashboards` y `new-dashboard`, en lugar de
+intentar primero el SQL del plugin de datos. Es una comprobacion de ese caso real,
+no una garantia determinista de seleccion para cualquier frase o contexto.
+
+La continuacion de esa revision llamo `regent_start` y `regent_get_run` desde la
+interfaz, con permisos concedidos una vez, sin habilitar permisos permanentes.
+El run `7aafe10b-b0cf-46a4-9cee-f7a1b491125e` termino `completed`: el ejecutor leyo
+el cuerpo de `new-dashboard`, cito una regla concreta y Desktop mostro el resultado.
+Los eventos registran solo `cat` del SKILL.md y `ls` de sus referencias; no hubo
+consultas de datos ni herramientas de escritura. El worktree quedo limpio. Regent
+crea su worktree aislado al iniciar incluso cuando el pedido es de solo lectura.
+La captura local `tmp/regent-desktop-proof.png` conserva la respuesta de la app;
+los artefactos de prueba no se versionan. Continuar/cancelar desde la UI y el CRUD
+real siguen pendientes; no se infieren de este smoke de lectura.
+
+Para distribuir la skill, comprimir su carpeta conservando `regent-code/SKILL.md`
+en el ZIP e importarla en Personalizacion > Skills > Agregar Skill > Subir Skill.
+El artefacto local de esta prueba esta en `tmp/regent-code-skill.zip` (ignorado).
+La skill interna `new-dashboard` permanece en el repo del dashboard y el agente
+ejecutor sigue siendo quien lee su cuerpo y realiza cambios de codigo.
 
 ## Fuera de esta entrega
 
