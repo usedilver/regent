@@ -156,6 +156,7 @@ conversacion. La ruta del repo es relativa al workspace del servidor, no al Mac.
 | Pruebas locales del adaptador | Completada | 13 escenarios aprobados; SDK real, HTTP/stdio reales, SQLite reabierto y CRUD simulado en un worktree Git real |
 | Regresion completa | Completada | `pnpm test` aprobado, incluida la suite MCP; `git diff --check` sin errores |
 | Arranque local y configuracion para Claude Code | Completada | Node 22.20.0, Claude Code 2.1.305, endpoint loopback autenticado y cuatro herramientas verificadas usando el conector stdio; sin ejecutar trabajos |
+| Instalar configuracion local de Claude Desktop | Completada | Entrada `regent` agregada al JSON privado conservando los conectores anteriores; transporte stdio verificado con cuatro herramientas. Falta reiniciar la app y verificar su interfaz |
 | Configurar y actualizar instancia AWS | Pendiente | Publicar codigo revisado, habilitar principales y verificar endpoint sin revelar tokens |
 | Preparar repositorio Dashboards en el servidor | Pendiente | Checkout actualizado, skill disponible y fuentes/MCP del repo configurados |
 | Smoke desde la app Claude Desktop | Pendiente | Iniciar, consultar, continuar y cancelar con el runtime real |
@@ -191,6 +192,16 @@ Comprobar la conexion mediante `/mcp`. La verificacion automatica local iniciali
 el cliente y listo las cuatro herramientas contra el proceso real del servidor;
 tambien comprobo rechazo `401` sin token. No envio solicitudes `regent_start` ni
 ejecuto el modelo. La prueba interactiva y la ejecucion real siguen pendientes.
+
+Tambien se agrego la misma entrada stdio al archivo privado de Claude Desktop en
+`~/Library/Application Support/Claude/claude_desktop_config.json`, preservando los
+conectores y preferencias existentes y guardando un backup privado. Se verifico el
+transporte usando esa entrada exacta. Falta cerrar completamente Desktop y abrirlo
+para que la app cargue la configuracion; su interfaz aun no se verifico.
+
+El formulario "Agregar conector personalizado" agrega conexiones remotas desde
+Anthropic y no accede al loopback de esta maquina. Para esta prueba local se utiliza
+la configuracion de la app Desktop; no se publica el runtime mediante un tunel publico.
 
 ## Fuera de esta entrega
 
