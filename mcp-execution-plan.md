@@ -155,6 +155,7 @@ conversacion. La ruta del repo es relativa al workspace del servidor, no al Mac.
 | Conector stdio para Desktop | Implementada | `src/mcp-client.ts`; transporte HTTP autenticado con HTTPS/loopback |
 | Pruebas locales del adaptador | Completada | 13 escenarios aprobados; SDK real, HTTP/stdio reales, SQLite reabierto y CRUD simulado en un worktree Git real |
 | Regresion completa | Completada | `pnpm test` aprobado, incluida la suite MCP; `git diff --check` sin errores |
+| Arranque local y configuracion para Claude Code | Completada | Node 22.20.0, Claude Code 2.1.305, endpoint loopback autenticado y cuatro herramientas verificadas usando el conector stdio; sin ejecutar trabajos |
 | Configurar y actualizar instancia AWS | Pendiente | Publicar codigo revisado, habilitar principales y verificar endpoint sin revelar tokens |
 | Preparar repositorio Dashboards en el servidor | Pendiente | Checkout actualizado, skill disponible y fuentes/MCP del repo configurados |
 | Smoke desde la app Claude Desktop | Pendiente | Iniciar, consultar, continuar y cancelar con el runtime real |
@@ -163,6 +164,33 @@ conversacion. La ruta del repo es relativa al workspace del servidor, no al Mac.
 No se marca produccion ni Desktop real como verificados por ejecutar los tests.
 El despliegue de la instancia y la configuracion privada de Desktop no han cambiado
 como parte de la implementacion local inicial.
+
+## Prueba local preparada
+
+El 2026-10-20 se inicio el runtime local en `http://127.0.0.1:8788/mcp`, con
+configuracion propia `config/regent-mcp-local.yaml` y base `log/mcp-local.sqlite`.
+El workspace autorizado de esta prueba es el checkout local de `talently-code` y
+el repo predeterminado es `data/talently-dashboards`. La configuracion original de
+la instancia no fue modificada.
+
+Los archivos privados generados para esta maquina estan ignorados por Git:
+
+- `config/start-mcp-local.sh`: inicia el runtime con su config, puerto y base locales.
+- `config/mcp-local-server.env` y `config/mcp-local-client.env`: token del servidor
+  y conexion del cliente, ambos con permisos `600`.
+- `config/claude-code-mcp-local.json`: entrada MCP por stdio con rutas absolutas
+  a Node y al archivo de entorno; no incluye el valor del token.
+
+Para abrir Claude Code con esa configuracion sin modificar los servidores globales:
+
+```sh
+claude --mcp-config /absolute/path/to/regent/config/claude-code-mcp-local.json
+```
+
+Comprobar la conexion mediante `/mcp`. La verificacion automatica local inicializo
+el cliente y listo las cuatro herramientas contra el proceso real del servidor;
+tambien comprobo rechazo `401` sin token. No envio solicitudes `regent_start` ni
+ejecuto el modelo. La prueba interactiva y la ejecucion real siguen pendientes.
 
 ## Fuera de esta entrega
 
