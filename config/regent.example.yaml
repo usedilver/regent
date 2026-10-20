@@ -17,6 +17,9 @@ slack:
   progress_mode: auto # tarjetas de actividades; plain usa texto actualizado en el mismo mensaje.
   workspace_team_id: T_REPLACE
   allowed_users: [U_REPLACE] # Recomendado: tu ID. [] abre acceso a usuarios del workspace; indie advierte.
+mcp:
+  enabled: false
+  principals: [] # [{ id: dilver, token_env: REGENT_MCP_TOKEN_DILVER }]; tokens en el entorno privado.
 limits:
   max_concurrent_runs: 3
   max_run_sec: { ask: 600, patch: 1800, task: 3600, project: 7200 }

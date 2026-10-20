@@ -50,6 +50,7 @@ vigente y los pendientes están en Notion (proyecto **regent**, cuenta Dilver).
 ```sh
 pnpm regent setup --repo /ruta/a/repos/proyecto --team T012345 --user U012345
 pnpm start                 # servidor (Slack), escucha en 127.0.0.1
+pnpm start:mcp             # servidor solo MCP, sin conexion ni tokens de Slack
 pnpm dev                   # igual, con recarga al guardar (src/, config/, .env)
 pnpm test                  # suite automatizada
 pnpm regent ask "Explica este repositorio" --conversation revision
@@ -58,6 +59,22 @@ pnpm regent patch "Corrige el fallo y abre un PR" --conversation correccion
 pnpm regent runs
 pnpm regent tail <run_id> --follow
 ```
+
+## Claude Desktop por MCP
+
+Regent admite una entrada MCP externa opcional para iniciar, consultar, continuar y
+detener trabajos de codigo desde Claude Desktop. Reutiliza las sesiones, worktrees,
+limites y contexto de cada repositorio. No envia estas conversaciones a Slack.
+El MCP de datos sigue siendo una conexion independiente del cliente y del repo.
+
+Activa `mcp.enabled` y configura sus principales/tokens privados. `pnpm start` sirve
+Slack y MCP en el mismo runtime cuando esta habilitado; `pnpm start:mcp` ejecuta solo
+MCP. No ejecutes ambos sobre la misma base SQLite: el lease rechaza un segundo runtime.
+El endpoint externo `/mcp` y las herramientas internas `/tools` tienen autenticaciones
+distintas. Usa el conector stdio incluido para Desktop; esta entrega no implementa OAuth.
+
+El [plan de ejecucion y configuracion](mcp-execution-plan.md) documenta herramientas,
+instalacion en Desktop, pruebas y validaciones pendientes del servidor.
 
 Cuando Regent necesita una decisión, puede mostrar hasta cinco opciones con botones
 en el hilo. También puedes responder con tus propias palabras. La respuesta continúa

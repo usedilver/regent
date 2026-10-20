@@ -5,8 +5,9 @@ import { z } from 'zod'
 import type { Core } from './core.ts'
 import { RoomRequest } from './rooms.ts'
 import { StatusRequest } from './progress.ts'
+import type { ExternalMcp } from './mcp.ts'
 
-export function createHttp(core: Core, health: () => Record<string, unknown>) {
+export function createHttp(core: Core, health: () => Record<string, unknown>, external?: ExternalMcp) {
   return http.createServer(async (request, response) => {
     const send = (code: number, value: unknown) => { response.writeHead(code, { 'content-type': 'application/json' }); response.end(JSON.stringify(value)) }
     try {
@@ -19,6 +20,7 @@ export function createHttp(core: Core, health: () => Record<string, unknown>) {
         response.writeHead(200, { 'content-type': 'text/plain; version=0.0.4' })
         return response.end(rows.map(row => `regent_runs{state="${row.state}"} ${row.n}`).join('\n') + '\n')
       }
+      if (request.url === '/mcp' && external) return await external.handle(request, response)
       if (!['/tools', '/hook-denial', '/tool-policy'].includes(request.url ?? '')) return send(404, { error: 'Ruta inexistente' })
       const token = request.headers.authorization?.replace(/^Bearer /, '') ?? ''
       const active = core.byToken(token)

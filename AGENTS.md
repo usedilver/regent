@@ -2,18 +2,21 @@
 
 ## Project Structure & Architecture
 
-Regent is a conversational Slack client for the official Claude Code CLI. Keep it
+Regent is a conversational Slack and MCP client for the official Claude Code CLI. Keep it
 project-agnostic: repositories supply skills, MCPs, rules, and business workflows.
 Do not reintroduce mandatory boards, tickets, or approval pipelines.
 
 - `src/`: TypeScript runtime. `server.ts` starts Slack; `cli.ts` provides local
   commands; `core.ts`, `runner.ts`, and `store.ts` handle execution and persistence.
+  `mcp.ts` exposes external jobs, `mcp-server.ts` runs without Slack, and
+  `mcp-client.ts` bridges Claude Desktop stdio to the authenticated HTTP endpoint.
 - `plugin/`: CLI protocol and permission hooks, not business-specific skills.
 - `test/`: executable tests, fake Claude process, and IPC fixtures.
 - `config/`: public `regent.example.yaml`, configuration guide, and ignored local
   `regent.yaml`. Root `.env.example` documents service environment variables.
 - `README.md` and `CONTRIBUTING.md`: public usage and contribution guidance.
   Architecture investigations and roadmap live in Notion, not a local `docs/` tree.
+  `mcp-execution-plan.md` is the explicitly requested local delivery plan for the MCP adapter.
 - `slack-manifest.json`: Slack app configuration. There is no frontend asset tree.
 
 ## Development Commands

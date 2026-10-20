@@ -1,5 +1,5 @@
 export interface Inbound {
-  adapter: 'slack' | 'cli'
+  adapter: 'slack' | 'cli' | 'mcp'
   eventId: string
   key: string
   author: string

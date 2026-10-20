@@ -214,8 +214,9 @@ export class Store {
   }
   state(key: string, state: string): void { this.db.prepare('UPDATE conversations SET state=? WHERE key=?').run(state, key) }
   session(key: string, id: string): void { this.db.prepare('UPDATE conversations SET session_id=? WHERE key=?').run(id, key) }
-  queued(adapter?: string): Run[] {
-    return this.db.prepare("SELECT r.* FROM runs r JOIN conversations c ON c.key=r.conversation_key WHERE r.state='queued' AND c.state='queued' AND (? IS NULL OR c.adapter=?) ORDER BY r.created_at,r.rowid").all(adapter ?? null, adapter ?? null) as unknown as Run[]
+  queued(adapter?: string | string[]): Run[] {
+    const adapters = adapter === undefined ? null : JSON.stringify(Array.isArray(adapter) ? adapter : [adapter])
+    return this.db.prepare("SELECT r.* FROM runs r JOIN conversations c ON c.key=r.conversation_key WHERE r.state='queued' AND c.state='queued' AND (? IS NULL OR c.adapter IN (SELECT value FROM json_each(?))) ORDER BY r.created_at,r.rowid").all(adapters, adapters) as unknown as Run[]
   }
   start(id: string): void {
     this.transaction(() => {
@@ -247,9 +248,10 @@ export class Store {
   spent(author: string): number {
     return this.db.prepare('SELECT COALESCE(SUM(cost),0) AS cost FROM usage WHERE author=? AND day=?').get(author, new Date().toISOString().slice(0, 10))!.cost as number
   }
-  recover(adapter?: string): Conversation[] {
+  recover(adapter?: string | string[]): Conversation[] {
+    const adapters = adapter === undefined ? null : JSON.stringify(Array.isArray(adapter) ? adapter : [adapter])
     return this.transaction(() => {
-      const affected = this.db.prepare("SELECT DISTINCT c.* FROM conversations c JOIN runs r ON c.key=r.conversation_key WHERE r.state='running' AND (? IS NULL OR c.adapter=?)").all(adapter ?? null, adapter ?? null) as unknown as Conversation[]
+      const affected = this.db.prepare("SELECT DISTINCT c.* FROM conversations c JOIN runs r ON c.key=r.conversation_key WHERE r.state='running' AND (? IS NULL OR c.adapter IN (SELECT value FROM json_each(?)))").all(adapters, adapters) as unknown as Conversation[]
       for (const c of affected) {
         const run = this.db.prepare("SELECT reply_thread FROM runs WHERE conversation_key=? AND state='running' LIMIT 1").get(c.key)
         if (!c.thread) c.thread = run?.reply_thread as string | null

@@ -24,6 +24,13 @@ export const ConfigSchema = z.object({
     workspace_team_id: z.string().min(1),
     allowed_users: z.array(z.string().min(1)).default([]),
   }).strict(),
+  mcp: z.object({
+    enabled: z.boolean().default(false),
+    principals: z.array(z.object({
+      id: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/),
+      token_env: z.string().regex(/^REGENT_MCP_TOKEN_[A-Z0-9_]+$/),
+    }).strict()).default([]),
+  }).strict().prefault({}),
   limits: z.object({
     max_concurrent_runs: z.number().int().min(1).max(32).default(3),
     max_run_sec: z.object({ ask: positive.default(600), patch: positive.default(1800), task: positive.default(3600), project: positive.default(7200) }).strict().prefault({}),

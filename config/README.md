@@ -33,6 +33,12 @@ root `.env`. The retired v1 `workflow.json` and `process.md` are not loaded.
   history retention policy.
 - `models.ask` / `patch` / `task` / `project`: optional CLI model identifiers. Null leaves
   selection to Claude Code. `name` labels the server, not the Slack app profile.
+- `mcp.enabled`: opt-in external `/mcp` endpoint; false by default. `mcp.principals`
+  maps stable caller IDs to private `REGENT_MCP_TOKEN_*` environment variable names.
+  Tokens must be unique and at least 32 characters. Restart to rotate or revoke them.
+  These callers are independent of Slack users and can execute code in the configured
+  workspace. They can only inspect/continue/cancel their own MCP conversations.
+  See [MCP execution and Desktop setup](../mcp-execution-plan.md).
 
 ## Shared Agent Credentials (Optional)
 
@@ -150,9 +156,11 @@ Changing a YAML on this machine does not update the server's ignored config.
 ## Removed Inactive Fields
 
 Before upgrading an old instance, remove these keys (they had no runtime effect):
-`policy`, `mcp`, `projects`, `notion`; `repos.default_base_branch`,
+`policy`, `projects`, `notion`; `repos.default_base_branch`,
 `repos.base_branches`, `repos.test_commands`; `slack.ops_channel`,
 `slack.digest_channel`; `limits.max_run_sec.project_step`.
 The schema now rejects them rather than silently suggesting they are supported.
 Branches, test commands, trackers and MCP setup belong to the repository.
 Omitting a supported setting uses its default, not necessarily a disabled state.
+The old `mcp` configuration shape remains unsupported; the new block only accepts
+`enabled` and `principals`. Repository MCP connections still belong to each repository.

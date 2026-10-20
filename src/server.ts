@@ -8,6 +8,8 @@ import { createSlack } from './slack.ts'
 import { createHttp } from './http.ts'
 import { DurableOutput } from './delivery.ts'
 import { assertIsolationVersion } from './runner.ts'
+import { ExternalMcp } from './mcp.ts'
+import { mcpOutput, routeMcpOutput } from './mcp-output.ts'
 
 loadEnv()
 const config = loadConfig()
@@ -29,8 +31,9 @@ const store = new Store(process.env.REGENT_DB ?? path.join(BRIDGE_DIR, 'log/v2.s
 store.claimRuntime()
 const slack = createSlack(config)
 const output = new DurableOutput(store, slack.output)
-const core = new Core({ store, config, output, cwd, adapter: 'slack' })
-const server = createHttp(core, () => ({ slack_connected: slack.connected(), claude_version: claudeVersion }))
+const core = new Core({ store, config, output: routeMcpOutput(output, mcpOutput(store)), cwd, adapter: config.mcp.enabled ? ['slack', 'mcp'] : 'slack' })
+const external = config.mcp.enabled ? new ExternalMcp(core) : undefined
+const server = createHttp(core, () => ({ slack_connected: slack.connected(), claude_version: claudeVersion, mcp_enabled: Boolean(external) }), external)
 const port = Number(process.env.REGENT_PORT ?? 8788)
 try {
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve) })
