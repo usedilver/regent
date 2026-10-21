@@ -10,6 +10,9 @@ import { resolveRepository } from './repository.ts'
 import { redact } from './store.ts'
 import type { Conversation, Inbound, Run } from './types.ts'
 import { repositoryContext } from './repository-context.ts'
+import { registerAppTool } from '@modelcontextprotocol/ext-apps/server'
+import { mcpActivities } from './mcp-activities.ts'
+import { PROGRESS_URI, registerProgressResource } from './mcp-progress.ts'
 
 const MAX_BODY_BYTES = 1024 * 1024
 const MAX_RESULT_CHARS = 60000
@@ -40,7 +43,7 @@ export class ExternalMcp {
   }
   instructions(): string {
     const defaultRepo = this.defaultRepo()
-    return `Regent ejecuta un agente de codigo con acceso a los repositorios del servidor, sus skills, instrucciones y fuentes configuradas. Para crear, modificar, eliminar o investigar codigo, vistas, dashboards o graficos de esos proyectos, usa Regent. El repo predeterminado es ${JSON.stringify(defaultRepo)}. Llama regent_context para conocerlo y regent_start para delegar el pedido completo; repo es opcional y usa ese predeterminado. No deduzcas que falta acceso al repo o a sus datos porque esas herramientas no aparezcan en el chat: el agente las usa en el servidor. Primero compruebalo con Regent. Luego consulta regent_get_run hasta terminar y continua con regent_continue. No afirmes acceso a datos ni cambios realizados sin el resultado del agente. Las skills de otros plugins del chat no sustituyen las instrucciones del repo seleccionado.`
+    return `Regent ejecuta un agente de codigo con acceso a los repositorios del servidor, sus skills, instrucciones y fuentes configuradas. Para crear, modificar, eliminar o investigar codigo, vistas, dashboards o graficos de esos proyectos, usa Regent. El repo predeterminado es ${JSON.stringify(defaultRepo)}. Llama regent_context para conocerlo y regent_start para delegar el pedido completo; repo es opcional y usa ese predeterminado. No deduzcas que falta acceso al repo o a sus datos porque esas herramientas no aparezcan en el chat: el agente las usa en el servidor. Primero compruebalo con Regent. Muestra el panel con regent_get_run para seguir las actividades en esta conversacion y continua con regent_continue. No crees tareas programadas ni recordatorios para hacer seguimiento; si no hay panel, consulta el estado dentro del mismo turno. No afirmes acceso a datos ni cambios realizados sin el resultado del agente. Las skills de otros plugins del chat no sustituyen las instrucciones del repo seleccionado.`
   }
   conversation(author: string, key: string): Conversation {
     const conversation = this.core.store.conversation(key)
@@ -62,6 +65,7 @@ export class ExternalMcp {
       conversation_id: conversation.key, conversation_state: conversation.state,
       repo: conversation.cwd, run: summary(run), latest_run: summary(latest),
       progress: notice ? JSON.parse(notice.data as string).text : null,
+      activities: mcpActivities(this.core.store, latest),
       question: question ? { text: question.question, options: JSON.parse(question.options as string) } : null,
     }
   }
@@ -71,14 +75,17 @@ export class ExternalMcp {
   }
   server(author: string): McpServer {
     const server = new McpServer({ name: 'regent', version: '0.3.0' }, { instructions: this.instructions() })
+    registerProgressResource(server)
     const read = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     const write = { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true }
     const register = (name: string, description: string, inputSchema: Record<string, z.ZodType>, annotations: typeof read, action: (args: any) => unknown) => {
-      server.registerTool(name, { description, inputSchema, annotations }, async args => {
+      const ui = ['regent_start', 'regent_continue', 'regent_get_run'].includes(name)
+      registerAppTool(server, name, { description, inputSchema, annotations,
+        _meta: ui ? { ui: { resourceUri: PROGRESS_URI } } : {} }, async args => {
         try {
           const result = await action(args)
           console.log(JSON.stringify({ event: 'mcp_tool', author, tool: name, outcome: 'ok' }))
-          return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] }
+          return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], structuredContent: result as Record<string, unknown> }
         }
         catch (error) {
           console.log(JSON.stringify({ event: 'mcp_tool', author, tool: name, outcome: 'error' }))
@@ -98,7 +105,7 @@ export class ExternalMcp {
         const key = `${author}:${args.request_id}`
         return this.submit(author, key, `start:${key}`, args.prompt, repo, args.intent)
       })
-    register('regent_get_run', 'Consulta estado, respuesta, progreso y pregunta pendiente. latest_run incluye continuaciones automaticas de contexto: sigue consultando mientras este queued/running. Si espera respuesta humana, pregunta al usuario y enviala con regent_continue.',
+    register('regent_get_run', 'Muestra el panel de progreso con actividades reales y checks en esta conversacion. El panel se actualiza sin tareas programadas. latest_run incluye continuaciones automaticas. Si el cliente no muestra panel, consulta esta herramienta en el mismo turno hasta terminar o esperar una respuesta humana; no crees recordatorios para hacer polling.',
       { run_id: z.string().uuid() }, read, args => this.status(author, args.run_id))
     register('regent_continue', 'Continua una conversacion MCP propia, conservando sesion, repo y worktree. Tambien responde preguntas pendientes o reanuda trabajo interrumpido. Usa request_id nuevo por mensaje y el mismo UUID para sus reintentos.',
       { conversation_id: conversationId, request_id: requestId, prompt: text, intent }, write, async args => {

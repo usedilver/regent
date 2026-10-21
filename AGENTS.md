@@ -10,6 +10,8 @@ Do not reintroduce mandatory boards, tickets, or approval pipelines.
   commands; `core.ts`, `runner.ts`, and `store.ts` handle execution and persistence.
   `mcp.ts` exposes external jobs, `mcp-server.ts` runs without Slack, and
   `mcp-client.ts` bridges Claude Desktop stdio to the authenticated HTTP endpoint.
+  `mcp-activities.ts` rebuilds sanitized activity summaries; `mcp-progress.ts` and
+  `mcp-progress-app.ts` serve the self-contained MCP Apps progress panel.
 - `plugin/`: CLI protocol and permission hooks, not business-specific skills.
 - `client-plugin/`: distributable host plugin with a delegation skill and remote
   MCP configuration; separate from the executor protocol in `plugin/`. Project
@@ -36,7 +38,8 @@ Use Node 22.20.0 or a compatible version and pnpm pinned by `packageManager`.
 - `REGENT_SMOKE=1 pnpm smoke`: opt-in real-Claude verification; requires configuration
   and authentication and may incur usage charges.
 
-There is no compilation step: Node executes TypeScript directly.
+There is no required compilation command: Node executes TypeScript directly.
+The MCP Apps browser entry is bundled in memory with esbuild when first read.
 
 ## Coding Style
 

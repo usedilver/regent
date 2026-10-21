@@ -91,6 +91,12 @@ local dentro del plugin no sustituye la conexion local de Desktop. Conserva esa
 conexion y la skill independiente ya instalada durante la prueba local. No repartir
 este paquete al equipo como una instalacion completa hasta validar el flujo remoto.
 
+El seguimiento puede mostrarse en una tarjeta MCP Apps dentro del chat, con las
+mismas actividades que Slack y actualizacion automatica. El puente stdio reenvia el
+recurso de interfaz; no se crean tareas programadas para revisar el trabajo. Sin
+soporte de MCP Apps se consulta el estado en el mismo turno. El transporte y las
+actividades tienen pruebas; la visualizacion en Desktop sigue pendiente de verificar.
+
 Cuando Regent necesita una decisión, puede mostrar hasta cinco opciones con botones
 en el hilo. También puedes responder con tus propias palabras. La respuesta continúa
 la misma conversación; un botón ya respondido o de una pregunta reemplazada no vuelve

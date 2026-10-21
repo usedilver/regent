@@ -185,6 +185,40 @@ try {
       } finally { fs.rmSync(outside, { recursive: true, force: true }) }
     } finally { await f.close() }
   })
+  await check('MCP progress exposes real activity transitions, survives reopen and omits raw tool data', async () => {
+    const f = await fixture({ file: path.join(root, 'activity.sqlite') })
+    try {
+      const client = await f.client()
+      const work = await start(client)
+      await until(() => !f.core.active.size)
+      f.store.db.prepare("UPDATE runs SET state='running' WHERE id=?").run(work.run_id)
+      f.store.event(work.run_id, 'tool_use', { id: 'z', kind: 'tool_use', name: 'Read', input: { file_path: 'private-fixture-secret' } })
+      f.store.event(work.run_id, 'tool_result', { id: 'z', kind: 'tool_result', content: 'private-candidate-record' })
+      f.store.event(work.run_id, 'tool_use', { id: 'a', kind: 'tool_use', name: 'Bash', input: { command: 'pnpm test', ignored: 'private-fixture-secret' } })
+      const running = await call(client, 'regent_get_run', { run_id: work.run_id })
+      assert.equal(running.activities.tasks.find(t => t.id === 'read').status, 'complete')
+      assert.equal(running.activities.tasks.find(t => t.id === 'command').status, 'in_progress')
+      assert.match(running.activities.tasks.find(t => t.id === 'command').title, /Ejecutando pruebas/)
+      assert.doesNotMatch(JSON.stringify(running.activities), /private-fixture-secret|private-candidate-record/)
+      f.store.event(work.run_id, 'tool_result', { id: 'a', kind: 'tool_result', error: true })
+      f.store.db.prepare("UPDATE runs SET state='failed' WHERE id=?").run(work.run_id)
+      const reopened = new Store(path.join(root, 'activity.sqlite'))
+      try {
+        const progress = new ExternalMcp({ ...f.core, store: reopened, config: f.core.config, cwd: f.core.cwd, defaultCwd: f.core.defaultCwd }, tokens).status('mcp:alice', work.run_id)
+        assert.equal(progress.activities.tasks.find(t => t.id === 'command').status, 'error')
+        assert.equal(progress.activities.title, 'Turno detenido')
+      } finally { reopened.close() }
+      const bob = await f.client(tokens.REGENT_MCP_TOKEN_BOB)
+      assert.equal((await bob.callTool({ name: 'regent_get_run', arguments: { run_id: work.run_id } })).isError, true)
+      const tools = (await client.listTools()).tools
+      assert.equal(tools.find(t => t.name === 'regent_start')._meta.ui.resourceUri, 'ui://regent/progress.html')
+      assert.equal((await client.listResources()).resources[0].uri, 'ui://regent/progress.html')
+      const resource = await client.readResource({ uri: 'ui://regent/progress.html' })
+      assert.equal(resource.contents[0].mimeType, 'text/html;profile=mcp-app')
+      assert.match(resource.contents[0].text, /regent_get_run/)
+      assert.deepEqual(resource.contents[0]._meta.ui.csp.connectDomains, [])
+    } finally { await f.close() }
+  })
   await check('continuation answers questions and reuses the session/worktree without Slack identity lookups', async () => {
     const f = await fixture()
     try {
@@ -354,6 +388,9 @@ try {
       await client.connect(transport)
       assert.equal((await client.listTools()).tools.length, 5)
       assert.equal(client.getInstructions(), f.gateway.instructions())
+      const resource = await client.readResource({ uri: 'ui://regent/progress.html' })
+      assert.equal(resource.contents[0].mimeType, 'text/html;profile=mcp-app')
+      assert.equal((await client.listTools()).tools.find(t => t.name === 'regent_get_run')._meta.ui.resourceUri, 'ui://regent/progress.html')
       const work = await start(client, { prompt: 'Modifica el titulo del grafico.' })
       await until(() => !f.core.active.size)
       const result = await call(client, 'regent_get_run', { run_id: work.run_id })

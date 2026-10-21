@@ -2,7 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
+import { CallToolRequestSchema, ListToolsRequestSchema, ListResourcesRequestSchema, ReadResourceRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 
 async function main() {
   const token = process.env.REGENT_MCP_TOKEN?.trim()
@@ -15,9 +15,11 @@ async function main() {
   const remote = new Client({ name: 'regent-desktop', version: '0.3.0' })
   try {
     await remote.connect(new StreamableHTTPClientTransport(url, { requestInit: { headers: { Authorization: `Bearer ${token}` } } }))
-    const local = new Server({ name: 'regent', version: '0.3.0' }, { capabilities: { tools: {} }, instructions: remote.getInstructions() })
+    const local = new Server({ name: 'regent', version: '0.3.0' }, { capabilities: { tools: {}, resources: {} }, instructions: remote.getInstructions() })
     local.setRequestHandler(ListToolsRequestSchema, (request, extra) => remote.listTools(request.params, { signal: extra.signal }))
     local.setRequestHandler(CallToolRequestSchema, (request, extra) => remote.callTool(request.params, undefined, { signal: extra.signal }))
+    local.setRequestHandler(ListResourcesRequestSchema, (request, extra) => remote.listResources(request.params, { signal: extra.signal }))
+    local.setRequestHandler(ReadResourceRequestSchema, (request, extra) => remote.readResource(request.params, { signal: extra.signal }))
     local.onclose = () => { void remote.close() }
     const close = () => { void local.close().finally(() => remote.close()) }
     process.once('SIGINT', close)

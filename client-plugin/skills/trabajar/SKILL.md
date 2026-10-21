@@ -50,9 +50,20 @@ El ejecutor verifica sus lectores y conexiones y reporta las limitaciones reales
 
 ## Seguir la conversacion
 
+El seguimiento de este trabajo pertenece a esta conversacion. No crees tareas
+programadas, recordatorios ni automatizaciones para revisar su avance, salvo que
+el usuario pida expresamente una notificacion posterior. No anuncies revisiones
+futuras que no puedas realizar dentro del seguimiento disponible.
+
 Consulta `regent_get_run` con el `run_id` recibido. Sigue `latest_run`, porque un
 cambio de contexto puede crear una continuacion automatica. Si esta en cola o
 ejecutando, da un estado breve sin afirmar que el trabajo ya termino.
+
+En clientes con MCP Apps, el panel de Regent muestra las actividades reales y se
+actualiza dentro del chat. Muestra el panel; no sustituyas sus checks por pasos
+inventados ni abras otras tareas para consultarlo. Si no hay panel, sigue consultando
+`regent_get_run` en el mismo turno y resume solo cambios de actividad. Si el cliente
+interrumpe el turno, conserva los IDs e informa como retomar, sin programar nada.
 
 Ante una pregunta pendiente, presentala al usuario y envia su respuesta mediante
 `regent_continue`, conservando `conversation_id` y usando un UUID nuevo por mensaje.

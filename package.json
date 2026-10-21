@@ -17,8 +17,10 @@
     "regent": "node src/cli.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/ext-apps": "1.1.2",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@slack/bolt": "^5.0.0",
+    "esbuild": "0.28.2",
     "image-size": "^2.0.2",
     "shell-quote": "^1.10.0",
     "yaml": "^2.9.0",

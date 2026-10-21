@@ -45,15 +45,22 @@ ni otra dependencia. Desktop coordina y Claude Code ejecuta el codigo en el serv
 | --- | --- | --- |
 | `regent_context` | `repo` opcional | Repo predeterminado/seleccionado e inventario de instrucciones, skills, agentes y MCP declarados; no ejecuta el modelo |
 | `regent_start` | `prompt`, `request_id` UUID, `repo` e `intent` opcionales | `conversation_id`, `run_id`; comienza sin esperar a terminar el trabajo y usa el repo predeterminado si se omite |
-| `regent_get_run` | `run_id` | Estado, resultado, ultimo run de la conversacion, progreso y pregunta pendiente |
+| `regent_get_run` | `run_id` | Estado, resultado, ultimo run, actividades reales, progreso y pregunta pendiente; panel MCP Apps con refresco automatico |
 | `regent_continue` | `conversation_id`, `prompt`, UUID nuevo en `request_id` | Nuevo run en la misma sesion, repo y worktree |
 | `regent_cancel` | `conversation_id` | Pausa la conversacion, detiene el proceso activo y conserva codigo y cola |
 
 Usar el mismo `request_id` para reintentar el mismo mensaje evita duplicar trabajo.
 El primer mensaje aceptado para ese identificador es el que se ejecuta. Un mensaje
-nuevo requiere otro UUID. Consultar con intervalos razonables, por ejemplo 5-10 segundos,
-mientras `latest_run.state` sea `queued` o `running`. Un cambio interno de repo crea
-otro run; `latest_run` permite seguirlo sin perder la conversacion.
+nuevo requiere otro UUID. `regent_start`, `regent_continue` y `regent_get_run`
+anuncian el recurso `ui://regent/progress.html`. En clientes con MCP Apps, el panel
+consulta el estado cada 3 segundos dentro del chat; no necesita tareas programadas
+ni mantener al modelo consultando. Se detiene al terminar, esperar respuesta humana,
+cerrar el panel o fallar tres veces consecutivas; tiene reintento manual. Un cambio
+interno de repo crea otro run y el panel sigue `latest_run`.
+
+Sin soporte de panel, el cliente consulta `regent_get_run` en el mismo turno y conserva
+los IDs si el turno termina. No programa recordatorios ni promete revisiones futuras
+sin que el usuario las pida. La skill y las instrucciones MCP lo indican expresamente.
 
 En `waiting_human`, Desktop presenta la pregunta y envia la respuesta con
 `regent_continue`. Una cancelacion conserva los mensajes pendientes: continuar
@@ -161,6 +168,7 @@ conversacion. La ruta del repo es relativa al workspace del servidor, no al Mac.
 | Instalar configuracion local de Claude Desktop | Completada | Entrada `regent` agregada al JSON privado conservando los conectores anteriores; catalogo actualizado cargado y herramientas verificadas desde la interfaz |
 | Descubrimiento y delegacion desde el chat | Implementada | Instrucciones MCP reenviadas por stdio, herramienta de contexto y repo opcional; descubrimiento e inicio de run verificados desde Desktop con la skill del cliente |
 | Skill de delegacion del cliente Desktop | Implementada | Instalada originalmente como `regent-code`; su fuente se movio a `client-plugin/skills/trabajar/SKILL.md` al agrupar el plugin |
+| Progreso dentro del chat | Parcial | Actividades de Slack reutilizadas, recurso MCP Apps y puente stdio extendido; suite completa aprobada, validacion visual/activacion local pendientes |
 | Plugin del cliente | Parcial | Manifiesto, skill `trabajar`, MCP HTTP configurable y ZIP sin secretos; validacion del formato aprobada, instalacion integrada en Desktop pendiente |
 | Smoke real de contexto en local | Completada | Run `937a3eb0-cd01-49c6-b08b-29b5d35bda24`: Claude Code real, skill local y archivos AGENTS leidos; sin cambios de codigo ni consultas de candidatos |
 | Configurar y actualizar instancia AWS | Pendiente | Publicar codigo revisado, habilitar principales y verificar endpoint sin revelar tokens |
@@ -351,6 +359,38 @@ tunel ni se desplego AWS como parte de este empaquetado.
 
 Referencia de compatibilidad: [plugins con MCP local y remoto](https://support.claude.com/en/articles/11725091-when-to-use-desktop-and-web-connectors).
 Configuracion: [manifiesto y userConfig](https://code.claude.com/docs/en/plugins-reference).
+
+## Progreso en Claude y tareas programadas
+
+El 2026-10-21 Desktop envio el trabajo de candidatos a Regent y creo revisiones
+programadas por su cuenta. La skill instalada, leida desde su copia sincronizada,
+indicaba consultar `regent_get_run`, pero no crear automatizaciones. El adaptador
+solo devolvia el ultimo `mcp_notice`; no exponia las actividades que Slack mostraba.
+
+Se agrego `mcp-activities.ts`, que reconstruye el mismo resumen de `activities.ts`
+a partir de eventos persistidos, aun despues de reabrir SQLite. No envia argumentos
+arbitrarios ni resultados crudos de herramientas al panel. La propiedad del run se
+valida antes de leer las actividades. Un error de herramienta conserva su estado;
+un turno terminado no convierte operaciones sin confirmar en exitosas.
+
+`mcp-progress.ts` registra el recurso autocontenido y `mcp-progress-app.ts` presenta
+los checks, la pregunta o el resultado. El SDK oficial MCP Apps 1.1.2 es compatible
+con el SDK MCP 1.x de Regent; esbuild empaqueta el recurso en memoria al primer uso.
+No hay llamadas directas a un dominio externo desde el iframe: se usa el puente de
+herramientas del host y su autenticacion. No hay tokens en el HTML. El transporte
+stdio ahora reenvia listado y lectura de recursos, ademas de herramientas.
+
+Las nuevas pruebas verifican transiciones en curso/completadas/error, aislamiento
+entre principales, relectura persistida, omision de datos crudos y recursos por
+HTTP/stdio. `pnpm test` paso completo. El formato MCP Apps no reproduce las tarjetas
+nativas de Slack: presenta una tarjeta propia de Regent en clientes compatibles.
+La apariencia y el polling dentro de Desktop deben verificarse en su interfaz;
+la prueba de transporte no certifica esa visualizacion.
+
+La ejecucion activa de candidatos no se reinicia para activar esta entrega. Su
+skill instalada y el runtime se actualizaran al cerrar el trabajo, conservando su
+sesion y worktree. Las tareas programadas ya creadas por Claude no se borraron.
+Referencia: [MCP Apps](https://apps.extensions.modelcontextprotocol.io/api/documents/Quickstart.html).
 
 ## Fuera de esta entrega
 
