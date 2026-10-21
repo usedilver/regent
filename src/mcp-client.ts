@@ -6,7 +6,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema, ListResourcesRequestSche
 
 async function main() {
   const token = process.env.REGENT_MCP_TOKEN?.trim()
-  if (!token || token.length < 32) throw new Error('Configura REGENT_MCP_TOKEN con el token personal de Regent.')
+  if (!token || token.length < 32) throw new Error('Configura REGENT_MCP_TOKEN con el token personal del conector.')
   const url = new URL(process.env.REGENT_MCP_URL ?? '')
   const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
   if ((url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) || url.username || url.password || url.search || url.hash) {
@@ -15,7 +15,7 @@ async function main() {
   const remote = new Client({ name: 'regent-desktop', version: '0.3.0' })
   try {
     await remote.connect(new StreamableHTTPClientTransport(url, { requestInit: { headers: { Authorization: `Bearer ${token}` } } }))
-    const local = new Server({ name: 'regent', version: '0.3.0' }, { capabilities: { tools: {}, resources: {} }, instructions: remote.getInstructions() })
+    const local = new Server(remote.getServerVersion() ?? { name: 'regent', version: '0.3.0' }, { capabilities: { tools: {}, resources: {} }, instructions: remote.getInstructions() })
     local.setRequestHandler(ListToolsRequestSchema, (request, extra) => remote.listTools(request.params, { signal: extra.signal }))
     local.setRequestHandler(CallToolRequestSchema, (request, extra) => remote.callTool(request.params, undefined, { signal: extra.signal }))
     local.setRequestHandler(ListResourcesRequestSchema, (request, extra) => remote.listResources(request.params, { signal: extra.signal }))
@@ -27,7 +27,7 @@ async function main() {
     await local.connect(new StdioServerTransport())
   } catch {
     await remote.close().catch(() => {})
-    throw new Error('No se pudo conectar a Regent MCP. Verifica la URL, el token y la disponibilidad del servidor.')
+    throw new Error('No se pudo conectar al servidor de codigo. Verifica la URL, el token y la disponibilidad del servidor.')
   }
 }
 

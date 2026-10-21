@@ -43,7 +43,8 @@ export class ExternalMcp {
   }
   instructions(): string {
     const defaultRepo = this.defaultRepo()
-    return `Regent ejecuta un agente de codigo con acceso a los repositorios del servidor, sus skills, instrucciones y fuentes configuradas. Para crear, modificar, eliminar o investigar codigo, vistas, dashboards o graficos de esos proyectos, usa Regent. El repo predeterminado es ${JSON.stringify(defaultRepo)}. Llama regent_context para conocerlo y regent_start para delegar el pedido completo; repo es opcional y usa ese predeterminado. No deduzcas que falta acceso al repo o a sus datos porque esas herramientas no aparezcan en el chat: el agente las usa en el servidor. Primero compruebalo con Regent. Muestra el panel con regent_get_run para seguir las actividades en esta conversacion y continua con regent_continue. No crees tareas programadas ni recordatorios para hacer seguimiento; si no hay panel, consulta el estado dentro del mismo turno. No afirmes acceso a datos ni cambios realizados sin el resultado del agente. Las skills de otros plugins del chat no sustituyen las instrucciones del repo seleccionado.`
+    const name = this.core.config.name
+    return `${name} ejecuta un agente de codigo con acceso a los repositorios del servidor, sus skills, instrucciones y fuentes configuradas. Para crear, modificar, eliminar o investigar codigo, webs, aplicaciones, vistas, dashboards o graficos de esos proyectos, usa ${name}. El repo predeterminado es ${JSON.stringify(defaultRepo)}. Llama regent_context para conocerlo y regent_start para delegar el pedido completo; repo es opcional y usa ese predeterminado. Conserva cualquier proyecto o URL indicado por el usuario: el ejecutor debe resolver ese destino antes de editar, aunque sea distinto del predeterminado. No deduzcas que falta acceso al repo o a sus datos porque esas herramientas no aparezcan en el chat: el agente las usa en el servidor. Primero compruebalo con ${name}. Presenta el servicio como ${name}; regent_* son nombres internos de sus herramientas. Muestra el panel con regent_get_run para seguir las actividades en esta conversacion y continua con regent_continue. No crees tareas programadas ni recordatorios para hacer seguimiento; si no hay panel, consulta el estado dentro del mismo turno. No afirmes acceso a datos ni cambios realizados sin el resultado del agente. Las skills de otros plugins del chat no sustituyen las instrucciones del repo seleccionado.`
   }
   conversation(author: string, key: string): Conversation {
     const conversation = this.core.store.conversation(key)
@@ -74,13 +75,18 @@ export class ExternalMcp {
     return { conversation_id: key, run_id: accepted.runId, duplicate: accepted.duplicate, command: accepted.command }
   }
   server(author: string): McpServer {
-    const server = new McpServer({ name: 'regent', version: '0.3.0' }, { instructions: this.instructions() })
-    registerProgressResource(server)
+    const title = this.core.config.name
+    const server = new McpServer({ name: 'regent', title, version: '0.3.0' }, { instructions: this.instructions() })
+    registerProgressResource(server, title)
+    const titles: Record<string, string> = {
+      regent_context: 'Explorar proyecto', regent_start: 'Iniciar trabajo',
+      regent_get_run: 'Ver progreso', regent_continue: 'Continuar trabajo', regent_cancel: 'Detener trabajo',
+    }
     const read = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
     const write = { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true }
     const register = (name: string, description: string, inputSchema: Record<string, z.ZodType>, annotations: typeof read, action: (args: any) => unknown) => {
       const ui = ['regent_start', 'regent_continue', 'regent_get_run'].includes(name)
-      registerAppTool(server, name, { description, inputSchema, annotations,
+      registerAppTool(server, name, { title: `${title} · ${titles[name]}`, description, inputSchema, annotations,
         _meta: ui ? { ui: { resourceUri: PROGRESS_URI } } : {} }, async args => {
         try {
           const result = await action(args)

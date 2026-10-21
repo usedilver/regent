@@ -1,7 +1,8 @@
 import { App, applyDocumentTheme, applyHostStyleVariables } from '@modelcontextprotocol/ext-apps'
 
-const app = new App({ name: 'Progreso de Regent', version: '1.0.0' }, {}, { autoResize: true })
 const element = (id: string) => document.getElementById(id)!
+const displayName = element('heading').textContent ?? 'Regent'
+const app = new App({ name: `Progreso de ${displayName}`, version: '1.0.0' }, {}, { autoResize: true })
 let runId: string | undefined
 let timer: ReturnType<typeof setTimeout> | undefined
 let busy = false
@@ -16,7 +17,7 @@ function render(data: any) {
   }
   runId = run.id
   active = ['queued', 'running'].includes(run.state)
-  element('heading').textContent = data.activities?.title ?? (active ? 'Regent trabajando' : 'Regent')
+  element('heading').textContent = `${displayName} · ${data.activities?.title ?? (active ? 'Trabajando' : 'Estado del trabajo')}`
   element('repo').textContent = data.repo?.split(/[\\/]/).filter(Boolean).at(-1) ?? ''
   element('connection').textContent = data.progress ?? (run.state === 'queued' ? 'Esperando turno' : active ? 'Actualizando automáticamente' : 'Trabajo detenido')
   const list = element('activities')

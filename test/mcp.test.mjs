@@ -44,6 +44,7 @@ async function fixture(options = {}) {
   const messages = [], starts = [], clients = []
   const slack = Object.fromEntries(['notice', 'status', 'delta', 'finish', 'question', 'progress', 'activity'].map(kind => [kind, async (...args) => { messages.push({ kind, args }) }]))
   const config = baseConfig()
+  if (options.name) config.name = options.name
   config.repos.path = dir
   config.repos.default_repo = 'dashboard'
   config.limits.max_concurrent_runs = options.concurrency ?? 3
@@ -378,7 +379,7 @@ try {
     }
   })
   await check('Desktop stdio connector forwards MCP tools and results to the authenticated HTTP runtime', async () => {
-    const f = await fixture()
+    const f = await fixture({ name: 'Talently Code' })
     const client = new Client({ name: 'desktop-fixture', version: '1' })
     const transport = new StdioClientTransport({ command: process.execPath, args: [path.resolve('src/mcp-client.ts')],
       env: { REGENT_MCP_URL: `${f.url}/mcp`, REGENT_MCP_TOKEN: tokens.REGENT_MCP_TOKEN_ALICE }, stderr: 'pipe' })
@@ -386,10 +387,15 @@ try {
     transport.stderr?.on('data', chunk => { stderr += chunk })
     try {
       await client.connect(transport)
+      assert.deepEqual(client.getServerVersion(), { name: 'regent', title: 'Talently Code', version: '0.3.0' })
       assert.equal((await client.listTools()).tools.length, 5)
+      assert.equal((await client.listTools()).tools.find(t => t.name === 'regent_start').title, 'Talently Code · Iniciar trabajo')
       assert.equal(client.getInstructions(), f.gateway.instructions())
+      assert.match(client.getInstructions(), /Talently Code/)
+      assert.equal((await client.listResources()).resources[0].name, 'Progreso de Talently Code')
       const resource = await client.readResource({ uri: 'ui://regent/progress.html' })
       assert.equal(resource.contents[0].mimeType, 'text/html;profile=mcp-app')
+      assert.match(resource.contents[0].text, /<h2 id="heading">Talently Code<\/h2>/)
       assert.equal((await client.listTools()).tools.find(t => t.name === 'regent_get_run')._meta.ui.resourceUri, 'ui://regent/progress.html')
       const work = await start(client, { prompt: 'Modifica el titulo del grafico.' })
       await until(() => !f.core.active.size)

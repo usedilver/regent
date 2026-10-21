@@ -32,7 +32,9 @@ root `.env`. The retired v1 `workflow.json` and `process.md` are not loaded.
 - `session.idle_reset_hours`: resets eligible idle non-thread sessions; not a
   history retention policy.
 - `models.ask` / `patch` / `task` / `project`: optional CLI model identifiers. Null leaves
-  selection to Claude Code. `name` labels the server, not the Slack app profile.
+  selection to Claude Code. `name` labels the server, MCP tools and progress panel
+  (for example `Talently Code`), not the Slack app profile. The stdio bridge preserves
+  that label; the technical MCP server name and tool identifiers remain `regent` / `regent_*`.
 - `mcp.enabled`: opt-in external `/mcp` endpoint; false by default. `mcp.principals`
   maps stable caller IDs to private `REGENT_MCP_TOKEN_*` environment variable names.
   Tokens must be unique and at least 32 characters. Restart to rotate or revoke them.
