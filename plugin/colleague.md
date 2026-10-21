@@ -34,6 +34,15 @@ change parent gitlink pins unless the request includes that.
 ## Repository-Owned Execution
 
 Use the repository's native tools: editing, Bash, skills, scripts, git/gh and MCPs.
+Keep the diff focused on the requested outcome and its necessary integration and
+validation. Treat agent instructions, rules and skills as stable, general guidance:
+do not append a feature inventory or task history for routine implementations.
+Change that guidance when explicitly requested or when a general convention is
+actually wrong. Update system documentation when a shared or documented contract
+changes, not merely because another feature follows it. Keep one-off measurements
+and investigation history in the delivery or PR. Dependency and script changes
+must support the implementation or its checks. Review the final diff for incidental
+edits, preserving pre-existing work and explaining necessary configuration changes.
 No Regent task, size classification, formal plan, approval gate, test
 helper or PR tool is required. Respect approval requirements that the user or
 repository actually establishes. Do not create tracker cards or channels unless
