@@ -76,20 +76,20 @@ distintas. Usa el conector stdio incluido para Desktop; esta entrega no implemen
 El [plan de ejecucion y configuracion](mcp-execution-plan.md) documenta herramientas,
 instalacion en Desktop, pruebas y validaciones pendientes del servidor.
 
-El [plugin cliente](client-plugin/) agrupa la skill `trabajar` y el MCP remoto.
-Se empaqueta con `pnpm plugin:pack` en `tmp/regent-plugin.zip`, sin credenciales,
-rutas de esta maquina ni instrucciones de negocio. La entrada explicita es
-`/regent:trabajar`; tambien permite descubrimiento por lenguaje natural, cuya
+El [plugin cliente Talently Code](client-plugin/) agrupa la skill `talently-code` y el MCP remoto.
+Se empaqueta con `pnpm plugin:pack` en `tmp/talently-code-plugin.zip`, sin credenciales,
+rutas de esta maquina ni instrucciones de negocio. En Desktop se elige `/talently-code`;
+en clientes con namespace completo, `/talently-code:talently-code`. Tambien permite
+pedidos como "usa Talently Code y cambia el footer de la web", cuya
 seleccion no se garantiza frente a otros plugins. Las skills de implementacion
-siguen en cada repositorio y las carga Claude Code.
+siguen en cada repositorio y las carga Claude Code. El `name` de la instancia configura
+el titulo del MCP y su panel; el motor y las herramientas `regent_*` conservan su identidad tecnica.
 
 El manifiesto solicita endpoint y token personal mediante `userConfig` (token
-sensible). Ese esquema y el ZIP estan validados en Claude Code; la configuracion
-y conexion del plugin en el chat Desktop aun requieren prueba real. Para el chat
-se necesita un endpoint remoto accesible desde Anthropic: incluir el puente stdio
-local dentro del plugin no sustituye la conexion local de Desktop. Conserva esa
-conexion y la skill independiente ya instalada durante la prueba local. No repartir
-este paquete al equipo como una instalacion completa hasta validar el flujo remoto.
+sensible). El esquema y el ZIP estan validados; la skill instalada y su conexion
+mediante el puente stdio local se comprobaron en Desktop. La conexion HTTP del
+paquete requiere un endpoint accesible desde Anthropic y su configuracion de cliente
+sigue pendiente de validacion antes de distribuirlo al equipo.
 
 El seguimiento puede mostrarse en una tarjeta MCP Apps dentro del chat, con las
 mismas actividades que Slack y actualizacion automatica. El puente stdio reenvia el

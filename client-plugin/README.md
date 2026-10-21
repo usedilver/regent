@@ -1,42 +1,52 @@
 ---
-updated: 2026-10-20
+updated: 2026-10-21
 ---
 
-# Regent para Claude
+# Talently Code para Claude
 
-Este plugin reune la conexion a Regent y la skill para crear, modificar o investigar
-aplicaciones. El agente ejecutor trabaja en el servidor, lee las instrucciones del
-proyecto elegido y devuelve el resultado a Claude. No incluye codigo de negocio ni
-credenciales de ninguna persona.
+Este plugin conecta Claude con el agente de codigo de Talently. Permite crear,
+modificar, eliminar o investigar funcionalidades en webs, aplicaciones y dashboards.
+Regent es el motor interno; las instrucciones y herramientas de cada proyecto
+permanecen en su repositorio y las carga el ejecutor.
 
 ## Uso
 
-Instala el ZIP proporcionado por el administrador. Configura el endpoint y tu token
-personal en los campos privados del cliente que soporte `userConfig`; no pegues el
-token en una conversacion. La pantalla de configuracion de Claude Code esta soportada
-por su manifiesto; su equivalente en el chat Desktop aun debe verificarse.
+En Claude Desktop, escribe `/talently-code` y elige la skill **talently-code**.
+Tambien puedes pedir "Usa Talently Code y cambia la fecha del footer de la web de
+Talently" o "Usa Talently Code y agrega un grafico mensual de registros al dashboard".
+En clientes que requieren el nombre completo del plugin, usa
+`/talently-code:talently-code`.
 
-Elige la skill **trabajar** o escribe `/regent:trabajar` seguido de tu pedido, por
-ejemplo: "En el dashboard de mi equipo, agrega un grafico mensual de registros".
-Regent descubre el proyecto y sus reglas. Si falta informacion de negocio, la pide;
-no necesitas nombres de tablas, SQL ni rutas locales.
+El agente resuelve el proyecto indicado por nombre, URL o repositorio antes de
+editarlo. El repo predeterminado no reemplaza un destino explicito. Las consultas
+y analisis aislados de datos pertenecen a Talently Data; las acciones de negocio
+sin cambios de codigo pertenecen a sus integraciones operativas.
 
-Usar lenguaje natural sin elegir la skill tambien puede activarla, pero el modelo
-puede seleccionar otro flujo. El plugin no garantiza esa seleccion automatica.
-Un seguimiento relacionado conserva la conversacion y el trabajo del ejecutor.
+Elegir la skill carga el flujo explicitamente. La seleccion mediante texto libre
+sigue dependiendo de Claude. El seguimiento usa las actividades del trabajo en
+el mismo chat, sin crear tareas programadas para consultar su avance.
 
-## Estado de esta entrega
+## Instalacion y cambio de nombre
 
-El manifiesto y el ZIP pasan la validacion de Claude Code. La distribucion al equipo
-en el chat Desktop aun no esta validada: falta configurar el endpoint remoto, probar
-su autenticacion en el cliente y verificar el flujo completo del plugin. Las pruebas
-anteriores de Desktop usaron la skill independiente y el puente local, no este ZIP.
+Instala `talently-code-plugin.zip` en los plugins de Claude y configura el endpoint
+y tu token personal en los campos privados del conector. No pegues el token en el
+chat. El endpoint remoto debe ser accesible desde Anthropic para usarlo en el chat;
+un servidor en localhost requiere el puente stdio para Claude Desktop.
 
-Un plugin con MCP remoto requiere una URL accesible desde Anthropic. Incluir un MCP
-stdio local en el ZIP no lo habilita en el chat. En esta maquina siguen activos la
-skill independiente y el puente local de prueba mientras se valida el reemplazo.
-No se publico el servidor local ni se incluyeron tokens o rutas personales.
+El identificador cambia de `regent` a `talently-code`: el cliente puede tratarlo
+como otro plugin. Verifica el nuevo y deshabilita el anterior para evitar entradas
+duplicadas. El endpoint, tokens y conversaciones del servidor se conservan.
+No edites las copias sincronizadas del plugin como mecanismo de actualizacion.
 
-El administrador empaqueta con `pnpm plugin:pack` desde el repositorio de Regent.
-El artefacto se genera en `tmp/regent-plugin.zip`. La configuracion de proyectos,
-permisos y fuentes pertenece al servidor; la de implementacion pertenece a cada repo.
+El nombre visible del servidor y del panel se configura con `name: Talently Code`
+en la instancia MCP. El puente stdio conserva ese nombre. Las herramientas
+`regent_context`, `regent_start`, `regent_get_run`, `regent_continue` y `regent_cancel`
+siguen siendo compatibles con clientes anteriores.
+
+## Distribucion
+
+Ejecuta `pnpm plugin:pack` desde el repositorio de Regent. El artefacto se genera en
+`tmp/talently-code-plugin.zip` con una lista explicita de cinco archivos: manifiesto,
+configuracion MCP, skill, guia y licencia. No incluye tokens, entornos ni codigo
+del servidor. El empaquetado y las pruebas de transporte no sustituyen verificar
+la instalacion y el comando en el cliente Desktop.

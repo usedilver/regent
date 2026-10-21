@@ -167,7 +167,7 @@ conversacion. La ruta del repo es relativa al workspace del servidor, no al Mac.
 | Arranque local y configuracion para Claude Code | Completada | Node 22.20.0, Claude Code 2.1.305, endpoint loopback autenticado y cuatro herramientas verificadas usando el conector stdio; sin ejecutar trabajos |
 | Instalar configuracion local de Claude Desktop | Completada | Entrada `regent` agregada al JSON privado conservando los conectores anteriores; catalogo actualizado cargado y herramientas verificadas desde la interfaz |
 | Descubrimiento y delegacion desde el chat | Implementada | Instrucciones MCP reenviadas por stdio, herramienta de contexto y repo opcional; descubrimiento e inicio de run verificados desde Desktop con la skill del cliente |
-| Skill de delegacion del cliente Desktop | Implementada | Instalada originalmente como `regent-code`; su fuente se movio a `client-plugin/skills/trabajar/SKILL.md` al agrupar el plugin |
+| Skill de delegacion del cliente Desktop | Implementada | Instalada originalmente como `regent-code`; su fuente se movio a `client-plugin/skills/talently-code/SKILL.md` al agrupar el plugin |
 | Progreso dentro del chat | Parcial | Actividades de Slack reutilizadas, recurso MCP Apps y puente stdio extendido; suite completa aprobada, validacion visual/activacion local pendientes |
 | Plugin del cliente | Parcial | Manifiesto, skill `trabajar`, MCP HTTP configurable y ZIP sin secretos; validacion del formato aprobada, instalacion integrada en Desktop pendiente |
 | Smoke real de contexto en local | Completada | Run `937a3eb0-cd01-49c6-b08b-29b5d35bda24`: Claude Code real, skill local y archivos AGENTS leidos; sin cambios de codigo ni consultas de candidatos |
@@ -309,7 +309,7 @@ los artefactos de prueba no se versionan. Continuar/cancelar desde la UI y el CR
 real siguen pendientes; no se infieren de este smoke de lectura.
 
 El artefacto independiente de esta prueba permanece en `tmp/regent-code-skill.zip`
-(ignorado). Su fuente paso a `client-plugin/skills/trabajar/SKILL.md`. La instalacion
+(ignorado). Su fuente paso a `client-plugin/skills/talently-code/SKILL.md`. La instalacion
 independiente de Desktop se conserva hasta probar el plugin integrado, para no
 reemplazar una conexion verificada por un paquete que aun no tiene endpoint remoto.
 `new-dashboard` permanece en el repo del dashboard y su cuerpo lo lee el ejecutor.
@@ -325,7 +325,7 @@ distintos y el ejecutor no carga este plugin de delegacion como su protocolo.
 
 El flujo tiene tres decisiones diferentes:
 
-1. **Entrada del cliente.** Elegir la skill o `/regent:trabajar` carga la guia de
+1. **Entrada del cliente.** Elegir la skill o `/talently-code:talently-code` carga la guia de
    delegacion explicitamente. La seleccion por texto libre sigue siendo del modelo,
    incluso dentro de un plugin; no es una regla ejecutada por el runtime.
 2. **Destino del servidor.** `repo` explicito prevalece; sin el se usa
@@ -387,9 +387,10 @@ nativas de Slack: presenta una tarjeta propia de Regent en clientes compatibles.
 La apariencia y el polling dentro de Desktop deben verificarse en su interfaz;
 la prueba de transporte no certifica esa visualizacion.
 
-La ejecucion activa de candidatos no se reinicia para activar esta entrega. Su
-skill instalada y el runtime se actualizaran al cerrar el trabajo, conservando su
-sesion y worktree. Las tareas programadas ya creadas por Claude no se borraron.
+El runtime local y el plugin instalado se actualizaron una vez terminados los
+trabajos de candidatos, conservando sesiones y worktrees. El smoke posterior se
+describe en la seccion de identidad del cliente. Las tareas programadas ya creadas
+por Claude no se borraron.
 Referencia: [MCP Apps](https://apps.extensions.modelcontextprotocol.io/api/documents/Quickstart.html).
 
 ## Fuera de esta entrega
@@ -398,3 +399,35 @@ OAuth para un conector remoto de una sola URL, permisos por repositorio dentro d
 workspace, enlaces automaticos entre conversaciones Slack/Desktop, editor visual y
 cambios en el warehouse. Se pueden agregar despues sin mezclar el MCP de datos con
 el ejecutor de codigo.
+
+
+## Identidad del cliente Talently Code
+
+El plugin distribuido usa `name: talently-code`, `displayName: Talently Code` y
+version `0.2.0`. Su unica skill se llama `talently-code`; Desktop la encuentra al
+escribir `/talently-code`, y la invocacion completa es
+`/talently-code:talently-code`. El paquete publico reproducible queda en
+`tmp/talently-code-plugin.zip`, con los mismos cinco tipos de archivo y sin secretos.
+
+El motor y las herramientas `regent_*` conservan sus identificadores. El `name` ya
+existente de cada instancia determina el titulo del servidor MCP, sus herramientas
+y el panel; el puente stdio conserva los metadatos del servidor. La instancia MCP
+local usa `name: Talently Code`. La configuracion del perfil de Slack se administra
+por separado y no se modifico.
+
+El plugin Talently Code fue cargado en Claude Desktop y la entrada anterior Regent
+y la skill independiente `regent-code` quedaron desactivadas. La conexion local se
+renombro a `talently-code`, conservando el
+endpoint y el token; se guardaron copias privadas de la configuracion antes del cambio.
+No habia trabajos activos al reiniciar el MCP. Las conversaciones previas se conservan.
+
+Pasaron la validacion del manifiesto y de la skill, el empaquetado reproducible y
+la suite completa de Regent (81 comprobaciones). Una comprobacion SDK contra el servidor local confirma
+el titulo, los cinco nombres visibles de herramientas, el recurso del panel y
+`regent_context` sin iniciar trabajos. En Desktop se eligio `/talently-code` desde
+el menu de skills y se aprobo una sola lectura de contexto. Claude uso la herramienta
+"Talently Code · Explorar proyecto" y confirmo el servicio y el proyecto predeterminado.
+La prueba esta en `claude.ai/chat/ddaf1314-d79f-4555-bc1b-8bcb36e47b52`; la captura
+local queda en `tmp/talently-code-desktop-proof.png`. No se iniciaron trabajos ni
+recordatorios, ni se modifico el proyecto del dashboard durante esta comprobacion.
+Esta entrega actualiza el MCP local y el plugin de esta cuenta; AWS sigue pendiente.

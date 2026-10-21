@@ -17,7 +17,7 @@ Do not reintroduce mandatory boards, tickets, or approval pipelines.
   MCP configuration; separate from the executor protocol in `plugin/`. Project
   implementation skills remain in their own repositories.
 - `scripts/package-client-plugin.py`: packages only the public client manifest,
-  MCP configuration, skill, guide and license into the ignored `tmp/regent-plugin.zip`.
+  MCP configuration, skill, guide and license into the ignored `tmp/talently-code-plugin.zip`.
 - `test/`: executable tests, fake Claude process, and IPC fixtures.
 - `config/`: public `regent.example.yaml`, configuration guide, and ignored local
   `regent.yaml`. Root `.env.example` documents service environment variables.
