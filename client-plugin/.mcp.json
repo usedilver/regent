@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "talently-code": {
-      "type": "http",
-      "url": "${user_config.endpoint}"
-    }
-  }
-}

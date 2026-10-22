@@ -1,16 +1,8 @@
 {
   "name": "talently-code",
   "displayName": "Talently Code",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Crea, modifica e investiga webs, aplicaciones y dashboards de Talently con lenguaje natural y las instrucciones de cada proyecto.",
   "author": { "name": "Talently" },
-  "license": "MIT",
-  "userConfig": {
-    "endpoint": {
-      "type": "string",
-      "title": "Servidor Talently Code",
-      "description": "URL HTTPS /mcp proporcionada por el administrador. Claude abrira el inicio de sesion configurado para autorizar tu acceso.",
-      "required": true
-    }
-  }
+  "license": "MIT"
 }

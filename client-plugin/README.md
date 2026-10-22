@@ -28,9 +28,10 @@ el mismo chat, sin crear tareas programadas para consultar su avance.
 
 ## Instalacion y cambio de nombre
 
-La version 0.3.0 requiere una instancia con OAuth configurado y accesible por HTTPS.
-Instala `talently-code-plugin.zip`, configura el endpoint e inicia sesion cuando
-Claude lo solicite. Confirma la conexion desde la pantalla del servidor. No se pide
+La version 0.3.1 requiere una instancia con OAuth configurado y accesible por HTTPS.
+Instala el ZIP preparado por el administrador e inicia sesion cuando
+Claude lo solicite. El endpoint ya esta incluido; no hay variables que completar.
+Confirma la conexion desde la pantalla del servidor. No se pide
 un token manual. El administrador configura el proveedor de identidad y los usuarios
 autorizados en `config/regent.yaml`; instalar el plugin no concede acceso por si solo.
 
@@ -54,7 +55,20 @@ siguen siendo compatibles con clientes anteriores.
 
 ## Distribucion
 
-Ejecuta `pnpm plugin:pack` desde el repositorio de Regent. El artefacto se genera en
+El administrador ejecuta desde el repositorio de Regent:
+
+```bash
+pnpm plugin:pack --endpoint https://your-regent-host.example/mcp
+```
+
+Sustituye el dominio del ejemplo por el servidor publicado con OAuth operativo.
+El comando requiere una URL HTTPS literal y genera `.mcp.json` dentro del ZIP;
+el directorio fuente contiene la skill y el manifiesto, no una conexion activa.
+No depende de la sustitucion de `userConfig` en Desktop: la instalacion observada
+mostro `${user_config.endpoint}` sin resolver en el modal del conector. La version
+0.3.0 con ese marcador no debe distribuirse.
+
+El artefacto se genera en
 `tmp/talently-code-plugin.zip` con una lista explicita de cinco archivos: manifiesto,
 configuracion MCP, skill, guia y licencia. No incluye tokens, entornos ni codigo
 del servidor. El empaquetado y las pruebas de transporte no sustituyen verificar

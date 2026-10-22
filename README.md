@@ -79,7 +79,8 @@ La [configuracion de OAuth](config/README.md#oauth-login-for-mcp) documenta el p
 OIDC, callbacks, acceso de usuarios, despliegue y limites de las pruebas.
 
 El [plugin cliente Talently Code](client-plugin/) agrupa la skill `talently-code` y el MCP remoto.
-Se empaqueta con `pnpm plugin:pack` en `tmp/talently-code-plugin.zip`, sin credenciales,
+El administrador lo empaqueta con `pnpm plugin:pack --endpoint https://your-regent-host.example/mcp`
+en `tmp/talently-code-plugin.zip`, usando la URL del servidor real, sin credenciales,
 rutas de esta maquina ni instrucciones de negocio. En Desktop se elige `/talently-code`;
 en clientes con namespace completo, `/talently-code:talently-code`. Tambien permite
 pedidos como "usa Talently Code y cambia el footer de la web", cuya
@@ -87,8 +88,9 @@ seleccion no se garantiza frente a otros plugins. Las skills de implementacion
 siguen en cada repositorio y las carga Claude Code. El `name` de la instancia configura
 el titulo del MCP y su panel; el motor y las herramientas `regent_*` conservan su identidad tecnica.
 
-El plugin 0.3.0 solicita solo el endpoint mediante `userConfig` y usa OAuth del
-cliente para iniciar sesion. Requiere que el servidor tenga un proveedor configurado
+El plugin 0.3.1 incluye el endpoint literal al empaquetarlo y usa OAuth del
+cliente para iniciar sesion. No requiere `userConfig`; Desktop mostro el marcador
+sin resolver en la instalacion anterior. Requiere que el servidor tenga un proveedor configurado
 y callbacks autorizados. Los tests locales verifican el protocolo con un proveedor
 OIDC simulado; no certifican el login real de Google/Hire ni la instalacion HTTP
 en Desktop. La conexion stdio anterior se mantiene operativa durante la preparacion.

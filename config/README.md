@@ -127,8 +127,9 @@ Run `node test/oauth.test.mjs` (also included in `pnpm test`) for an HTTP integr
 with a local signed OIDC provider fixture. It covers consent, PKCE, audience,
 signature/nonce/expiry checks, identity ownership, token rotation, revocation and
 restart. This is not a real corporate SSO or Claude Desktop OAuth acceptance test.
-Before distributing plugin 0.3.0, configure a real provider, verify its approved
-users and callbacks, and complete login, reconnect and disconnect from Desktop.
+Before distributing a plugin packaged with its public `--endpoint`, configure a
+real provider, verify its approved users and callbacks, and complete login,
+reconnect and disconnect from Desktop.
 
 ## Shared Agent Credentials (Optional)
 
