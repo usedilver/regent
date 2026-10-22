@@ -20,6 +20,7 @@ export function createHttp(core: Core, health: () => Record<string, unknown>, ex
         response.writeHead(200, { 'content-type': 'text/plain; version=0.0.4' })
         return response.end(rows.map(row => `regent_runs{state="${row.state}"} ${row.n}`).join('\n') + '\n')
       }
+      if (external?.oauth?.handles(request, response)) return
       if (request.url === '/mcp' && external) return await external.handle(request, response)
       if (!['/tools', '/hook-denial', '/tool-policy'].includes(request.url ?? '')) return send(404, { error: 'Ruta inexistente' })
       const token = request.headers.authorization?.replace(/^Bearer /, '') ?? ''

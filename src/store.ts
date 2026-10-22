@@ -36,7 +36,7 @@ export class Store {
     this.db = new DatabaseSync(file)
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;')
     const version = this.db.prepare('PRAGMA user_version').get()!.user_version as number
-    if (version > 9) throw new Error(`Esquema SQLite ${version} mas nuevo que este servidor.`)
+    if (version > 10) throw new Error(`Esquema SQLite ${version} mas nuevo que este servidor.`)
     this.transaction(() => {
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS conversations (
@@ -149,6 +149,21 @@ export class Store {
       if (version < 9) this.db.exec(`
         CREATE TABLE IF NOT EXISTS slack_finish (run_id TEXT NOT NULL, page INTEGER NOT NULL, channel TEXT NOT NULL, ts TEXT NOT NULL, PRIMARY KEY(run_id,page));
         PRAGMA user_version=9;
+      `)
+      if (version < 10) this.db.exec(`
+        CREATE TABLE IF NOT EXISTS oauth_clients (id TEXT PRIMARY KEY, metadata TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS oauth_sessions (
+          id TEXT PRIMARY KEY, author TEXT NOT NULL, identity TEXT NOT NULL,
+          client_id TEXT NOT NULL REFERENCES oauth_clients(id), resource TEXT NOT NULL,
+          expires_at INTEGER NOT NULL, revoked INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS oauth_tokens (
+          hash TEXT PRIMARY KEY, kind TEXT NOT NULL, session_id TEXT NOT NULL REFERENCES oauth_sessions(id),
+          expires_at INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS oauth_sessions_author ON oauth_sessions(author);
+        CREATE INDEX IF NOT EXISTS oauth_tokens_session ON oauth_tokens(session_id);
+        PRAGMA user_version=10;
       `)
     })
   }

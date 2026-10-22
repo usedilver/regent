@@ -13,6 +13,7 @@ import { repositoryContext } from './repository-context.ts'
 import { registerAppTool } from '@modelcontextprotocol/ext-apps/server'
 import { mcpActivities } from './mcp-activities.ts'
 import { PROGRESS_URI, registerProgressResource } from './mcp-progress.ts'
+import { OAuthServer } from './oauth.ts'
 
 const MAX_BODY_BYTES = 1024 * 1024
 const MAX_RESULT_CHARS = 60000
@@ -25,9 +26,14 @@ const digest = (value: string) => createHash('sha256').update(value).digest()
 export class ExternalMcp {
   core: Core
   principals: Array<{ author: string; tokenHash: Buffer }>
+  oauth?: OAuthServer
   constructor(core: Core, env: NodeJS.ProcessEnv = process.env) {
     this.core = core
-    if (!core.config.mcp.enabled || !core.config.mcp.principals.length) throw new Error('MCP requiere al menos un principal configurado.')
+    if (!core.config.mcp.enabled || (!core.config.mcp.principals.length && !core.config.mcp.oauth)) throw new Error('MCP requiere OAuth o al menos un principal configurado.')
+    if (core.config.mcp.oauth) {
+      this.oauth = new OAuthServer(core.config.mcp.oauth, core.config.name, core.store, env)
+      core.mcpIdentity = author => this.oauth!.tokens.identity(author)
+    }
     const ids = new Set<string>(), hashes = new Set<string>()
     this.principals = core.config.mcp.principals.map(principal => {
       const token = env[principal.token_env]?.trim()
@@ -132,7 +138,14 @@ export class ExternalMcp {
     const authorization = request.headers.authorization ?? ''
     const candidate = digest(/^Bearer /i.test(authorization) ? authorization.slice(7).trim() : '')
     const principal = this.principals.find(value => timingSafeEqual(candidate, value.tokenHash))
-    if (!principal) { response.setHeader('www-authenticate', 'Bearer'); return send(401, 'Bearer MCP invalido.') }
+    let author = principal?.author
+    if (!author && this.oauth) {
+      try {
+        const info = await this.oauth.verifyAccessToken(/^Bearer /i.test(authorization) ? authorization.slice(7).trim() : '')
+        author = info.extra.author
+      } catch {}
+    }
+    if (!author) { response.setHeader('www-authenticate', this.oauth?.challenge() ?? 'Bearer'); return send(401, 'Bearer MCP invalido.') }
     if (request.headers.origin) return send(403, 'El endpoint MCP no acepta peticiones con Origin.')
     if (request.method !== 'POST') { response.setHeader('allow', 'POST'); return send(405, 'Solo POST.') }
     const chunks: Buffer[] = []
@@ -145,7 +158,7 @@ export class ExternalMcp {
     let payload: unknown
     try { payload = JSON.parse(Buffer.concat(chunks).toString('utf8')) }
     catch { return send(400, 'JSON invalido.') }
-    const server = this.server(principal.author)
+    const server = this.server(author)
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     response.on('close', () => { void server.close().catch(() => {}) })
     await server.connect(transport)

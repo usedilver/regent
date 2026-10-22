@@ -46,7 +46,7 @@ try {
   assert.deepEqual(config.models, { ask: null, patch: null, task: null, project: null })
   assert.deepEqual(config.limits.max_run_sec, { ask: 600, patch: 1800, task: 3600, project: 7200 })
   assert.deepEqual(config.repos.agent_env_files, [])
-  assert.deepEqual(config.mcp, { enabled: false, principals: [] })
+  assert.deepEqual(config.mcp, { enabled: false, principals: [], oauth: null })
   for (const key of ['policy', 'projects', 'notion']) {
     assert.throws(() => ConfigSchema.parse({ ...config, [key]: {} }), /Unrecognized key/)
   }

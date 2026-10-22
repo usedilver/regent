@@ -6,6 +6,11 @@ import { BRIDGE_DIR } from './env.ts'
 import { projectRoot } from './repository.ts'
 
 const positive = z.number().positive().finite()
+const authUrl = z.string().url().refine(value => {
+  const url = new URL(value)
+  return !url.username && !url.password && !url.search && !url.hash
+    && (url.protocol === 'https:' || (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)))
+}, 'Usa HTTPS o HTTP loopback, sin credenciales, query ni fragmento.')
 export const ConfigSchema = z.object({
   name: z.string().min(1).default('Regent'),
   auth: z.object({ mode: z.enum(['indie', 'team']) }),
@@ -30,6 +35,17 @@ export const ConfigSchema = z.object({
       id: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/),
       token_env: z.string().regex(/^REGENT_MCP_TOKEN_[A-Z0-9_]+$/),
     }).strict()).default([]),
+    oauth: z.object({
+      issuer_url: authUrl.refine(value => new URL(value).pathname === '/', 'El issuer debe estar en la raiz del dominio.'),
+      trust_proxy: z.enum(['none', 'loopback']).default('none'),
+      redirect_uris: z.array(authUrl).min(1).max(20),
+      oidc: z.object({
+        issuer_url: authUrl,
+        client_id: z.string().min(1),
+        client_secret_env: z.string().regex(/^REGENT_[A-Z0-9_]+$/),
+        allowed_emails: z.array(z.string().email().transform(value => value.toLowerCase())).min(1).max(1000),
+      }).strict(),
+    }).strict().nullable().default(null),
   }).strict().prefault({}),
   limits: z.object({
     max_concurrent_runs: z.number().int().min(1).max(32).default(3),
