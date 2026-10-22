@@ -1,25 +1,29 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { isolationFor, projectRoot } from './repository.ts'
 
-const git = (cwd: string, ...args: string[]) => execFileSync('git', args, {
-  cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30000, maxBuffer: 16 * 1024 * 1024,
-}).trimEnd()
+const execute = promisify(execFile)
+const GIT_TIMEOUT_MS = 30000
+const GIT_OUTPUT_BYTES = 16 * 1024 * 1024
+const git = async (cwd: string, args: string[], signal?: AbortSignal) => (await execute('git', args, {
+  cwd, encoding: 'utf8', timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_OUTPUT_BYTES, signal,
+})).stdout.trimEnd()
 
 const inside = (root: string, file: string) => {
   const relative = path.relative(root, file)
   return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
 }
 
-function commonDir(repo: string): string {
-  return fs.realpathSync(path.resolve(repo, git(repo, 'rev-parse', '--git-common-dir')))
+async function commonDir(repo: string, signal?: AbortSignal): Promise<string> {
+  return fs.realpathSync(path.resolve(repo, await git(repo, ['rev-parse', '--git-common-dir'], signal)))
 }
 
-function assertWorktree(source: string, target: string): void {
+async function assertWorktree(source: string, target: string, signal?: AbortSignal): Promise<void> {
   if (fs.realpathSync(target) !== target || fs.realpathSync(source) === target
-    || fs.realpathSync(git(target, 'rev-parse', '--show-toplevel')) !== target
-    || commonDir(source) !== commonDir(target)) throw new Error('El checkout aislado no corresponde al repositorio de origen.')
+    || fs.realpathSync(await git(target, ['rev-parse', '--show-toplevel'], signal)) !== target
+    || await commonDir(source, signal) !== await commonDir(target, signal)) throw new Error('El checkout aislado no corresponde al repositorio de origen.')
 }
 
 function ensureDirectory(root: string, directory: string): void {
@@ -30,10 +34,11 @@ function ensureDirectory(root: string, directory: string): void {
   if (!inside(root, fs.realpathSync(directory))) throw new Error('Directorio fuera del worktree.')
 }
 
-function copySetupFiles(source: string, target: string): void {
+async function copySetupFiles(source: string, target: string, signal?: AbortSignal): Promise<void> {
   if (!fs.existsSync(path.join(source, '.worktreeinclude'))) return
-  const files = git(source, 'ls-files', '--others', '--ignored', '--exclude-from=.worktreeinclude', '-z').split('\0').filter(Boolean)
+  const files = (await git(source, ['ls-files', '--others', '--ignored', '--exclude-from=.worktreeinclude', '-z'], signal)).split('\0').filter(Boolean)
   for (const file of files) {
+    signal?.throwIfAborted()
     const original = path.join(source, file), destination = path.join(target, file)
     if (!inside(source, fs.realpathSync(original)) || /(?:^|\/)\.credentials\.json$|(?:^|\/)\.claude\.json$/.test(file)) throw new Error('Archivo de setup fuera del proyecto o reservado para credenciales.')
     if (fs.existsSync(destination)) continue
@@ -48,15 +53,17 @@ export interface ProjectWorkspace {
   unavailable: string[]
 }
 
-export function prepareProjectWorkspace(workspace: string, project: string, directory: string, conversation: string): ProjectWorkspace {
+export async function prepareProjectWorkspace(workspace: string, project: string, directory: string, conversation: string, signal?: AbortSignal): Promise<ProjectWorkspace> {
   const result: ProjectWorkspace = { submodules: [], unavailable: [] }
-  assertWorktree(project, directory)
-  const visit = (source: string, target: string) => {
-    const entries = git(target, 'ls-files', '--stage', '-z').split('\0').filter(entry => entry.startsWith('160000 '))
+  await assertWorktree(project, directory, signal)
+  const visit = async (source: string, target: string): Promise<void> => {
+    const entries = (await git(target, ['ls-files', '--stage', '-z'], signal)).split('\0').filter(entry => entry.startsWith('160000 '))
+    if (!entries.length) return
     const registered = new Set(fs.existsSync(path.join(target, '.gitmodules'))
-      ? git(target, 'config', '--null', '--file', '.gitmodules', '--get-regexp', '^submodule\\..*\\.path$').split('\0').filter(Boolean).map(entry => entry.slice(entry.indexOf('\n') + 1))
+      ? (await git(target, ['config', '--null', '--file', '.gitmodules', '--get-regexp', '^submodule\\..*\\.path$'], signal)).split('\0').filter(Boolean).map(entry => entry.slice(entry.indexOf('\n') + 1))
       : [])
     for (const entry of entries) {
+      signal?.throwIfAborted()
       const match = /^160000 ([0-9a-f]+) ([0-3])\t([\s\S]+)$/.exec(entry)
       if (!match || match[2] !== '0') throw new Error('Resuelve el conflicto de gitlinks antes de preparar los submodulos.')
       const [, commit, , relative] = match
@@ -69,15 +76,15 @@ export function prepareProjectWorkspace(workspace: string, project: string, dire
       if (!fs.existsSync(path.join(isolated, '.git'))) {
         if (fs.existsSync(isolated) && (fs.lstatSync(isolated).isSymbolicLink() || fs.readdirSync(isolated).length)) throw new Error('El destino del submodulo contiene archivos; no se reemplazara.')
         const branch = isolationFor(original, conversation).name
-        try { git(original, 'worktree', 'add', '-b', branch, isolated, commit) }
+        try { await git(original, ['worktree', 'add', '-b', branch, isolated, commit], signal) }
         catch { throw new Error(`No se pudo preparar el submodulo ${JSON.stringify(label)}. Verifica el commit fijado y sus worktrees; no se modifico el checkout compartido.`) }
-        copySetupFiles(original, isolated)
+        await copySetupFiles(original, isolated, signal)
       }
-      assertWorktree(original, isolated)
+      await assertWorktree(original, isolated, signal)
       result.submodules.push(label)
-      visit(original, isolated)
+      await visit(original, isolated)
     }
   }
-  visit(project, directory)
+  await visit(project, directory)
   return result
 }

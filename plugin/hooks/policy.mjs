@@ -3,6 +3,8 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { literalCommand } from './command.mjs'
 
+const WORKSPACE_PREPARATION_TIMEOUT_MS = 240000
+
 export function denial(input, env = process.env) {
   const name = input.tool_name ?? ''
   const args = input.tool_input ?? {}
@@ -80,7 +82,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     if (process.env.REGENT_TOOLS_URL) {
       const response = await fetch(process.env.REGENT_TOOLS_URL.replace(/\/tools$/, '/tool-policy'), {
         method: 'POST', headers: { authorization: `Bearer ${process.env.REGENT_RUN_TOKEN}`, 'content-type': 'application/json' },
-        body: JSON.stringify(input), signal: AbortSignal.timeout(3000),
+        body: JSON.stringify(input), signal: AbortSignal.timeout(WORKSPACE_PREPARATION_TIMEOUT_MS),
       })
       if (!response.ok) throw new Error(`Core policy HTTP ${response.status}`)
       reason = (await response.json()).reason

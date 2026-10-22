@@ -37,7 +37,7 @@ export function createHttp(core: Core, health: () => Record<string, unknown>, ex
       try { payload = JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { return send(400, { error: 'JSON invalido' }) }
       if (request.url === '/tool-policy') {
         const input = z.object({ tool_name: z.string(), tool_input: z.record(z.string(), z.unknown()).optional(), cwd: z.string().optional() }).parse(payload)
-        const reason = core.permission(token, input)
+        const reason = await core.prepareWorkspace(token, input.tool_name) ?? core.permission(token, input)
         if (reason) {
           core.store.event(active.run.id, 'permission_denied', { reason, tool: input.tool_name })
         }

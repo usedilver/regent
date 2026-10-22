@@ -17,6 +17,8 @@ import { resolveRepository, projectRoot, isolationFor, repositoryRequest } from 
 import { History, type HistoryLoader } from './history.ts'
 import { prepareProjectWorkspace, type ProjectWorkspace } from './project-workspace.ts'
 
+const PROJECT_FILE_TOOLS = new Set(['Read', 'Glob', 'Grep', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash', 'PowerShell', 'Monitor'])
+
 interface Active {
   run: Run; token: string; controller?: ReturnType<typeof startRunner>; done?: Promise<void>
   conversation?: Conversation
@@ -30,6 +32,7 @@ interface Active {
   operations: Set<Promise<unknown>>
   resumeAfterWait?: boolean
   workspace?: ProjectWorkspace
+  workspacePreparation?: Promise<ProjectWorkspace>
 }
 
 export class Core {
@@ -352,6 +355,27 @@ export class Core {
     }
     throw new Error(`Tool desconocida: ${name}`)
   }
+  async prepareWorkspace(token: string, tool?: string): Promise<string | null> {
+    const active = this.byToken(token)
+    if (!active || active.waiting || active.cancelled || active.abort.signal.aborted) return 'El run no admite mas herramientas.'
+    if (tool && !PROJECT_FILE_TOOLS.has(tool)) return null
+    const deadline = this.deadlineReason(active, tool ?? 'project_workspace')
+    if (deadline) return deadline
+    const cwd = this.store.conversation(active.run.conversation_key)?.cwd ?? this.defaultCwd
+    const isolation = isolationFor(cwd, active.run.conversation_key)
+    if (!fs.existsSync(path.join(cwd, '.gitmodules')) && !fs.existsSync(path.join(isolation.dir, '.gitmodules'))) return null
+    if (!active.workspacePreparation) {
+      this.publish(active, () => this.output.notice(active.conversation!, 'Preparando los submodulos en el espacio aislado de esta conversacion.'))
+      active.workspacePreparation = prepareProjectWorkspace(this.cwd, cwd, isolation.dir, active.run.conversation_key, active.abort.signal).then(result => {
+        active.abort.signal.throwIfAborted()
+        active.workspace = result
+        this.store.event(active.run.id, 'project_workspace', result)
+        return result
+      })
+    }
+    try { await active.workspacePreparation; return null }
+    catch (error) { return `No se pudo preparar el proyecto aislado: ${redact((error as Error).message)}` }
+  }
   permission(token: string, input: { tool_name: string; tool_input?: Record<string, any>; cwd?: string }): string | null {
     const active = this.byToken(token)
     if (!active || active.waiting || active.cancelled || active.abort.signal.aborted) return 'El run no admite mas herramientas.'
@@ -359,11 +383,8 @@ export class Core {
     if (deadline) return deadline
     const cwd = this.store.conversation(active.run.conversation_key)?.cwd ?? this.defaultCwd
     const isolation = isolationFor(cwd, active.run.conversation_key)
-    if (!active.workspace && (fs.existsSync(path.join(cwd, '.gitmodules')) || fs.existsSync(path.join(isolation.dir, '.gitmodules')))) {
-      try {
-        active.workspace = prepareProjectWorkspace(this.cwd, cwd, isolation.dir, active.run.conversation_key)
-        this.store.event(active.run.id, 'project_workspace', active.workspace)
-      } catch (error) { return `No se pudo preparar el proyecto aislado: ${(error as Error).message}` }
+    if (PROJECT_FILE_TOOLS.has(input.tool_name) && !active.workspace && (fs.existsSync(path.join(cwd, '.gitmodules')) || fs.existsSync(path.join(isolation.dir, '.gitmodules')))) {
+      return 'Espera a que termine la preparacion del proyecto aislado antes de usar herramientas.'
     }
     const destinations = [input.cwd, input.tool_input?.file_path, input.tool_input?.notebook_path].filter((value): value is string => typeof value === 'string')
     if (active.workspace?.unavailable.some(relative => destinations.some(destination => {
