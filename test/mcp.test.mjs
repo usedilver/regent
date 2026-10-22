@@ -75,7 +75,7 @@ async function fixture(options = {}) {
   }
 }
 const call = async (client, name, args) => {
-  const response = await client.callTool({ name, arguments: args })
+  const response = await client.callTool({ name, arguments: name === 'regent_get_run' ? { wait_ms: 0, ...args } : args })
   assert.ok(!response.isError, response.content[0].text)
   return JSON.parse(response.content[0].text)
 }
@@ -118,7 +118,7 @@ try {
     const f = await fixture()
     try {
       const client = await f.client()
-      assert.deepEqual((await client.listTools()).tools.map(tool => tool.name).sort(), ['regent_cancel', 'regent_context', 'regent_continue', 'regent_get_run', 'regent_start'])
+      assert.deepEqual((await client.listTools()).tools.map(tool => tool.name).sort(), ['regent_cancel', 'regent_context', 'regent_continue', 'regent_get_run', 'regent_show_progress', 'regent_start'])
       assert.match(client.getInstructions(), /regent_context/)
       assert.match((await client.listTools()).tools.find(tool => tool.name === 'regent_start').description, /Repositorio predeterminado: dashboard\./)
       const request_id = randomUUID()
@@ -213,12 +213,50 @@ try {
       const bob = await f.client(tokens.REGENT_MCP_TOKEN_BOB)
       assert.equal((await bob.callTool({ name: 'regent_get_run', arguments: { run_id: work.run_id } })).isError, true)
       const tools = (await client.listTools()).tools
-      assert.equal(tools.find(t => t.name === 'regent_start')._meta.ui.resourceUri, 'ui://regent/progress.html')
+      for (const name of ['regent_context', 'regent_start', 'regent_continue', 'regent_get_run']) {
+        assert.equal(tools.find(t => t.name === name)._meta?.ui?.resourceUri, undefined)
+      }
+      assert.equal(tools.find(t => t.name === 'regent_show_progress')._meta.ui.resourceUri, 'ui://regent/progress.html')
+      const panel = await call(client, 'regent_show_progress', { run_id: work.run_id })
+      assert.equal(panel.latest_run.state, 'failed')
       assert.equal((await client.listResources()).resources[0].uri, 'ui://regent/progress.html')
       const resource = await client.readResource({ uri: 'ui://regent/progress.html' })
       assert.equal(resource.contents[0].mimeType, 'text/html;profile=mcp-app')
       assert.match(resource.contents[0].text, /regent_get_run/)
       assert.deepEqual(resource.contents[0]._meta.ui.csp.connectDomains, [])
+    } finally { await f.close() }
+  })
+  await check('plain status waits for completion, bounds polling and aborts without cancelling the job', async () => {
+    const f = await fixture()
+    try {
+      f.state.scenario = 'hang'
+      const client = await f.client()
+      const work = await start(client, { intent: 'ask', prompt: 'Answer a short read-only question.' })
+      await until(() => Boolean(f.store.conversation(work.conversation_id).session_id))
+      const before = Date.now()
+      const running = await call(client, 'regent_get_run', { run_id: work.run_id, wait_ms: 80 })
+      assert.ok(Date.now() - before >= 60)
+      assert.equal(running.latest_run.state, 'running')
+      const invalid = await client.callTool({ name: 'regent_get_run', arguments: { run_id: work.run_id, wait_ms: 20001 } })
+      assert.equal(invalid.isError, true)
+      let finished = false
+      const waiting = client.callTool({ name: 'regent_get_run', arguments: { run_id: work.run_id } }).then(result => { finished = true; return result })
+      await new Promise(resolve => setTimeout(resolve, 50))
+      assert.equal(finished, false)
+      const controller = new AbortController()
+      const cancelled = client.callTool({ name: 'regent_get_run', arguments: { run_id: work.run_id } }, undefined, { signal: controller.signal })
+      const rejected = assert.rejects(cancelled)
+      controller.abort()
+      await rejected
+      assert.equal(f.store.run(work.run_id).state, 'running')
+      await call(client, 'regent_cancel', { conversation_id: work.conversation_id })
+      const result = await waiting
+      assert.equal(result.isError, undefined)
+      assert.equal(JSON.parse(result.content[0].text).latest_run.state, 'interrupted')
+      assert.equal(f.store.db.prepare('SELECT COUNT(*) n FROM runs').get().n, 1)
+      const immediate = Date.now()
+      await client.callTool({ name: 'regent_get_run', arguments: { run_id: work.run_id } })
+      assert.ok(Date.now() - immediate < 1000)
     } finally { await f.close() }
   })
   await check('continuation answers questions and reuses the session/worktree without Slack identity lookups', async () => {
@@ -389,7 +427,7 @@ try {
     try {
       await client.connect(transport)
       assert.deepEqual(client.getServerVersion(), { name: 'regent', title: 'Talently Code', version: '0.3.0' })
-      assert.equal((await client.listTools()).tools.length, 5)
+      assert.equal((await client.listTools()).tools.length, 6)
       assert.equal((await client.listTools()).tools.find(t => t.name === 'regent_start').title, 'Talently Code · Iniciar trabajo')
       assert.equal(client.getInstructions(), f.gateway.instructions())
       assert.match(client.getInstructions(), /Talently Code/)
@@ -397,7 +435,8 @@ try {
       const resource = await client.readResource({ uri: 'ui://regent/progress.html' })
       assert.equal(resource.contents[0].mimeType, 'text/html;profile=mcp-app')
       assert.match(resource.contents[0].text, /<h2 id="heading">Talently Code<\/h2>/)
-      assert.equal((await client.listTools()).tools.find(t => t.name === 'regent_get_run')._meta.ui.resourceUri, 'ui://regent/progress.html')
+      assert.equal((await client.listTools()).tools.find(t => t.name === 'regent_get_run')._meta?.ui?.resourceUri, undefined)
+      assert.equal((await client.listTools()).tools.find(t => t.name === 'regent_show_progress')._meta.ui.resourceUri, 'ui://regent/progress.html')
       const work = await start(client, { prompt: 'Modifica el titulo del grafico.' })
       await until(() => !f.core.active.size)
       const result = await call(client, 'regent_get_run', { run_id: work.run_id })

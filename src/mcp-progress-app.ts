@@ -39,7 +39,7 @@ function render(data: any) {
     list.append(row)
   }
   element('question').textContent = data.question?.text ?? ''
-  element('result').textContent = run.result ?? run.error ?? ''
+  element('result').textContent = run.error ?? ''
   if (!active && !data.progress) element('connection').textContent = 'Estado actualizado'
 }
 
@@ -58,7 +58,7 @@ async function refresh() {
   if (!runId || busy) return
   busy = true
   try {
-    receive(await app.callServerTool({ name: 'regent_get_run', arguments: { run_id: runId } }))
+    receive(await app.callServerTool({ name: 'regent_get_run', arguments: { run_id: runId, wait_ms: 0 } }))
     failures = 0
   } catch {
     failures++

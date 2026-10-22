@@ -222,7 +222,7 @@ try {
     const connection = new Client({ name: 'oauth-reconnect-fixture', version: '1' })
     try {
       await connection.connect(new StreamableHTTPClientTransport(new URL(base + '/mcp'), { authProvider }))
-      assert.equal((await connection.listTools()).tools.length, 5)
+      assert.equal((await connection.listTools()).tools.length, 6)
     } finally { await connection.close() }
   })
   await check('identity ownership, refresh rotation, replay revocation and expiry are enforced', async () => {
