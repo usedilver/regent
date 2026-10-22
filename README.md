@@ -1,257 +1,63 @@
-# regent
+# Regent
 
-## Autenticación
+Agente de código conversacional para Slack, Claude Desktop y terminal, basado en
+el CLI oficial de Claude Code. Puede investigar y modificar proyectos usando sus
+propias instrucciones, skills y conexiones. Cada conversación trabaja en un
+worktree separado y conserva su contexto al continuar.
 
-regent ejecuta el binario oficial `claude` con las credenciales del operador. En v2,
-`auth.mode: indie` usa su login local y recomienda un unico usuario autorizado;
-`auth.mode: team` exige `ANTHROPIC_API_KEY`. regent no ofrece un login de Claude ni
-extrae tokens OAuth. Revisa los [términos actuales de Claude Code](https://code.claude.com/docs/en/legal-and-compliance)
-para tu modalidad de uso; la guardia de arranque valida la configuración, no sustituye esos términos.
+## Empezar
 
-### Individual Con Pro/Max
+Necesitas Node.js ≥22.20, pnpm y Claude Code ≥2.1.263 instalado y autenticado.
+Para una instalación nueva con Slack:
 
-`indie` usa tu propio login en el binario oficial Claude Code y **no requiere API key**.
-Inicia sesión con tu cuenta desde el CLI de Claude en la máquina del servidor y configura:
-
-```yaml
-auth:
-  mode: indie
-slack:
-  workspace_team_id: TU_WORKSPACE_ID
-  allowed_users: [TU_ID_DE_SLACK]
+```sh
+pnpm install --frozen-lockfile
+cp .env.example .env
+pnpm regent setup --repo /ruta/a/repos/proyecto --team T012345 --user U012345
 ```
 
-**Advertencia:** compartir tu cuenta o permitir que otras personas usen tu suscripción
-mediante el bot puede incumplir los términos de Anthropic y provocar suspensión o
-cancelación del acceso (baneo). La advertencia no autoriza el uso compartido: `indie`
-advierte si hay varios usuarios o acceso abierto, pero no bloquea el arranque. Para un equipo, usa
-`team` con API key. Ver [Consumer Terms, secciones 2 y 12](https://www.anthropic.com/legal/consumer-terms).
+Instala una app de Slack con [el manifiesto](slack-manifest.json) y completa
+`SLACK_BOT_TOKEN` y `SLACK_APP_TOKEN` en `.env`. Luego ejecuta:
 
-El arranque individual con exactamente un usuario muestra solo una linea informativa.
-La advertencia de uso compartido aparece si la lista esta vacia o contiene varios
-usuarios; el servidor continua, sin que esto constituya autorizacion del proveedor.
-`allowed_users: []` permite usuarios activos del workspace verificados por Slack;
-los bots siguen excluidos. Una lista explicita restringe el acceso a esos IDs.
-Si hay una API key en modo individual,
-se mantiene el aviso independiente sobre posible facturacion API.
-Los límites de Pro/Max siguen aplicando; regent no garantiza uso ilimitado ni ausencia
-de sanciones. Si `ANTHROPIC_API_KEY` está presente, el CLI puede facturar por API:
-revisa su autenticación para usar tu suscripción.
+```sh
+pnpm start
+```
+
+El modo `indie` usa tu login personal de Claude Code. Para un equipo, configura
+`auth.mode: team` y `ANTHROPIC_API_KEY`. Los secretos van en `.env`; los ajustes,
+en `config/regent.yaml`. Consulta [configuración y acceso](config/README.md).
+Slack usa Socket Mode y no necesita una URL pública.
+
+Para Claude Desktop, configura [OAuth y HTTPS](config/README.md#oauth-login-for-mcp)
+e instala el [plugin cliente](client-plugin/README.md). Puedes ejecutar solo MCP
+con `pnpm start:mcp`, sin conectar Slack, o ambos con `pnpm start`.
 
 ## Uso
 
-regent es un cliente conversacional open source de Claude Code CLI, con Slack como
-primera interfaz. El repo predeterminado aporta contexto; cada repo define sus
-skills, MCPs, reglas y flujo de trabajo. No requiere Notion ni crear una tarea
-para conversar. El flujo de desarrollo pertenece al repo, sin tareas, planes ni
-gates de Regent. El aislamiento Git por conversación sí es obligatorio. El contrato
-vigente y los pendientes están en Notion (proyecto **regent**, cuenta Dilver).
+En Slack, menciona al bot en un canal o escríbele por DM. Por ejemplo:
+
+> Revisa el último commit de ai-interview sin modificar archivos.
+>
+> Agrega un gráfico de registros mensuales al dashboard y comprueba que funciona.
+
+Responde dentro del mismo hilo para continuar; `stop` detiene ese trabajo.
+Las respuestas son breves por defecto. Pide detalles técnicos cuando los necesites.
+El proyecto puede indicarse por nombre, URL o ruta; si se omite, se parte del
+repositorio predeterminado de la instancia.
+
+También puedes consultar desde terminal. Si el servidor está activo, usa otra
+base de sesiones para la CLI:
 
 ```sh
-pnpm regent setup --repo /ruta/a/repos/proyecto --team T012345 --user U012345
-pnpm start                 # servidor (Slack), escucha en 127.0.0.1
-pnpm start:mcp             # servidor solo MCP, sin conexion ni tokens de Slack
-pnpm dev                   # igual, con recarga al guardar (src/, config/, .env)
-pnpm test                  # suite automatizada
-pnpm regent ask "Explica este repositorio" --conversation revision
-pnpm regent ask "Revisa este proyecto" --repo otro-repo --conversation otra-revision
-pnpm regent patch "Corrige el fallo y abre un PR" --conversation correccion
-pnpm regent runs
-pnpm regent tail <run_id> --follow
+REGENT_DB=log/cli.sqlite pnpm regent ask "Explica este proyecto"
 ```
 
-Las respuestas priorizan resumenes para personas no tecnicas; pide detalles tecnicos
-cuando los necesites. Personaliza el tono y formato por instancia con
-[`communication.instructions_file`](config/README.md#communication-policy), sin
-editar el protocolo de ejecucion ni las instrucciones de cada proyecto.
+## Referencia
 
-## Claude Desktop por MCP
+| Necesito… | Consultar |
+| --- | --- |
+| Configurar proyectos, acceso, respuestas o ejecución | [Configuración](config/README.md) |
+| Instalar o distribuir el plugin para Claude Desktop | [Plugin cliente](client-plugin/README.md) |
+| Desarrollar y contribuir a Regent | [Contribuciones](CONTRIBUTING.md) |
 
-Regent admite una entrada MCP externa opcional para descubrir el contexto, iniciar, consultar, continuar y
-detener trabajos de codigo desde Claude Desktop. Reutiliza las sesiones, worktrees,
-limites y contexto de cada repositorio. No envia estas conversaciones a Slack.
-El MCP de datos sigue siendo una conexion independiente del cliente y del repo.
-
-Activa `mcp.enabled` y configura OAuth o sus principales/tokens privados. `pnpm start` sirve
-Slack y MCP en el mismo runtime cuando esta habilitado; `pnpm start:mcp` ejecuta solo
-MCP. No ejecutes ambos sobre la misma base SQLite: el lease rechaza un segundo runtime.
-El endpoint externo `/mcp` y las herramientas internas `/tools` tienen autenticaciones
-distintas. OAuth permite conectar un cliente HTTP con login y consentimiento, sin
-entregar tokens manuales. El puente stdio con token sigue disponible para pruebas
-locales y clientes existentes.
-
-La [configuracion de OAuth](config/README.md#oauth-login-for-mcp) documenta el proveedor
-OIDC, callbacks, acceso de usuarios, despliegue y limites de las pruebas.
-
-El [plugin cliente Talently Code](client-plugin/) agrupa la skill `talently-code` y el MCP remoto.
-El administrador lo empaqueta con `pnpm plugin:pack --endpoint https://your-regent-host.example/mcp`
-en `tmp/talently-code-plugin.zip`, usando la URL del servidor real, sin credenciales,
-rutas de esta maquina ni instrucciones de negocio. En Desktop se elige `/talently-code`;
-en clientes con namespace completo, `/talently-code:talently-code`. Tambien permite
-pedidos como "usa Talently Code y cambia el footer de la web", cuya
-seleccion no se garantiza frente a otros plugins. Las skills de implementacion
-siguen en cada repositorio y las carga Claude Code. El `name` de la instancia configura
-el titulo del MCP y su panel; el motor y las herramientas `regent_*` conservan su identidad tecnica.
-
-El plugin 0.3.2 incluye el endpoint literal al empaquetarlo y usa OAuth del
-cliente para iniciar sesion. No requiere `userConfig`; Desktop mostro el marcador
-sin resolver en la instalacion anterior. Requiere que el servidor tenga un proveedor configurado
-y callbacks autorizados. Los tests locales verifican el protocolo con un proveedor
-OIDC simulado; no certifican el login real de Google/Hire ni la instalacion HTTP
-en Desktop. La conexion stdio anterior se mantiene operativa durante la preparacion.
-
-El seguimiento normal usa texto, sin tarjetas: `regent_get_run` espera hasta 20
-segundos por el resultado para evitar consultas inmediatas repetidas. Solo si el
-usuario solicita el panel, `regent_show_progress` abre una tarjeta MCP Apps que
-consulta el estado sin generar otras tarjetas ni copiar el informe final.
-El puente stdio reenvia el recurso opcional; no se crean tareas programadas.
-
-Cuando Regent necesita una decisión, puede mostrar hasta cinco opciones con botones
-en el hilo. También puedes responder con tus propias palabras. La respuesta continúa
-la misma conversación; un botón ya respondido o de una pregunta reemplazada no vuelve
-a ejecutar trabajo. El significado de una aprobación lo determina la pregunta y el
-flujo del repo, no una compuerta propia de Regent.
-En CLI las opciones se muestran como texto. El arranque actualiza SQLite al esquema 9
-y conserva las sesiones y preguntas pendientes de versiones anteriores.
-
-El setup crea `config/regent.yaml` (o `REGENT_CONFIG`) sin sobrescribir archivos
-existentes ni abrir la base de sesiones. Solo guarda modo, permisos, workspace,
-repo predeterminado e IDs de Slack. El workspace por defecto es la carpeta padre
-del repo; usa `--workspace /ruta/a/Projects` para permitir otros proyectos dentro
-de esa carpeta. Puedes repetir `--user`; en `indie`, varios usuarios muestran una advertencia.
-`--permissions native` aplica permisos nativos; el valor por defecto `bypass` no
-aplica `allow/ask/deny`. No guarda secretos ni valida conexiones externas.
-También puedes copiar [config/regent.example.yaml](config/regent.example.yaml) a
-`config/regent.yaml` manualmente. La [guía de configuración](config/README.md)
-explica los campos activos, valores predeterminados y opciones retiradas.
-Antes de iniciar necesita
-`SLACK_BOT_TOKEN` y `SLACK_APP_TOKEN` de una app con `slack-manifest.json`
-(Agent messaging). Define `repos.path` y `repos.default_repo` para el contexto inicial.
-Notion/Jira son opcionales y se configuran en el repo mediante sus propias herramientas.
-
-Para elegir un repo directamente al iniciar un hilo o DM nuevo, puedes escribir:
-
-```text
-@Regent
-repo: ruta/relativa/al/workspace
-Revisa este bug y explícame la causa.
-```
-
-También admite rutas absolutas dentro del workspace y nombres con espacios.
-En CLI el equivalente es `--repo <ruta>`. Una ruta inválida no crea una sesión
-ni cae silenciosamente al repo predeterminado. Sin selector se conserva el repo
-actual o, en una conversación nueva, el predeterminado. La sintaxis es opcional:
-puedes seguir describiendo proyectos y URLs normalmente; el agente los interpreta
-usando el contexto del repo. Los submódulos Git registrados pertenecen al proyecto
-raíz: elegir otro servicio del mismo proyecto conserva su sesión y contexto.
-Solo un proyecto independiente requiere `regent_use_repo` con handoff y sesión
-nueva; no cambia el cwd de un proceso en marcha.
-
-En canales y salas el bot actúa solo con @mención; sin mención acepta únicamente
-la respuesta del autor cuando el bot le preguntó algo (o los comandos exactos
-`stop`/`para`/`reset`/`nuevo`). En un DM no hace falta mencionar al agente: cada
-mensaje raíz inicia una conversación independiente y las respuestas dentro de ese
-hilo conservan su repo, sesión y worktree. Para continuar o detener un trabajo,
-responde en su hilo; otro mensaje raíz no hereda el proyecto anterior.
-Las salas creadas por Regent mantienen contexto compartido de todo su canal.
-En cada intervención se
-incorporan los mensajes nuevos o modificados del hilo; en conversaciones a raíz
-de canal, también sus hilos. Capturas y mensajes entregados se guardan en SQLite
-para deduplicar entre turnos y reinicios. Las salas se crean solo cuando se piden,
-sin tarea ni tracker. Por ejemplo: «Crea una sala para continuar esto e invita a @Ana».
-Regent crea un canal privado, invita al solicitante y a las personas indicadas, y
-traslada la misma sesión, repo y worktree. Deja un enlace en el origen y un resumen
-en la sala. Los reintentos reutilizan el canal preparado; si falla una invitación,
-el traslado queda pendiente en el origen. En la sala sigue aplicando la @mención
-y la autorización configurada: ser invitado no amplía `slack.allowed_users`.
-
-El indicador nativo de trabajo se usa cuando Slack confirma el estado del hilo.
-Las respuestas finales y avisos normalizan enlaces de correo para mostrar la
-direccion sin el prefijo `mailto:`; este se conserva en el destino del enlace.
-Tambien se etiquetan explicitamente los correos planos: la conversion Markdown
-de Slack puede generar enlaces sin etiqueta y mostrar el esquema `mailto:`.
-Los ejemplos de codigo permanecen literales. El texto provisional del stream
-no se normaliza hasta reemplazarlo por la respuesta final.
-Las salas actuales son canales privados normales: en su raíz se muestra un único
-mensaje de progreso que se actualiza, igual que cuando falla el indicador nativo.
-Su identificador queda en SQLite para limpiar avisos pendientes tras un reinicio.
-Slack también tiene canales de sesión con indicador a nivel de canal; Regent no
-crea ese tipo de canal actualmente. Ver [estados de sesión de Slack](https://docs.slack.dev/reference/methods/agents.sessions.setStatus/).
-
-Cada turno reserva para responder el menor valor entre 60 segundos y el 20% de su
-límite total. Durante ese margen no inicia nuevas herramientas de investigación o
-edición; puede comunicar estado, preguntar, cancelar y recoger o detener subagentes
-existentes. El agente recibe el plazo y una instrucción de cierre, y Slack recibe
-un aviso. El timeout total no se amplía. Si aun así se interrumpe, se muestra el
-texto parcial disponible como incompleto; si no existe, se indica expresamente.
-Una herramienta ya en curso puede consumir todo el margen: no se garantiza un
-resumen ni se reanuda automáticamente la investigación.
-
-`pnpm start` usa `REGENT_PORT=8788`, `REGENT_DB=log/v2.sqlite` y escucha solo en
-`127.0.0.1`. `REGENT_CONFIG` permite elegir otro YAML. La CLI y el servidor no deben
-ejecutar agentes simultáneamente sobre la misma base: el bloqueo de runtime lo impide.
-Para probar la CLI con el servidor activo, usa otra `REGENT_DB`.
-
-El servidor necesita `SLACK_BOT_TOKEN` y `SLACK_APP_TOKEN` de una app con el manifiesto
-`slack-manifest.json`. Prueba con una app separada: dos servidores Socket Mode con
-el mismo app token pueden repartirse eventos. El manifiesto v2 usa Agent messaging y
-suscribe `agent_session_stopped`; la [migración de Slack es irreversible](https://docs.slack.dev/ai/migrating-to-agent-messaging/).
-No expongas `/tools`, `/tool-policy` ni `/hook-denial` mediante el túnel. `/healthz` incluye conexión,
-cola y entregas pendientes; `/metrics` expone runs por estado.
-
-### Ejecución Y Permisos
-
-El repo aporta MCPs, skills, reglas y variables. Regent no incluye skills de
-planificación, implementación o QA. Su MCP interno ofrece únicamente selección
-de repo, salas, progreso, preguntas y cancelación; git/gh, tests, instalación, PRs y
-trackers se ejecutan con las herramientas del proyecto.
-
-El modo actual es `bypass` por defecto: no aplica los permisos nativos
-`allow/ask/deny`. `permission_mode: native` los respeta sin preautorizar
-Edit/Write; las solicitudes sin autorización pueden denegarse en headless.
-Ambos modos conservan autorización del run, filtros de credenciales, MCPs marcados
-en `repos.readonly_mcp` y validación de rutas de edición dentro del worktree propio.
-Los hooks no son un sandbox para comandos de shell.
-
-Cada conversación arranca con `claude --worktree` y un nombre estable por
-proyecto/conversación. No se concede acceso adicional a todo el workspace. Dos hilos
-tienen directorios y ramas distintos; los mensajes del mismo hilo siguen en cola.
-El checkout original aporta contexto, no es el destino de edición. Antes de usar
-herramientas de archivos o shell se preparan los submódulos inicializados del origen como worktrees
-independientes dentro del worktree del proyecto, recursivamente y desde los commits
-fijados por sus padres. El agente puede navegar entre servicios sin reiniciar.
-Las ramas y cambios se conservan al continuar; no se actualizan gitlinks ni se
-resetean ramas automáticamente. Los commits, pruebas y PR siguen siendo por repo.
-Los archivos ignorados indicados en `.worktreeinclude` de cada submódulo se copian
-solo al crear su checkout; sus modificaciones posteriores se conservan.
-La preparación se comparte entre las llamadas del mismo turno, es asíncrona y
-admite cancelación; el hook espera su resultado antes de permitir herramientas.
-Un submódulo sin checkout de origen se reporta como no disponible, sin clones de
-red automáticos ni sustitución por carpetas vacías. Un destino ocupado o enlazado
-al checkout compartido se rechaza sin eliminarlo. Los submódulos se determinan con
-Git, no por nombres ni por pertenecer al proyecto predeterminado.
-Sin worktree válido se bloquean edición y comandos, sin fallback al checkout común.
-
-Las conexiones del agente y sus variables parten de la raíz del proyecto elegido.
-Las instrucciones y skills del servicio complementan las compartidas; sus entornos
-de ejecución siguen siendo propios. Los MCP exclusivos de un servicio no se activan
-por hacer `cd`: deben formar parte de las conexiones configuradas para esa sesión.
-Seleccionar un proyecto independiente carga su propio contexto, no el del proyecto
-predeterminado, aunque ambos estén debajo de la misma carpeta del workspace.
-
-No hay tareas locales nuevas, gates de plan/QA, digest ni seguimiento automático
-de merges. Se retiraron `tasks`, `gates`, `gate` y `sync` de la CLI y el webhook
-de GitHub. Las opciones antiguas de `policy` y otros campos sin uso se rechazan;
-consulta la [guía de migración](config/README.md#removed-inactive-fields).
-Las tablas históricas permanecen en SQLite, sin ejecutar su flujo anterior.
-
-Node >=22.20 y Claude Code >=2.1.263 son necesarios para este aislamiento.
-Para comprobar con Claude Code real la skill y el MCP de raíz, la autenticación
-desde su entorno y cambios en dos submódulos sin reiniciar ni tocar los originales:
-`REGENT_SMOKE=1 node test/project-smoke.mjs`. La prueba crea repos temporales y
-puede consumir saldo; no consulta datos de negocio ni despliega servicios.
-Las operaciones remotas y su recuperación dependen de las herramientas del repo;
-Regent no garantiza exactly-once para mensajes de Slack.
-
-`REGENT_SMOKE=1 pnpm smoke` prueba una consulta con Claude real y una base temporal;
-puede consumir saldo. La suite normal usa procesos falsos y no necesita tokens.
+Para desarrollar: `pnpm dev`. Para ejecutar las comprobaciones: `pnpm test`.
