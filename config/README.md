@@ -11,11 +11,22 @@ work across that project's submodules with shared root context. Independent repo
 remain separate projects, even when nested under another checkout. Existing
 conversations retain their stored project until explicitly switched or reset.
 
-Only this README and `regent.example.yaml` are tracked in this directory.
+This directory contains instance settings and their public templates:
+
+| File | Purpose | Tracked |
+| --- | --- | --- |
+| `regent.yaml` | Active instance configuration | No |
+| `regent.example.yaml` | Configuration template | Yes |
+| `communication.md` | Optional instance communication policy | No |
+| `communication.example.md` | Default communication policy and customization template | Yes |
+| `README.md` | Configuration reference | Yes |
+
+Keep server credentials in the root `.env`, runtime state in `log/`, and temporary
+local tools or backups in ignored `tmp/local/`. These are not instance settings.
 Both Slack and MCP read `config/regent.yaml` by default. `REGENT_CONFIG` explicitly
 overrides that path; a startup script or service setting this variable must point
-to the intended instance file. The runtime never reads the example. Server secrets belong in the
-root `.env`. The retired v1 `workflow.json` and `process.md` are not loaded.
+to the intended instance file. The runtime never reads `regent.example.yaml` as
+instance configuration. The retired v1 `workflow.json` and `process.md` are not loaded.
 
 The default repository is initial context, not a project routing table. An explicit
 repository takes precedence. For a project named in a request, the executor uses
@@ -58,14 +69,14 @@ context before editing. There is no hardcoded dashboard destination.
 ## Communication Policy
 
 `plugin/colleague.md` defines the execution protocol. Project instructions own
-development conventions. `plugin/communication.md` provides the default presentation:
+development conventions. `config/communication.example.md` provides the default presentation:
 plain-language summaries for nontechnical readers, with technical detail whenever
 the user requests it. This applies to Slack, MCP and CLI executions.
 
 To customize this instance, copy the default to a private operator-owned file:
 
 ```sh
-cp plugin/communication.md config/communication.md
+cp config/communication.example.md config/communication.md
 ```
 
 Select it in `config/regent.yaml`:
@@ -77,7 +88,7 @@ communication:
 
 Paths are relative to the Regent installation directory, independent of the
 selected repository or `REGENT_CONFIG`; absolute paths and `~/` are also supported.
-Null or omission uses the built-in communication policy. An explicitly selected
+Null or omission uses `config/communication.example.md`. An explicitly selected
 file must be readable, nonempty and at most 32 KiB; errors fail the run instead of
 silently falling back. Keep secrets out of these instructions.
 

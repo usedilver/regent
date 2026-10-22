@@ -56,7 +56,7 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
       return snapshot.text
     }
     const protocol = fs.readFileSync('plugin/colleague.md', 'utf8').trim()
-    const defaults = fs.readFileSync('plugin/communication.md', 'utf8').trim()
+    const defaults = fs.readFileSync('config/communication.example.md', 'utf8').trim()
     assert.equal(await run(), `${protocol}\n\n# Instance Communication\n\n${defaults}\n`)
     const policy = path.join(tmp, 'communication.md')
     fs.writeFileSync(policy, 'Instance policy A')
