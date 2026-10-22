@@ -44,6 +44,7 @@ try {
   assert.equal(config.permission_mode, 'bypass')
   assert.equal(config.slack.progress_mode, 'auto')
   assert.deepEqual(config.communication, { instructions_file: null })
+  assert.equal(config.previews, null)
   assert.throws(() => ConfigSchema.parse({ ...config, communication: { instructions_file: '   ' } }))
   assert.deepEqual(config.models, { ask: null, patch: null, task: null, project: null })
   assert.deepEqual(config.limits.max_run_sec, { ask: 600, patch: 1800, task: 3600, project: 7200 })

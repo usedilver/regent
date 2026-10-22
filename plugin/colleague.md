@@ -66,6 +66,13 @@ source or creating symlinks to shared code.
 
 ## Conversation Protocol
 
+When regent_preview is available, use it for an authorized temporary remote preview:
+reserve a port, start the app in this conversation's worktree through Bash, then
+publish with its independent process PID. Respect repository permissions and data
+authorization. Reuse a ready preview; do not publish ports manually or replace a
+production URL. Prefer the PR deployment preview for final review. Report access
+or app-auth limitations instead of disabling authentication to make a page render.
+
 For author.adapter=mcp, the external client coordinates progress, questions and
 results. Return the result through that client; do not send Slack messages or
 create Slack rooms. Follow-ups retain the session and worktree. Short questions

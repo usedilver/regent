@@ -10,6 +10,7 @@ import { DurableOutput } from './delivery.ts'
 import { assertIsolationVersion } from './runner.ts'
 import { ExternalMcp } from './mcp.ts'
 import { mcpOutput, routeMcpOutput } from './mcp-output.ts'
+import { startPreviewServer } from './preview-server.ts'
 
 loadEnv()
 const config = loadConfig()
@@ -35,7 +36,9 @@ const core = new Core({ store, config, output: routeMcpOutput(output, mcpOutput(
 const external = config.mcp.enabled ? new ExternalMcp(core) : undefined
 const server = createHttp(core, () => ({ slack_connected: slack.connected(), claude_version: claudeVersion, mcp_enabled: Boolean(external) }), external)
 const port = Number(process.env.REGENT_PORT ?? 8788)
+let stopPreviews: (() => Promise<void>) | undefined
 try {
+  stopPreviews = await startPreviewServer(core)
   await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', resolve) })
   core.toolsUrl = `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}/tools`
   await slack.start(core)
@@ -43,7 +46,9 @@ try {
   await core.recover()
   console.log(`${config.name} v2 en http://127.0.0.1:${port}; ${claudeVersion}`)
 } catch (error) {
+  await stopPreviews?.()
   await core.close()
+  await stopPreviews?.()
   await output.close()
   await slack.stop().catch(() => {})
   server.close()

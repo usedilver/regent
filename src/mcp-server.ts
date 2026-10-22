@@ -9,6 +9,7 @@ import { ExternalMcp } from './mcp.ts'
 import { mcpOutput } from './mcp-output.ts'
 import { assertIsolationVersion } from './runner.ts'
 import type { Server } from 'node:http'
+import { startPreviewServer } from './preview-server.ts'
 
 loadEnv()
 const config = loadConfig()
@@ -18,10 +19,12 @@ assertIsolationVersion(version)
 const store = new Store(process.env.REGENT_DB ?? path.join(BRIDGE_DIR, 'log/v2.sqlite'))
 let core: Core | undefined
 let server: Server | undefined
+let stopPreviews: (() => Promise<void>) | undefined
 try {
   store.claimRuntime()
   core = new Core({ store, config, output: mcpOutput(store), cwd: workspaceDir(config), adapter: 'mcp' })
   const external = new ExternalMcp(core)
+  stopPreviews = await startPreviewServer(core)
   server = createHttp(core, () => ({ slack_connected: false, claude_version: version, mcp_enabled: true }), external)
   await new Promise<void>((resolve, reject) => { server!.once('error', reject); server!.listen(Number(process.env.REGENT_PORT ?? 8788), '127.0.0.1', resolve) })
   core.toolsUrl = `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}/tools`
@@ -32,12 +35,14 @@ try {
     if (closing) return
     closing = true
     await core!.close()
+    await stopPreviews?.()
     await new Promise<void>(resolve => server!.close(() => resolve()))
     store.close()
   }
   process.on('SIGINT', () => { void close() })
   process.on('SIGTERM', () => { void close() })
 } catch (error) {
+  await stopPreviews?.()
   await core?.close()
   if (server?.listening) await new Promise<void>(resolve => server!.close(() => resolve()))
   store.close()

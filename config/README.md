@@ -195,3 +195,53 @@ pruebas opt-in `REGENT_SMOKE=1 pnpm smoke` y
 la segunda verifica skills/MCP de raíz y dos submódulos. Ninguna sustituye probar la
 instalación real en Slack o Desktop. Al migrar, elimina campos retirados que rechace
 el esquema y usa la plantilla actual; no borres el historial SQLite.
+
+## Previews temporales
+
+`previews: null` los deshabilita. Configurarlos habilita `regent_preview` en el
+agente de Slack/MCP: reserva puerto, inicia la app con Bash en su worktree y publica
+con el PID de un grupo de procesos independiente. No ejecuta comandos por fuera de
+los permisos del repositorio. Se conserva un preview por conversación, incluso al
+reiniciar Regent, hasta detenerlo o vencer su plazo.
+
+```yaml
+previews:
+  domain: preview.example.com
+  listen_port: 8791
+  port_min: 32000
+  port_max: 32009
+  max_active: 3
+  ttl_minutes: 120
+  forward_cookie_names: [app_session]
+  auth:
+    cookie_name: app_session
+    verify_url: https://api.example.com/auth/me
+    login_url: https://app.example.com/login
+    email_claim: result.email
+    required_claims: {success: true, result.has_verified_email: true}
+    allowed_email_domains: [example.com]
+```
+
+El verificador recibe solo `Authorization: Bearer` con el token JWT opaco de la
+cookie (se acepta el formato JSON/URI de Nuxt). No decodifica claims del JWT para
+autorizar: valida el resultado del servicio, los claims requeridos y el dominio del
+correo. No guarda decisiones de acceso entre peticiones; agrupa verificaciones
+simultáneas del mismo token. El login y la cookie pertenecen al servicio existente.
+
+El gateway escucha solo en loopback. Caddy publica HTTPS para el dominio y
+`*.preview.example.com`, enviándolo al gateway. Para certificados por host con
+On-Demand TLS, configura `ask http://127.0.0.1:8791/_regent/tls`; solo autoriza
+hostnames registrados, publicados y vigentes. DNS wildcard no proporciona por sí
+solo un certificado wildcard: el modo por host está sujeto a límites de la CA.
+
+El puerto de la app permanece interno. HTTP y WebSocket requieren sesión. Solo
+se reenvían las cookies autorizadas; se descartan Authorization y cookies que
+intenten escribirse con Domain. No es un sandbox: aloja solo proyectos confiables,
+especialmente si comparten el dominio de cookies de una aplicación corporativa.
+Cada app conserva su autorización y puede requerir configurar orígenes de desarrollo.
+
+Los previews son temporales y no reemplazan el despliegue del PR. Los procesos
+publicados deben tener su propio grupo (por ejemplo, `setsid` en Linux). La limpieza
+solo termina grupos con PID, fecha de inicio y worktree verificados; no mata un PID
+reutilizado. El supervisor debe permitir que esos procesos sobrevivan al reinicio
+del runtime y Regent debe volver a arrancar para efectuar su limpieza pendiente.

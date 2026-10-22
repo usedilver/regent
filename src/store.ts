@@ -36,7 +36,7 @@ export class Store {
     this.db = new DatabaseSync(file)
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;')
     const version = this.db.prepare('PRAGMA user_version').get()!.user_version as number
-    if (version > 10) throw new Error(`Esquema SQLite ${version} mas nuevo que este servidor.`)
+    if (version > 11) throw new Error(`Esquema SQLite ${version} mas nuevo que este servidor.`)
     this.transaction(() => {
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS conversations (
@@ -164,6 +164,14 @@ export class Store {
         CREATE INDEX IF NOT EXISTS oauth_sessions_author ON oauth_sessions(author);
         CREATE INDEX IF NOT EXISTS oauth_tokens_session ON oauth_tokens(session_id);
         PRAGMA user_version=10;
+      `)
+      if (version < 11) this.db.exec(`
+        CREATE TABLE IF NOT EXISTS previews (
+          id TEXT PRIMARY KEY, conversation_key TEXT NOT NULL UNIQUE,
+          port INTEGER NOT NULL UNIQUE, cwd TEXT NOT NULL, pid INTEGER,
+          process_start TEXT, expires_at INTEGER NOT NULL
+        );
+        PRAGMA user_version=11;
       `)
     })
   }

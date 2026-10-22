@@ -20,6 +20,24 @@ export const ConfigSchema = z.object({
   communication: z.object({
     instructions_file: z.string().trim().min(1).nullable().default(null),
   }).strict().prefault({}),
+  previews: z.object({
+    domain: z.string().regex(/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/),
+    listen_port: z.number().int().min(1024).max(65535).default(8791),
+    port_min: z.number().int().min(1024).max(65535).default(32000),
+    port_max: z.number().int().min(1024).max(65535).default(32009),
+    max_active: z.number().int().min(1).max(20).default(3),
+    ttl_minutes: z.number().int().min(5).max(1440).default(120),
+    forward_cookie_names: z.array(z.string().regex(/^[!#$%&'*+.^_`|~\da-z-]+$/i)).default([]),
+    auth: z.object({
+      cookie_name: z.string().regex(/^[!#$%&'*+.^_`|~\da-z-]+$/i),
+      verify_url: authUrl,
+      login_url: authUrl,
+      email_claim: z.string().regex(/^[a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)*$/),
+      required_claims: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+      allowed_email_domains: z.array(z.string().regex(/^[a-z0-9.-]+\.[a-z]{2,}$/)).min(1),
+    }).strict(),
+  }).strict().refine(value => value.port_min <= value.port_max && value.port_max - value.port_min < 100
+    && (value.listen_port < value.port_min || value.listen_port > value.port_max), 'Rango de puertos de preview invalido.').nullable().default(null),
   repos: z.object({
     path: z.string().min(1),
     workspace_root: z.string().min(1).nullable().default(null),

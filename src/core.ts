@@ -16,6 +16,7 @@ import { progressText, interruptedText, StatusRequest } from './progress.ts'
 import { resolveRepository, projectRoot, isolationFor, repositoryRequest } from './repository.ts'
 import { History, type HistoryLoader } from './history.ts'
 import { prepareProjectWorkspace, type ProjectWorkspace } from './project-workspace.ts'
+import { PreviewRequest, type Previews } from './previews.ts'
 
 const PROJECT_FILE_TOOLS = new Set(['Read', 'Glob', 'Grep', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash', 'PowerShell', 'Monitor'])
 
@@ -47,6 +48,7 @@ export class Core {
   defaultCwd: string
   historyLoader?: HistoryLoader
   rooms?: Rooms
+  previews?: Previews
   /** Resuelve el id del autor (Slack) a su identidad real; la fija el adaptador. */
   identities?: IdentityResolver
   imageLoader?: ImageLoader
@@ -291,6 +293,25 @@ export class Core {
     const deadline = this.deadlineReason(active, name)
     if (deadline) throw new Error(deadline)
     if (active.moving && name !== 'regent_cancel') throw new Error('El traslado de sala esta en curso; espera a que termine.')
+    if (name === 'regent_preview') {
+      if (!this.previews) throw new Error('Los previews remotos no estan configurados en esta instancia.')
+      const input = PreviewRequest.parse(args)
+      const key = conversation.key
+      if (input.action === 'stop') return this.previews.stop(key)
+      if (input.action === 'status') {
+        const preview = this.previews.get(key)
+        return preview ? this.previews.result(preview) : { ready: false }
+      }
+      if (input.action === 'publish') {
+        if (!input.pid) throw new Error('Indica el PID del proceso independiente que iniciaste en el worktree.')
+        return this.previews.publish(key, input.pid)
+      }
+      const reason = await this.prepareWorkspace(token)
+      if (reason) throw new Error(reason)
+      const directory = isolationFor(conversation.cwd, key).dir
+      return { ...await this.previews.reserve(key, directory),
+        instruction: 'Inicia la app en este worktree usando el puerto reservado y bind 127.0.0.1. Usa Bash y las instrucciones del repo, con un proceso independiente (setsid en Linux), conserva su PID y luego llama publish. Configura el host de preview si el framework lo requiere. El gateway valida la sesion corporativa y solo pasa las cookies configuradas por el operador; no desactives la autorizacion de datos de la app. No publiques localhost ni inventes un URL antes de que publish confirme ready.' }
+    }
     if (name === 'regent_create_room') {
       if (conversation.adapter !== 'slack' || !this.rooms) throw new Error('Crear salas requiere el cliente Slack conectado.')
       if (active.operations.size) throw new Error('Espera a que terminen las otras herramientas antes de trasladar la conversacion.')
