@@ -5,7 +5,11 @@ See [the example](regent.example.yaml) for optional settings.
 
 `repos.path` is the authorized workspace; `repos.default_repo` is relative to it
 (and to `workspace_root` if configured). The repository provides rules, skills,
-MCPs and its own environment. Existing conversations retain their selected repo.
+MCPs and its own environment. Registered Git submodules resolve to their outer
+project root, keeping the requested service as the target. One conversation can
+work across that project's submodules with shared root context. Independent repos
+remain separate projects, even when nested under another checkout. Existing
+conversations retain their stored project until explicitly switched or reset.
 
 Only this README and `regent.example.yaml` are tracked in this directory.
 Both Slack and MCP read `config/regent.yaml` by default. `REGENT_CONFIG` explicitly
@@ -15,8 +19,9 @@ root `.env`. The retired v1 `workflow.json` and `process.md` are not loaded.
 
 The default repository is initial context, not a project routing table. An explicit
 repository takes precedence. For a project named in a request, the executor uses
-the initial repository's instructions to resolve it, then selects that repository
-and loads its context before editing. There is no hardcoded dashboard destination.
+the initial repository's instructions to resolve it. Navigating within the same
+project retains the session; selecting an independent project loads its own
+context before editing. There is no hardcoded dashboard destination.
 
 ## Active Settings
 

@@ -17,19 +17,28 @@ For changes to an existing repository, use its own extension guidance before
 generic scaffolding workflows from other installed plugins. Missing tools in the
 host chat do not establish that this agent lacks access: check the repository's
 configured readers and MCPs before reporting a blocked data source.
-An optional `repo: path` selector or CLI `--repo` starts a new conversation directly
-there. Ordinary project names and URLs remain repository-context reasoning, not a
-Regent domain registry. For an explicit change in an existing conversation, use
-regent_use_repo before doing the requested work, carrying relevant context forward.
+An optional `repo: path` selector or CLI `--repo` selects the project. A registered
+Git submodule resolves to its outer project root while retaining the requested
+service as the target. Ordinary project names and URLs remain repository-context
+reasoning, not a Regent domain registry.
 
 For another independent local repo, call regent_use_repo with its path and a
 self-contained handoff: objective, decisions, scope and remaining work. End the
 turn so Regent can start a fresh session with the selected repo's environment.
 A shell cd does not reload the runtime's repository settings and MCPs.
-For a submodule, inspect the original parent context to resolve its source path,
-then call regent_use_repo with that source repository before modifying it. Include
-the relevant parent instructions in the handoff. Do not edit shared submodules or
-change parent gitlink pins unless the request includes that.
+Within one project, navigate between its directories and submodules without
+restarting or handing off the session. Keep the root's shared instructions, skills
+and MCP connections; read the target service's instructions before editing it.
+Regent prepares initialized submodules as separate branches inside this conversation's
+worktree before filesystem tools run, recursively, at the parent's pinned commits. Work only
+in those isolated paths, never the original submodule checkouts. An uninitialized
+source submodule is unavailable; report the missing checkout rather than fabricating
+its files or cloning from an unverified URL. Commit and validate each affected repo
+separately. Do not change parent gitlink pins unless the request includes that.
+regent_use_repo with a destination in this project returns its isolated path and
+keeps the session. Selecting an independent project loads only that project's
+context, including its own submodules if any; do not carry over the old project's
+MCP credentials or assume the default project's rules apply there.
 
 ## Repository-Owned Execution
 
@@ -48,7 +57,7 @@ helper or PR tool is required. Respect approval requirements that the user or
 repository actually establishes. Do not create tracker cards or channels unless
 requested. Use configured tracker tools when asked; do not assume Notion or Jira.
 
-Regent starts each Git conversation in a dedicated native Claude worktree. The
+Regent starts each project conversation in a dedicated native Claude worktree. The
 context_repo is for configuration and reading, never editing. Run edits, scripts,
 git commits and publication inside the worktree indicated by cwd. Do not leave it
 or redirect commands to the source or another conversation's worktree. The same
@@ -211,4 +220,7 @@ denial through wrappers or another tool. Do not expose or forward credentials.
 If the native worktree is missing, invalid or a custom WorktreeCreate hook returns
 a different path, report the blocker; never fall back to modifying the source.
 Project-local ignored setup files belong in the repository's .worktreeinclude or
-its setup instructions. Do not replace missing files with symlinks to shared code.
+its setup instructions. Regent also copies a submodule's .worktreeinclude files
+when creating its isolated checkout, without replacing existing files on resume.
+Do not replace missing files with symlinks to shared code. Root agent connections
+use the root's environment; service runtime environments remain service-owned.

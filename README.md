@@ -133,9 +133,10 @@ En CLI el equivalente es `--repo <ruta>`. Una ruta inválida no crea una sesión
 ni cae silenciosamente al repo predeterminado. Sin selector se conserva el repo
 actual o, en una conversación nueva, el predeterminado. La sintaxis es opcional:
 puedes seguir describiendo proyectos y URLs normalmente; el agente los interpreta
-usando el contexto del repo. En una conversación existente, un selector diferente
-se entrega al agente como instrucción de cambio mediante `regent_use_repo`, con
-handoff y sesión nueva; no cambia el cwd de un proceso en marcha.
+usando el contexto del repo. Los submódulos Git registrados pertenecen al proyecto
+raíz: elegir otro servicio del mismo proyecto conserva su sesión y contexto.
+Solo un proyecto independiente requiere `regent_use_repo` con handoff y sesión
+nueva; no cambia el cwd de un proceso en marcha.
 
 En canales y salas el bot actúa solo con @mención; sin mención acepta únicamente
 la respuesta del autor cuando el bot le preguntó algo (o los comandos exactos
@@ -203,12 +204,31 @@ Ambos modos conservan autorización del run, filtros de credenciales, MCPs marca
 en `repos.readonly_mcp` y validación de rutas de edición dentro del worktree propio.
 Los hooks no son un sandbox para comandos de shell.
 
-Cada conversación Git arranca con `claude --worktree` y un nombre estable por
-repo/conversación. No se concede acceso adicional a todo el workspace. Dos hilos
+Cada conversación arranca con `claude --worktree` y un nombre estable por
+proyecto/conversación. No se concede acceso adicional a todo el workspace. Dos hilos
 tienen directorios y ramas distintos; los mensajes del mismo hilo siguen en cola.
-El checkout original aporta contexto, no es el destino de edición. Para modificar
-un submódulo, se selecciona su repo de origen y se abre su propio aislamiento.
+El checkout original aporta contexto, no es el destino de edición. Antes de usar
+herramientas de archivos o shell se preparan los submódulos inicializados del origen como worktrees
+independientes dentro del worktree del proyecto, recursivamente y desde los commits
+fijados por sus padres. El agente puede navegar entre servicios sin reiniciar.
+Las ramas y cambios se conservan al continuar; no se actualizan gitlinks ni se
+resetean ramas automáticamente. Los commits, pruebas y PR siguen siendo por repo.
+Los archivos ignorados indicados en `.worktreeinclude` de cada submódulo se copian
+solo al crear su checkout; sus modificaciones posteriores se conservan.
+La preparación se comparte entre las llamadas del mismo turno, es asíncrona y
+admite cancelación; el hook espera su resultado antes de permitir herramientas.
+Un submódulo sin checkout de origen se reporta como no disponible, sin clones de
+red automáticos ni sustitución por carpetas vacías. Un destino ocupado o enlazado
+al checkout compartido se rechaza sin eliminarlo. Los submódulos se determinan con
+Git, no por nombres ni por pertenecer al proyecto predeterminado.
 Sin worktree válido se bloquean edición y comandos, sin fallback al checkout común.
+
+Las conexiones del agente y sus variables parten de la raíz del proyecto elegido.
+Las instrucciones y skills del servicio complementan las compartidas; sus entornos
+de ejecución siguen siendo propios. Los MCP exclusivos de un servicio no se activan
+por hacer `cd`: deben formar parte de las conexiones configuradas para esa sesión.
+Seleccionar un proyecto independiente carga su propio contexto, no el del proyecto
+predeterminado, aunque ambos estén debajo de la misma carpeta del workspace.
 
 No hay tareas locales nuevas, gates de plan/QA, digest ni seguimiento automático
 de merges. Se retiraron `tasks`, `gates`, `gate` y `sync` de la CLI y el webhook
@@ -217,6 +237,10 @@ consulta la [guía de migración](config/README.md#removed-inactive-fields).
 Las tablas históricas permanecen en SQLite, sin ejecutar su flujo anterior.
 
 Node >=22.20 y Claude Code >=2.1.263 son necesarios para este aislamiento.
+Para comprobar con Claude Code real la skill y el MCP de raíz, la autenticación
+desde su entorno y cambios en dos submódulos sin reiniciar ni tocar los originales:
+`REGENT_SMOKE=1 node test/project-smoke.mjs`. La prueba crea repos temporales y
+puede consumir saldo; no consulta datos de negocio ni despliega servicios.
 Las operaciones remotas y su recuperación dependen de las herramientas del repo;
 Regent no garantiza exactly-once para mensajes de Slack.
 
