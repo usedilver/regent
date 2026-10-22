@@ -17,6 +17,9 @@ export const ConfigSchema = z.object({
   // bypass skips native permission rules; hooks are not a filesystem sandbox.
   // native: respeta allow/ask/deny del repo — en headless lo no permitido se auto-deniega.
   permission_mode: z.enum(['bypass', 'native']).default('bypass'),
+  communication: z.object({
+    instructions_file: z.string().trim().min(1).nullable().default(null),
+  }).strict().prefault({}),
   repos: z.object({
     path: z.string().min(1),
     workspace_root: z.string().min(1).nullable().default(null),

@@ -60,6 +60,11 @@ pnpm regent runs
 pnpm regent tail <run_id> --follow
 ```
 
+Las respuestas priorizan resumenes para personas no tecnicas; pide detalles tecnicos
+cuando los necesites. Personaliza el tono y formato por instancia con
+[`communication.instructions_file`](config/README.md#communication-policy), sin
+editar el protocolo de ejecucion ni las instrucciones de cada proyecto.
+
 ## Claude Desktop por MCP
 
 Regent admite una entrada MCP externa opcional para descubrir el contexto, iniciar, consultar, continuar y

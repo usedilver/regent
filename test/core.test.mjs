@@ -36,6 +36,51 @@ function fixture(extra = {}) {
 }
 
 try {
+  await check('runner: private protocol and communication snapshots reload on resume and clean up after exit', async () => {
+    const probe = path.join(tmp, 'prompt-probe.mjs')
+    fs.writeFileSync(probe, `import fs from 'node:fs'
+const file = process.argv[process.argv.indexOf('--append-system-prompt-file') + 1]
+const emit = event => console.log(JSON.stringify(event))
+emit({ type: 'system', subtype: 'init', session_id: 'prompt-probe', mcp_servers: [] })
+emit({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'probe', name: 'prompt-probe', input: { file } }] } })
+if (process.env.PROBE_HANG === '1') setInterval(() => {}, 1000)
+else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync(file, 'utf8'), mode: fs.statSync(file).mode & 0o777 }) })
+`)
+    const options = extra => runnerOptions({ prefixArgs: [probe], ...extra })
+    const run = async extra => {
+      const result = await startRunner(options(extra)).done
+      assert.equal(result.state, 'completed', result.error)
+      const snapshot = JSON.parse(result.text)
+      assert.equal(snapshot.mode, 0o600)
+      assert.ok(!fs.existsSync(path.dirname(snapshot.file)))
+      return snapshot.text
+    }
+    const protocol = fs.readFileSync('plugin/colleague.md', 'utf8').trim()
+    const defaults = fs.readFileSync('plugin/communication.md', 'utf8').trim()
+    assert.equal(await run(), `${protocol}\n\n# Instance Communication\n\n${defaults}\n`)
+    const policy = path.join(tmp, 'communication.md')
+    fs.writeFileSync(policy, 'Instance policy A')
+    assert.equal(await run({ communicationFile: policy }), `${protocol}\n\n# Instance Communication\n\nInstance policy A\n`)
+    fs.writeFileSync(policy, 'Instance policy B')
+    const relative = path.relative(process.cwd(), policy)
+    assert.equal(await run({ communicationFile: relative, sessionId: 'prompt-probe' }), `${protocol}\n\n# Instance Communication\n\nInstance policy B\n`)
+    let snapshot
+    const active = startRunner(options({ communicationFile: policy, env: { PROBE_HANG: '1' },
+      onEvent: event => { if (event.kind === 'tool_use') snapshot = event.input.file } }))
+    try {
+      await until(() => Boolean(snapshot))
+      assert.ok(fs.existsSync(snapshot))
+    } finally {
+      active.cancel()
+      assert.equal((await active.done).state, 'interrupted')
+    }
+    assert.ok(!fs.existsSync(path.dirname(snapshot)))
+    assert.throws(() => startRunner(options({ communicationFile: path.join(tmp, 'missing-policy.md') })), /ENOENT/)
+    for (const invalid of ['', ' '.repeat(20), 'x'.repeat(32769)]) {
+      fs.writeFileSync(policy, invalid)
+      assert.throws(() => startRunner(options({ communicationFile: policy })), /32 KiB/)
+    }
+  })
   await check('runner init exposes cwd and loaded skills/agents/tools for context diagnostics', () => {
     const event = normalizeEvent({ type: 'system', subtype: 'init', session_id: 'fixture', cwd: '/fixture/worktree',
       skills: ['new-dashboard'], agents: ['reviewer'], tools: ['Read'], apiKey: 'not-an-event-field' })[0]

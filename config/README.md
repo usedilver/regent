@@ -38,6 +38,7 @@ context before editing. There is no hardcoded dashboard destination.
 - `repos.readonly_mcp`: optional additional hook restrictions; not a replacement
   for read-only credentials on the data source.
 - `slack.progress_mode`: `auto` (default) for task cards, `plain` for simple text.
+- `communication.instructions_file`: optional instance communication policy; see below.
 - `limits`: concurrency, per-turn seconds (`ask`, `patch`, `task`, `project`), inactivity
   timeout (`stall_sec`) and cancellation grace period (`cancel_grace_sec`).
 - `budget`: per-run and daily USD limits, applied only in `auth.mode: team`.
@@ -53,6 +54,44 @@ context before editing. There is no hardcoded dashboard destination.
   These callers are independent of Slack users and can execute code in the configured
   workspace. They can only inspect/continue/cancel their own MCP conversations.
   OAuth is an alternative to manually distributed tokens; see below.
+
+## Communication Policy
+
+`plugin/colleague.md` defines the execution protocol. Project instructions own
+development conventions. `plugin/communication.md` provides the default presentation:
+plain-language summaries for nontechnical readers, with technical detail whenever
+the user requests it. This applies to Slack, MCP and CLI executions.
+
+To customize this instance, copy the default to a private operator-owned file:
+
+```sh
+cp plugin/communication.md config/communication.md
+```
+
+Select it in `config/regent.yaml`:
+
+```yaml
+communication:
+  instructions_file: config/communication.md
+```
+
+Paths are relative to the Regent installation directory, independent of the
+selected repository or `REGENT_CONFIG`; absolute paths and `~/` are also supported.
+Null or omission uses the built-in communication policy. An explicitly selected
+file must be readable, nonempty and at most 32 KiB; errors fail the run instead of
+silently falling back. Keep secrets out of these instructions.
+
+The policy is read for every new run, including resumed conversations. Content
+edits apply on the next run without a restart; a running agent keeps its original
+snapshot. Changing the configured path requires a server restart. Regent combines
+the protocol and selected policy in a private temporary prompt file and removes
+it when the agent exits. No timestamps or run IDs are added to the prompt content.
+Claude Code controls caching; changing instructions can require rebuilding its
+cache. Communication rules guide model output, not deterministic formatting or
+permissions. They must preserve material risks, uncertainty and failed checks.
+
+The MCP host relays the agent's result and may rephrase it. These instructions
+control the server executor, not unrelated behavior of the user's host application.
 
 ## OAuth Login for MCP
 

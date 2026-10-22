@@ -4,6 +4,8 @@ name: Regent
 # de regent filtran secretos y readonly_mcp, pero no son un sandbox de seguridad.
 # native: respeta allow/ask/deny del repo; en headless lo no permitido se auto-deniega.
 permission_mode: bypass
+communication:
+  instructions_file: null # Usa plugin/communication.md; ruta relativa a Regent o absoluta para personalizar.
 auth:
   # Pro/Max personal via Claude Code. Compartir la cuenta puede causar suspension/baneo.
   mode: indie

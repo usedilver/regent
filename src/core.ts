@@ -233,6 +233,7 @@ export class Core {
       active.controller = this.runner({ cwd: conversation.cwd, prompt, runId: run.id, sessionId, model,
         images: visual.images,
         permissionMode: this.config.permission_mode,
+        communicationFile: this.config.communication.instructions_file,
         worktreeName: isolation?.name,
         additionalDirectories: [],
         env, token: active.token, toolsUrl: this.toolsUrl, readonlyMcp: this.config.repos.readonly_mcp,

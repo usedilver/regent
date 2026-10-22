@@ -43,6 +43,8 @@ try {
   }
   assert.equal(config.permission_mode, 'bypass')
   assert.equal(config.slack.progress_mode, 'auto')
+  assert.deepEqual(config.communication, { instructions_file: null })
+  assert.throws(() => ConfigSchema.parse({ ...config, communication: { instructions_file: '   ' } }))
   assert.deepEqual(config.models, { ask: null, patch: null, task: null, project: null })
   assert.deepEqual(config.limits.max_run_sec, { ask: 600, patch: 1800, task: 3600, project: 7200 })
   assert.deepEqual(config.repos.agent_env_files, [])
@@ -53,6 +55,7 @@ try {
   for (const [section, keys] of [
     ['repos', ['default_base_branch', 'base_branches', 'test_commands']],
     ['slack', ['ops_channel', 'digest_channel']],
+    ['communication', ['audience', 'prompt']],
   ]) for (const key of keys) {
     assert.throws(() => ConfigSchema.parse({ ...config, [section]: { ...config[section], [key]: null } }), /Unrecognized key/)
   }
@@ -85,6 +88,8 @@ try {
   assert.deepEqual(repositoryRequest('Review https://example.org/bug'), { text: 'Review https://example.org/bug' })
   assert.throws(() => repositoryRequest('repo: missing'), /siguiente linea/)
   const starts = []
+  config.communication.instructions_file = path.join(root, 'communication.md')
+  fs.writeFileSync(config.communication.instructions_file, 'Use plain language.')
   store = new Store(':memory:')
   core = new Core({ config, store, cwd: root,
     output: { async notice() {}, async status() {}, async finish() {}, async delta() {} },
@@ -100,6 +105,7 @@ try {
   await core.submit(input('explicit', 'repo: other repo\nReview this'))
   await core.submit(input('cli', 'Review this', { adapter: 'cli', repo: 'other repo' }))
   assert.equal(starts[0].cwd, repo)
+  assert.ok(starts.every(start => start.communicationFile === config.communication.instructions_file))
   assert.equal(starts[1].cwd, other)
   assert.equal(starts[2].cwd, other)
   assert.equal(starts[1].env.SETUP_FIXTURE_REPO, 'other repo')
