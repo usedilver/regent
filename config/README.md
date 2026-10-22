@@ -52,7 +52,83 @@ context before editing. There is no hardcoded dashboard destination.
   Tokens must be unique and at least 32 characters. Restart to rotate or revoke them.
   These callers are independent of Slack users and can execute code in the configured
   workspace. They can only inspect/continue/cancel their own MCP conversations.
-  See [MCP execution and Desktop setup](../mcp-execution-plan.md).
+  OAuth is an alternative to manually distributed tokens; see below.
+
+## OAuth Login for MCP
+
+`auth.mode` authenticates the server's Claude Code engine. `mcp.oauth` authenticates
+the people connecting to the MCP; these are separate concerns. Regent remains
+independent of an organization, identity provider and default project.
+
+Configure the instance in this same `config/regent.yaml`:
+
+```yaml
+mcp:
+  enabled: true
+  principals: []
+  oauth:
+    issuer_url: https://code.example.com
+    trust_proxy: loopback # Same-host reverse proxy; use none without a trusted proxy.
+    redirect_uris:
+      - https://claude.ai/api/mcp/auth_callback
+    oidc:
+      issuer_url: https://accounts.google.com
+      client_id: YOUR_OIDC_APPLICATION_ID
+      client_secret_env: REGENT_MCP_OIDC_CLIENT_SECRET
+      allowed_emails:
+        - authorized.person@example.com
+```
+
+Google is an example, not hardcoded routing. The upstream must support OpenID
+Connect and provide a verified email claim. Hire's current JWT session API is not
+an OIDC provider and needs an explicit integration before it can be selected here.
+The email allowlist is required and checked at login, refresh and MCP access.
+It grants access to the instance's configured workspace, not per-project roles.
+User-scoped and managed Claude configuration still follow the operator's setup.
+
+Register `https://code.example.com/oauth/callback` in the identity provider's web
+application. Put its application secret in the server's private environment using
+the configured variable name. Regent never asks for or extracts a user's Claude
+credentials. Neither this application secret nor MCP access tokens are passed to
+the repository agent. Upstream login tokens are validated and discarded, never
+accepted as MCP tokens or forwarded to the execution engine.
+
+Publish `/mcp`, `/.well-known/oauth-protected-resource/mcp`,
+`/.well-known/oauth-authorization-server`, `/authorize`, `/register`, `/token`,
+`/revoke`, `/oauth/callback` and `/oauth/consent` through the same HTTPS origin.
+Keep `/tools`, `/tool-policy` and `/hook-denial` internal. The issuer is explicit;
+Host and forwarded headers do not choose it. Loopback HTTP is supported only for
+local tests. Remote Claude connectors need a publicly reachable HTTPS endpoint.
+`trust_proxy` defaults to `none`; `loopback` trusts only a local reverse proxy's
+forwarded client IP for SDK rate limits, not arbitrary proxy chains or the issuer.
+
+The server supports public OAuth clients, authorization code + PKCE S256,
+resource-bound tokens, browser-bound OIDC state/nonce and explicit consent.
+Client callbacks must match `redirect_uris`; native loopback callbacks may vary
+their port. Configure each client callback intentionally; no wildcard redirects
+or client metadata URL fetches are used. Dynamic registration is rate limited and
+capped. Metadata, authorization and token endpoints use the official MCP SDK.
+
+Access tokens expire after 15 minutes. Refresh tokens rotate within a seven-day
+session; replay revokes the whole session. Revocation invalidates its access and
+refresh tokens. SQLite stores token hashes and verified identities, not bearer
+values; clients and refresh sessions survive restart. Pending login/code exchanges
+are short lived in memory and must be restarted after a server restart. The schema
+upgrade is additive (version 10); back up the instance database before deployment.
+
+OAuth identities derive from the provider issuer and subject, not a supplied name,
+email or Claude account. Sessions from distinct identities cannot read, continue
+or cancel each other's jobs. Static principals remain separate, and existing jobs
+are not reassigned automatically when a person moves from a token to OAuth.
+Removing an allowed user or callback takes effect after restarting with the new
+configuration. Existing requests already executing are not cancelled by revocation.
+
+Run `node test/oauth.test.mjs` (also included in `pnpm test`) for an HTTP integration
+with a local signed OIDC provider fixture. It covers consent, PKCE, audience,
+signature/nonce/expiry checks, identity ownership, token rotation, revocation and
+restart. This is not a real corporate SSO or Claude Desktop OAuth acceptance test.
+Before distributing plugin 0.3.0, configure a real provider, verify its approved
+users and callbacks, and complete login, reconnect and disconnect from Desktop.
 
 ## Shared Agent Credentials (Optional)
 

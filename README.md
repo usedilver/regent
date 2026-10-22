@@ -67,14 +67,16 @@ detener trabajos de codigo desde Claude Desktop. Reutiliza las sesiones, worktre
 limites y contexto de cada repositorio. No envia estas conversaciones a Slack.
 El MCP de datos sigue siendo una conexion independiente del cliente y del repo.
 
-Activa `mcp.enabled` y configura sus principales/tokens privados. `pnpm start` sirve
+Activa `mcp.enabled` y configura OAuth o sus principales/tokens privados. `pnpm start` sirve
 Slack y MCP en el mismo runtime cuando esta habilitado; `pnpm start:mcp` ejecuta solo
 MCP. No ejecutes ambos sobre la misma base SQLite: el lease rechaza un segundo runtime.
 El endpoint externo `/mcp` y las herramientas internas `/tools` tienen autenticaciones
-distintas. Usa el conector stdio incluido para Desktop; esta entrega no implementa OAuth.
+distintas. OAuth permite conectar un cliente HTTP con login y consentimiento, sin
+entregar tokens manuales. El puente stdio con token sigue disponible para pruebas
+locales y clientes existentes.
 
-El [plan de ejecucion y configuracion](mcp-execution-plan.md) documenta herramientas,
-instalacion en Desktop, pruebas y validaciones pendientes del servidor.
+La [configuracion de OAuth](config/README.md#oauth-login-for-mcp) documenta el proveedor
+OIDC, callbacks, acceso de usuarios, despliegue y limites de las pruebas.
 
 El [plugin cliente Talently Code](client-plugin/) agrupa la skill `talently-code` y el MCP remoto.
 Se empaqueta con `pnpm plugin:pack` en `tmp/talently-code-plugin.zip`, sin credenciales,
@@ -85,11 +87,11 @@ seleccion no se garantiza frente a otros plugins. Las skills de implementacion
 siguen en cada repositorio y las carga Claude Code. El `name` de la instancia configura
 el titulo del MCP y su panel; el motor y las herramientas `regent_*` conservan su identidad tecnica.
 
-El manifiesto solicita endpoint y token personal mediante `userConfig` (token
-sensible). El esquema y el ZIP estan validados; la skill instalada y su conexion
-mediante el puente stdio local se comprobaron en Desktop. La conexion HTTP del
-paquete requiere un endpoint accesible desde Anthropic y su configuracion de cliente
-sigue pendiente de validacion antes de distribuirlo al equipo.
+El plugin 0.3.0 solicita solo el endpoint mediante `userConfig` y usa OAuth del
+cliente para iniciar sesion. Requiere que el servidor tenga un proveedor configurado
+y callbacks autorizados. Los tests locales verifican el protocolo con un proveedor
+OIDC simulado; no certifican el login real de Google/Hire ni la instalacion HTTP
+en Desktop. La conexion stdio anterior se mantiene operativa durante la preparacion.
 
 El seguimiento puede mostrarse en una tarjeta MCP Apps dentro del chat, con las
 mismas actividades que Slack y actualizacion automatica. El puente stdio reenvia el

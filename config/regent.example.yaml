@@ -20,6 +20,7 @@ slack:
 mcp:
   enabled: false
   principals: [] # [{ id: dilver, token_env: REGENT_MCP_TOKEN_DILVER }]; tokens en el entorno privado.
+  oauth: null # Configuracion opcional de login OIDC; ver config/README.md.
 limits:
   max_concurrent_runs: 3
   max_run_sec: { ask: 600, patch: 1800, task: 3600, project: 7200 }
