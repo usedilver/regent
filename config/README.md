@@ -8,8 +8,15 @@ See [the example](regent.example.yaml) for optional settings.
 MCPs and its own environment. Existing conversations retain their selected repo.
 
 Only this README and `regent.example.yaml` are tracked in this directory.
-The runtime reads `regent.yaml`, never the example. Server secrets belong in the
+Both Slack and MCP read `config/regent.yaml` by default. `REGENT_CONFIG` explicitly
+overrides that path; a startup script or service setting this variable must point
+to the intended instance file. The runtime never reads the example. Server secrets belong in the
 root `.env`. The retired v1 `workflow.json` and `process.md` are not loaded.
+
+The default repository is initial context, not a project routing table. An explicit
+repository takes precedence. For a project named in a request, the executor uses
+the initial repository's instructions to resolve it, then selects that repository
+and loads its context before editing. There is no hardcoded dashboard destination.
 
 ## Active Settings
 
