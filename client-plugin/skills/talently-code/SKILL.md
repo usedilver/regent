@@ -36,6 +36,7 @@ artefacto HTML aislado. Respeta un pedido explicito de crear algo independiente.
 
 El inventario de contexto muestra archivos y conectores declarados, no confirma
 su funcionamiento. La implementacion y sus comprobaciones pertenecen al ejecutor.
+Si ese contexto ya responde la pregunta, responde directamente sin iniciar un trabajo.
 
 ## Delegar el trabajo
 
@@ -47,6 +48,11 @@ Indica el resultado solicitado y los limites del usuario: investigacion de solo
 lectura, cambio local, pruebas, rama, PR o despliegue segun el alcance autorizado.
 Pide que el agente lea las instrucciones y la skill del proyecto antes de editar.
 No amplíes ese alcance ni impongas un flujo de aprobaciones propio de esta skill.
+Conserva el pedido original: una pregunta breve no necesita una auditoria completa,
+tablas de metadatos, una lista fija de severidades ni un informe de muchas secciones.
+Solicita una respuesta de profundidad proporcional al pedido. Usa `intent: ask`
+para consultas y revisiones de solo lectura; el ejecutor elige las herramientas
+y las instrucciones del repo que realmente necesita.
 
 Para este trabajo de codigo, no intentes primero conseguir en el chat las mismas
 herramientas de BD que tiene el ejecutor. La ausencia de `database-mcp`, SQL o un
@@ -61,15 +67,21 @@ programadas, recordatorios ni automatizaciones para revisar su avance, salvo que
 el usuario pida expresamente una notificacion posterior. No anuncies revisiones
 futuras que no puedas realizar dentro del seguimiento disponible.
 
-Consulta `regent_get_run` con el `run_id` recibido. Sigue `latest_run`, porque un
-cambio de contexto puede crear una continuacion automatica. Si esta en cola o
-ejecutando, da un estado breve sin afirmar que el trabajo ya termino.
+Consulta `regent_get_run` con el `run_id` recibido y conserva su espera predeterminada
+de hasta 20 segundos; no hagas un bucle de consultas inmediatas. Sigue `latest_run`,
+porque un cambio de contexto puede crear una continuacion automatica. Cuando termine
+o espere una respuesta humana, deja de consultar.
 
-En clientes con MCP Apps, el panel de Talently Code muestra las actividades reales y se
-actualiza dentro del chat. Muestra el panel; no sustituyas sus checks por pasos
-inventados ni abras otras tareas para consultarlo. Si no hay panel, sigue consultando
-`regent_get_run` en el mismo turno y resume solo cambios de actividad. Si el cliente
-interrumpe el turno, conserva los IDs e informa como retomar, sin programar nada.
+El seguimiento normal no usa tarjetas. Para una pregunta breve, basta el resultado
+final: no anuncies cada herramienta, consulta de estado ni lectura de archivo. En
+trabajos largos comunica solo avances relevantes o bloqueos, sin repetir que sigue
+trabajando ni copiar las actividades internas del ejecutor.
+
+Solo si el usuario pide un panel visual, llama `regent_show_progress` una vez para
+esa conversacion. El mismo panel se actualiza; no lo abras de nuevo con cada consulta
+ni dupliques su contenido en mensajes. Las consultas normales y las continuaciones
+no crean otro panel. Si el cliente interrumpe el turno, conserva los IDs e informa
+como retomar, sin programar nada.
 
 Ante una pregunta pendiente, presentala al usuario y envia su respuesta mediante
 `regent_continue`, conservando `conversation_id` y usando un UUID nuevo por mensaje.
@@ -80,3 +92,5 @@ Entrega el resultado confirmado por Talently Code: que cambio, donde revisarlo, 
 y limites pendientes. No atribuyas a un fallo de conectores del chat un bloqueo que
 el ejecutor no haya comprobado. Si Talently Code no esta disponible, explica que falta esa
 conexion; no cambies silenciosamente a otro producto, datos de ejemplo o Supabase.
+Responde primero lo que pregunto el usuario. No repitas el informe completo del
+ejecutor si una conclusion breve con los hallazgos relevantes es suficiente.

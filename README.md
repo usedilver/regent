@@ -88,18 +88,18 @@ seleccion no se garantiza frente a otros plugins. Las skills de implementacion
 siguen en cada repositorio y las carga Claude Code. El `name` de la instancia configura
 el titulo del MCP y su panel; el motor y las herramientas `regent_*` conservan su identidad tecnica.
 
-El plugin 0.3.1 incluye el endpoint literal al empaquetarlo y usa OAuth del
+El plugin 0.3.2 incluye el endpoint literal al empaquetarlo y usa OAuth del
 cliente para iniciar sesion. No requiere `userConfig`; Desktop mostro el marcador
 sin resolver en la instalacion anterior. Requiere que el servidor tenga un proveedor configurado
 y callbacks autorizados. Los tests locales verifican el protocolo con un proveedor
 OIDC simulado; no certifican el login real de Google/Hire ni la instalacion HTTP
 en Desktop. La conexion stdio anterior se mantiene operativa durante la preparacion.
 
-El seguimiento puede mostrarse en una tarjeta MCP Apps dentro del chat, con las
-mismas actividades que Slack y actualizacion automatica. El puente stdio reenvia el
-recurso de interfaz; no se crean tareas programadas para revisar el trabajo. Sin
-soporte de MCP Apps se consulta el estado en el mismo turno. El transporte y las
-actividades tienen pruebas; la visualizacion en Desktop sigue pendiente de verificar.
+El seguimiento normal usa texto, sin tarjetas: `regent_get_run` espera hasta 20
+segundos por el resultado para evitar consultas inmediatas repetidas. Solo si el
+usuario solicita el panel, `regent_show_progress` abre una tarjeta MCP Apps que
+consulta el estado sin generar otras tarjetas ni copiar el informe final.
+El puente stdio reenvia el recurso opcional; no se crean tareas programadas.
 
 Cuando Regent necesita una decisión, puede mostrar hasta cinco opciones con botones
 en el hilo. También puedes responder con tus propias palabras. La respuesta continúa

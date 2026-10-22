@@ -28,7 +28,7 @@ el mismo chat, sin crear tareas programadas para consultar su avance.
 
 ## Instalacion y cambio de nombre
 
-La version 0.3.1 requiere una instancia con OAuth configurado y accesible por HTTPS.
+La version 0.3.2 requiere una instancia con OAuth configurado y accesible por HTTPS.
 Instala el ZIP preparado por el administrador e inicia sesion cuando
 Claude lo solicite. El endpoint ya esta incluido; no hay variables que completar.
 Confirma la conexion desde la pantalla del servidor. No se pide
@@ -52,6 +52,12 @@ El nombre visible del servidor y del panel se configura con `name: Talently Code
 en la instancia MCP. El puente stdio conserva ese nombre. Las herramientas
 `regent_context`, `regent_start`, `regent_get_run`, `regent_continue` y `regent_cancel`
 siguen siendo compatibles con clientes anteriores.
+
+El seguimiento habitual es texto, sin tarjetas. `regent_get_run` espera hasta 20
+segundos cuando el trabajo sigue activo y no adjunta una interfaz. El panel visual
+se abre solo a pedido con `regent_show_progress`, una vez por conversacion; sus
+actualizaciones no crean tarjetas nuevas ni repiten el informe final del agente.
+Una consulta breve recibe una respuesta breve, sin convertirla en una auditoria.
 
 ## Distribucion
 
