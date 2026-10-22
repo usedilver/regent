@@ -45,11 +45,12 @@ export class OAuthServer implements OAuthServerProvider {
     this.secret = env[settings.oidc.client_secret_env]?.trim() ?? ''
     if (!this.secret) throw new Error(`Configura ${settings.oidc.client_secret_env} para el login MCP.`)
     this.tokens = new OAuthStore(store, identity => this.allowed(identity))
+    const callbackOrigins = [...new Set(settings.redirect_uris.map(uri => new URL(uri).origin))].join(' ')
     this.app.disable('x-powered-by')
     if (settings.trust_proxy === 'loopback') this.app.set('trust proxy', 'loopback')
     this.app.use((_req, res, next) => {
-      res.set({ 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Content-Type-Options': 'nosniff',
-        'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'" })
+      res.set({ 'Cache-Control': 'no-store', 'Referrer-Policy': 'same-origin', 'X-Content-Type-Options': 'nosniff',
+        'Content-Security-Policy': `default-src 'none'; style-src 'unsafe-inline'; form-action 'self' ${callbackOrigins}; frame-ancestors 'none'; base-uri 'none'` })
       next()
     })
     const options = { provider: this, issuerUrl: this.issuer, resourceServerUrl: new URL(this.resource), scopesSupported: [MCP_SCOPE], resourceName: name }

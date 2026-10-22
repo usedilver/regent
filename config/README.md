@@ -109,6 +109,13 @@ their port. Configure each client callback intentionally; no wildcard redirects
 or client metadata URL fetches are used. Dynamic registration is rate limited and
 capped. Metadata, authorization and token endpoints use the official MCP SDK.
 
+Consent pages use `Referrer-Policy: same-origin` so browser form submissions retain
+their origin for CSRF validation. Their CSP allows form redirects only to this
+instance and the configured callback origins. `no-referrer` makes browsers send
+an opaque origin for these forms; a `form-action 'self'` policy alone blocks the
+return to a remote client in Chrome. Do not remove origin or CSRF checks to work
+around either failure.
+
 Access tokens expire after 15 minutes. Refresh tokens rotate within a seven-day
 session; replay revokes the whole session. Revocation invalidates its access and
 refresh tokens. SQLite stores token hashes and verified identities, not bearer
