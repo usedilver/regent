@@ -2,8 +2,7 @@
   "mcpServers": {
     "talently-code": {
       "type": "http",
-      "url": "${user_config.endpoint}",
-      "headers": { "Authorization": "Bearer ${user_config.token}" }
+      "url": "${user_config.endpoint}"
     }
   }
 }

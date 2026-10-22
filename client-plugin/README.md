@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-21
+updated: 2026-10-22
 ---
 
 # Talently Code para Claude
@@ -28,14 +28,23 @@ el mismo chat, sin crear tareas programadas para consultar su avance.
 
 ## Instalacion y cambio de nombre
 
-Instala `talently-code-plugin.zip` en los plugins de Claude y configura el endpoint
-y tu token personal en los campos privados del conector. No pegues el token en el
-chat. El endpoint remoto debe ser accesible desde Anthropic para usarlo en el chat;
-un servidor en localhost requiere el puente stdio para Claude Desktop.
+La version 0.3.0 requiere una instancia con OAuth configurado y accesible por HTTPS.
+Instala `talently-code-plugin.zip`, configura el endpoint e inicia sesion cuando
+Claude lo solicite. Confirma la conexion desde la pantalla del servidor. No se pide
+un token manual. El administrador configura el proveedor de identidad y los usuarios
+autorizados en `config/regent.yaml`; instalar el plugin no concede acceso por si solo.
+
+El endpoint remoto debe ser accesible desde Anthropic para usarlo en el chat. El
+puente stdio existente sigue disponible para pruebas locales con token; esta version
+del plugin HTTP no reemplaza ese puente ni convierte localhost en una URL publica.
+No actualices una instalacion que depende de tokens hasta que su servidor tenga
+OAuth operativo. El empaquetado no activa el proveedor ni despliega la instancia.
 
 El identificador cambia de `regent` a `talently-code`: el cliente puede tratarlo
 como otro plugin. Verifica el nuevo y deshabilita el anterior para evitar entradas
-duplicadas. El endpoint, tokens y conversaciones del servidor se conservan.
+duplicadas. Las conversaciones se conservan en el servidor. Una conexion OAuth usa
+una identidad verificada distinta del antiguo principal configurado con token;
+los trabajos antiguos no se reasignan automaticamente.
 No edites las copias sincronizadas del plugin como mecanismo de actualizacion.
 
 El nombre visible del servidor y del panel se configura con `name: Talently Code`

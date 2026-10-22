@@ -1,7 +1,7 @@
 {
   "name": "talently-code",
   "displayName": "Talently Code",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Crea, modifica e investiga webs, aplicaciones y dashboards de Talently con lenguaje natural y las instrucciones de cada proyecto.",
   "author": { "name": "Talently" },
   "license": "MIT",
@@ -9,15 +9,8 @@
     "endpoint": {
       "type": "string",
       "title": "Servidor Talently Code",
-      "description": "URL HTTPS /mcp proporcionada por el administrador. En el chat debe ser accesible desde Anthropic; localhost no sirve.",
+      "description": "URL HTTPS /mcp proporcionada por el administrador. Claude abrira el inicio de sesion configurado para autorizar tu acceso.",
       "required": true
-    },
-    "token": {
-      "type": "string",
-      "title": "Token personal",
-      "description": "Credencial personal emitida por el administrador de Talently Code. No se incluye en el plugin ni se escribe en el chat.",
-      "required": true,
-      "sensitive": true
     }
   }
 }
