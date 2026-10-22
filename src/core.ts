@@ -13,8 +13,9 @@ import type { Conversation, Inbound, Output, Run, Rooms } from './types.ts'
 import { RoomTransfers } from './rooms.ts'
 import { denial } from '../plugin/hooks/policy.mjs'
 import { progressText, interruptedText, StatusRequest } from './progress.ts'
-import { resolveRepository, isolationFor, repositoryRequest } from './repository.ts'
+import { resolveRepository, projectRoot, isolationFor, repositoryRequest } from './repository.ts'
 import { History, type HistoryLoader } from './history.ts'
+import { prepareProjectWorkspace, type ProjectWorkspace } from './project-workspace.ts'
 
 interface Active {
   run: Run; token: string; controller?: ReturnType<typeof startRunner>; done?: Promise<void>
@@ -28,6 +29,7 @@ interface Active {
   abort: AbortController
   operations: Set<Promise<unknown>>
   resumeAfterWait?: boolean
+  workspace?: ProjectWorkspace
 }
 
 export class Core {
@@ -69,12 +71,14 @@ export class Core {
     }
     const selection = repositoryRequest(input.text)
     const requested = input.repo ?? selection.repo
-    const selected = requested ? resolveRepository(this.cwd, requested) : undefined
+    const target = requested ? resolveRepository(this.cwd, requested) : undefined
+    const selected = target ? projectRoot(this.cwd, target) : undefined
     const existing = this.store.conversation(input.key)
     const switching = selected && existing && selected !== existing.cwd
-    input = { ...input, text: switching
-      ? `El usuario selecciono explicitamente el repositorio ${JSON.stringify(selected)}. Antes de ejecutar la solicitud, llama regent_use_repo con esa ruta y un handoff del contexto relevante; termina el turno para cargar su entorno. No ejecutes la solicitud en el repo actual.\nSolicitud:\n${selection.text}`
-      : selection.text }
+    let text = selection.text
+    if (target && selected && target !== selected) text = `Trabaja en el submodulo ${JSON.stringify(path.relative(selected, target))} del proyecto ${JSON.stringify(selected)}. Conserva el contexto compartido del proyecto y lee las instrucciones especificas del destino.\nSolicitud:\n${text}`
+    if (switching) text = `El usuario selecciono explicitamente el repositorio ${JSON.stringify(target)}. Antes de ejecutar la solicitud, llama regent_use_repo con esa ruta y un handoff del contexto relevante; termina el turno para cargar su entorno. No ejecutes la solicitud en el repo actual.\nSolicitud:\n${text}`
+    input = { ...input, text }
     const accepted = this.store.accept(input, selected ?? this.defaultCwd, this.config.session.idle_reset_hours)
     if (accepted.duplicate) return accepted
     const waiting = this.active.get(input.key)
@@ -297,17 +301,24 @@ export class Core {
       } finally { active.moving = false }
     }
     if (name === 'regent_use_repo') {
-      const target = resolveRepository(this.cwd, args.repo)
+      let requested = resolveRepository(this.cwd, args.repo)
+      const isolatedRoot = isolationFor(conversation.cwd, conversation.key).dir
+      const relative = path.relative(isolatedRoot, requested)
+      if (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) requested = resolveRepository(this.cwd, path.join(conversation.cwd, relative))
+      const target = projectRoot(this.cwd, requested)
       const intent = args.intent ?? active.run.intent
       if (!['ask', 'patch', 'task', 'project'].includes(intent)) throw new Error('Intent invalido.')
-      if (target === conversation.cwd && intent === active.run.intent) return { repo: target, unchanged: true }
+      if (target === conversation.cwd && intent === active.run.intent) return {
+        repo: target, target_repo: requested, cwd: path.join(isolationFor(target, conversation.key).dir, path.relative(target, requested)), unchanged: true,
+        instruction: 'Mismo proyecto y sesion. Navega al destino dentro del worktree, lee sus instrucciones y conserva el contexto compartido.',
+      }
       if (this.store.db.prepare("SELECT 1 FROM runs WHERE conversation_key=? AND state='queued'").get(conversation.key)) throw new Error('Hay mensajes en cola; espera antes de cambiar de proyecto.')
       if (active.operations.size > 0) throw new Error('Espera a que terminen las otras herramientas antes de cambiar de contexto.')
       this.store.accept({ adapter: conversation.adapter as Inbound['adapter'], eventId: `context:${active.run.id}`, key: conversation.key,
           author: conversation.author, team: conversation.team ?? undefined, channel: conversation.channel,
           intent,
           thread: conversation.thread ?? undefined, replyThread: conversation.thread ?? undefined,
-          text: `Continua en el repositorio seleccionado ${target}. Lee su contexto propio. No vuelvas al repo de origen.\nObjetivo y estado transferidos:\n${args.handoff}` }, target, this.config.session.idle_reset_hours, true)
+          text: `Continua en el proyecto seleccionado ${target}. Destino dentro del proyecto: ${path.relative(target, requested) || '.'}. Lee su contexto propio. No vuelvas al proyecto de origen.\nObjetivo y estado transferidos:\n${args.handoff}` }, target, this.config.session.idle_reset_hours, true)
       active.contextChanged = true
       active.waiting = true
       active.resumeAfterWait = true
@@ -348,6 +359,17 @@ export class Core {
     if (deadline) return deadline
     const cwd = this.store.conversation(active.run.conversation_key)?.cwd ?? this.defaultCwd
     const isolation = isolationFor(cwd, active.run.conversation_key)
+    if (!active.workspace && (fs.existsSync(path.join(cwd, '.gitmodules')) || fs.existsSync(path.join(isolation.dir, '.gitmodules')))) {
+      try {
+        active.workspace = prepareProjectWorkspace(this.cwd, cwd, isolation.dir, active.run.conversation_key)
+        this.store.event(active.run.id, 'project_workspace', active.workspace)
+      } catch (error) { return `No se pudo preparar el proyecto aislado: ${(error as Error).message}` }
+    }
+    const destinations = [input.cwd, input.tool_input?.file_path, input.tool_input?.notebook_path].filter((value): value is string => typeof value === 'string')
+    if (active.workspace?.unavailable.some(relative => destinations.some(destination => {
+      const target = path.relative(path.join(isolation.dir, relative), path.resolve(input.cwd ?? isolation.dir, destination))
+      return target !== '..' && !target.startsWith(`..${path.sep}`) && !path.isAbsolute(target)
+    }))) return 'El submodulo no esta inicializado en el proyecto de origen. Prepara su checkout antes de usarlo; no edites un directorio vacio como si fuera el servicio.'
     if (['EnterWorktree', 'ExitWorktree'].includes(input.tool_name)) return 'Conserva el aislamiento de esta conversacion; usa regent_use_repo para cambiar de proyecto.'
     if (['Read', 'Glob', 'Grep'].includes(input.tool_name)) {
       return denial(input, { REGENT_ROOT: isolation.dir, REGENT_CWD: input.cwd ?? isolation.dir })

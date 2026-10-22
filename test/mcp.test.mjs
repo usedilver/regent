@@ -137,7 +137,7 @@ try {
       assert.equal(f.core.authorized({ adapter: 'mcp', author: 'U1', team: 'T1' }), false)
     } finally { await f.close() }
   })
-  await check('context discovers nested repo skills and agents without moving them or exposing MCP secrets; start uses the default repo', async () => {
+  await check('context discovers independent repo skills without inheriting unrelated parent MCPs; start uses the default repo', async () => {
     const f = await fixture()
     try {
       fs.writeFileSync(path.join(f.dir, 'AGENTS.md'), 'Parent workspace guidance')
@@ -154,10 +154,11 @@ try {
       const context = await call(client, 'regent_context', {})
       assert.equal(context.default_repo, 'dashboard')
       assert.equal(context.inventory_only, true)
-      assert.deepEqual(context.instruction_directories.map(entry => entry.directory), ['.', 'dashboard'])
-      assert.deepEqual(context.instruction_directories[0].configured_mcp_servers, ['database-prod'])
-      assert.deepEqual(context.instruction_directories[1].skills, [{ name: 'new-dashboard', path: 'dashboard/.claude/skills/new-dashboard/SKILL.md' }])
-      assert.equal(context.instruction_directories[1].agents[0].name, 'chart-reviewer')
+      assert.equal(context.project_root, fs.realpathSync(f.repo))
+      assert.deepEqual(context.instruction_directories.map(entry => entry.directory), ['dashboard'])
+      assert.deepEqual(context.instruction_directories[0].configured_mcp_servers, [])
+      assert.deepEqual(context.instruction_directories[0].skills, [{ name: 'new-dashboard', path: 'dashboard/.claude/skills/new-dashboard/SKILL.md' }])
+      assert.equal(context.instruction_directories[0].agents[0].name, 'chart-reviewer')
       assert.doesNotMatch(JSON.stringify(context), /private-fixture-token/)
       assert.equal(f.starts.length, 0)
       const rejected = await client.callTool({ name: 'regent_context', arguments: { repo: '/' } })

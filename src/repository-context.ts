@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { resolveRepository } from './repository.ts'
+import { resolveRepository, projectRoot } from './repository.ts'
 
 const MAX_ENTRIES = 100
 const within = (root: string, target: string) => {
@@ -11,11 +11,12 @@ const within = (root: string, target: string) => {
 export function repositoryContext(workspace: string, selected: string) {
   const root = fs.realpathSync(workspace)
   const repo = resolveRepository(root, selected)
+  const project = projectRoot(root, repo)
   const visible = (file: string) => fs.existsSync(file) && within(root, fs.realpathSync(file))
   const directories: string[] = []
-  for (let directory = repo; within(root, directory); directory = path.dirname(directory)) {
+  for (let directory = repo; within(project, directory); directory = path.dirname(directory)) {
     directories.unshift(directory)
-    if (directory === root) break
+    if (directory === project) break
   }
   const inventory = directories.map(directory => {
     const seen = new Set<string>()
@@ -51,6 +52,6 @@ export function repositoryContext(workspace: string, selected: string) {
     return { directory: path.relative(root, directory) || '.', instruction_files: instructionFiles, skills, agents,
       configured_mcp_servers: configuredMcp, mcp_config_error: mcpConfigError }
   }).filter(entry => entry.instruction_files.length || entry.skills.length || entry.agents.length || entry.configured_mcp_servers.length || entry.mcp_config_error)
-  return { workspace: root, repo, relative_repo: path.relative(root, repo) || '.', instruction_directories: inventory,
+  return { workspace: root, repo, project_root: project, relative_repo: path.relative(root, repo) || '.', instruction_directories: inventory,
     inventory_only: true, note: 'Son archivos y conexiones declaradas; el agente carga las instrucciones y verifica las fuentes al ejecutar. El cliente de chat no recibe automaticamente las skills ni las conexiones del repo.' }
 }

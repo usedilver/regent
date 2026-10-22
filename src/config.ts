@@ -3,7 +3,7 @@ import path from 'node:path'
 import YAML from 'yaml'
 import { z } from 'zod'
 import { BRIDGE_DIR } from './env.ts'
-import { resolveRepository } from './repository.ts'
+import { projectRoot } from './repository.ts'
 
 const positive = z.number().positive().finite()
 export const ConfigSchema = z.object({
@@ -82,6 +82,6 @@ export function workspaceDir(config: Config): string {
 
 export function defaultRepoDir(config: Config, workspace: string): string {
   if (!config.repos.default_repo) return workspace
-  try { return resolveRepository(workspace, config.repos.default_repo) }
+  try { return projectRoot(workspace, config.repos.default_repo) }
   catch (cause) { throw new Error('repos.default_repo debe ser un repo dentro del workspace.', { cause }) }
 }
