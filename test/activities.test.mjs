@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { Store } from '../src/store.ts'
-import { activityEvent, activityView } from '../src/activities.ts'
-import { SlackActivities } from '../src/slack-activities.ts'
-import { normalizeEvent } from '../src/runner.ts'
-import { commandDisplay } from '../src/command-display.ts'
+import { Store } from '../src/storage/store.ts'
+import { activityEvent, activityView } from '../src/core/activities.ts'
+import { SlackActivities } from '../src/adapters/slack/activities.ts'
+import { normalizeEvent } from '../src/execution/runner.ts'
+import { commandDisplay } from '../src/core/command-display.ts'
 
 for (const command of ['pnpm test', 'npm run build', 'yarn lint', 'git diff --stat']) {
   assert.equal(commandDisplay(command)?.command, command)

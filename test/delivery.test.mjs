@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import { DurableOutput } from '../src/delivery.ts'
-import { redact, redactDeep } from '../src/store.ts'
-import { Store } from '../src/store.ts'
+import { DurableOutput } from '../src/storage/delivery.ts'
+import { redact, redactDeep } from '../src/storage/redact.ts'
+import { Store } from '../src/storage/store.ts'
 
 let failed = 0
 const check = async (name, fn) => {

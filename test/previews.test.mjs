@@ -5,11 +5,11 @@ import path from 'node:path'
 import http from 'node:http'
 import { once } from 'node:events'
 import { ConfigSchema } from '../src/config.ts'
-import { Store } from '../src/store.ts'
-import { Previews } from '../src/previews.ts'
-import { createPreviewHttp } from '../src/preview-http.ts'
-import { Core } from '../src/core.ts'
-import { createHttp } from '../src/http.ts'
+import { Store } from '../src/storage/store.ts'
+import { Previews } from '../src/previews/manager.ts'
+import { createPreviewHttp } from '../src/previews/http.ts'
+import { Core } from '../src/core/core.ts'
+import { createHttp } from '../src/adapters/http.ts'
 
 const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-previews-')))
 const listen = async (server) => {

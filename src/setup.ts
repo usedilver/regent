@@ -2,13 +2,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { parseArgs } from 'node:util'
 import YAML from 'yaml'
-import { BRIDGE_DIR } from './env.ts'
+import { REGENT_DIR } from './env.ts'
 import { ConfigSchema, authNotice } from './config.ts'
-import { resolveRepository } from './repository.ts'
+import { resolveRepository } from './core/repository.ts'
 
 export function setup(
   args: string[],
-  file = process.env.REGENT_CONFIG ?? path.join(BRIDGE_DIR, 'config/regent.yaml'),
+  file = process.env.REGENT_CONFIG ?? path.join(REGENT_DIR, 'config/regent.yaml'),
 ): string {
   const { values } = parseArgs({
     args,

@@ -6,8 +6,8 @@ import path from 'node:path'
 import http from 'node:http'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { Store } from '../src/store.ts'
-import { Previews } from '../src/previews.ts'
+import { Store } from '../src/storage/store.ts'
+import { Previews } from '../src/previews/manager.ts'
 
 test('preview publication and routing require the listener to belong to the authorized process group', async () => {
   const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-listener-')))

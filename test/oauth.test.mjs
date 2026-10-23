@@ -8,11 +8,11 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
 import { ConfigSchema } from '../src/config.ts'
-import { Store } from '../src/store.ts'
-import { Core } from '../src/core.ts'
-import { ExternalMcp } from '../src/mcp.ts'
-import { createHttp } from '../src/http.ts'
-import { mcpOutput } from '../src/mcp-output.ts'
+import { Store } from '../src/storage/store.ts'
+import { Core } from '../src/core/core.ts'
+import { ExternalMcp } from '../src/adapters/mcp/server.ts'
+import { createHttp } from '../src/adapters/http.ts'
+import { mcpOutput } from '../src/adapters/mcp/output.ts'
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-oauth-')))
 const digest = (value) => createHash('sha256').update(value).digest('base64url')
@@ -479,7 +479,7 @@ try {
     async () => {
       const tokens = (await exchange(client, await approve(client))).tokens
       const reopened = new Store(storeFile)
-      const { OAuthStore } = await import('../src/oauth-store.ts')
+      const { OAuthStore } = await import('../src/adapters/mcp/oauth-store.ts')
       const persisted = new OAuthStore(reopened, (user) =>
         config.mcp.oauth.oidc.allowed_emails.includes(user.email),
       )

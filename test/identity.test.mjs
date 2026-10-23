@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
-import { resolveIdentity } from '../src/identity.ts'
-import { createIdentityResolver } from '../src/slack-identity.ts'
-import { Core } from '../src/core.ts'
-import { Store } from '../src/store.ts'
+import { resolveIdentity } from '../src/core/identity.ts'
+import { createIdentityResolver } from '../src/adapters/slack/identity.ts'
+import { Core } from '../src/core/core.ts'
+import { Store } from '../src/storage/store.ts'
 import { ConfigSchema } from '../src/config.ts'
 
 let clock = 0,

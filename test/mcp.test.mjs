@@ -8,13 +8,13 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { ConfigSchema } from '../src/config.ts'
-import { Core } from '../src/core.ts'
-import { Store } from '../src/store.ts'
-import { createHttp } from '../src/http.ts'
-import { ExternalMcp } from '../src/mcp.ts'
-import { mcpOutput, routeMcpOutput } from '../src/mcp-output.ts'
-import { startRunner } from '../src/runner.ts'
-import { isolationFor } from '../src/repository.ts'
+import { Core } from '../src/core/core.ts'
+import { Store } from '../src/storage/store.ts'
+import { createHttp } from '../src/adapters/http.ts'
+import { ExternalMcp } from '../src/adapters/mcp/server.ts'
+import { mcpOutput, routeMcpOutput } from '../src/adapters/mcp/output.ts'
+import { startRunner } from '../src/execution/runner.ts'
+import { isolationFor } from '../src/core/repository.ts'
 
 let failed = 0
 const check = async (name, fn) => {
@@ -27,7 +27,7 @@ const check = async (name, fn) => {
   }
 }
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'regent-mcp-'))
-const fake = path.resolve('test/fake-claude.mjs')
+const fake = path.resolve('test/fixtures/fake-claude.mjs')
 const tokens = { REGENT_MCP_TOKEN_ALICE: 'a'.repeat(48), REGENT_MCP_TOKEN_BOB: 'b'.repeat(48) }
 const baseConfig = () =>
   ConfigSchema.parse({
@@ -816,7 +816,7 @@ try {
       const client = new Client({ name: 'desktop-fixture', version: '1' })
       const transport = new StdioClientTransport({
         command: process.execPath,
-        args: [path.resolve('src/mcp-client.ts')],
+        args: [path.resolve('src/adapters/mcp/client.ts')],
         env: { REGENT_MCP_URL: `${f.url}/mcp`, REGENT_MCP_TOKEN: tokens.REGENT_MCP_TOKEN_ALICE },
         stderr: 'pipe',
       })
@@ -873,7 +873,7 @@ try {
         ['https://remote.invalid/mcp?token=fixture-secret', tokens.REGENT_MCP_TOKEN_ALICE],
         ['https://remote.invalid/mcp', ''],
       ]) {
-        const child = spawnSync(process.execPath, [path.resolve('src/mcp-client.ts')], {
+        const child = spawnSync(process.execPath, [path.resolve('src/adapters/mcp/client.ts')], {
           env: { ...process.env, REGENT_MCP_URL: url, REGENT_MCP_TOKEN: token },
           encoding: 'utf8',
           timeout: 5000,

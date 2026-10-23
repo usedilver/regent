@@ -4,14 +4,20 @@ import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
 import { ConfigSchema, assertAuth, authNotice, defaultRepoDir } from '../src/config.ts'
-import { Store, redact } from '../src/store.ts'
-import { Core } from '../src/core.ts'
-import { startRunner, runnerArgs, assertIsolationVersion, normalizeEvent } from '../src/runner.ts'
-import { createHttp } from '../src/http.ts'
-import { SlackOutput, accepts, gatherThread, readSlackFile } from '../src/slack.ts'
-import { DurableOutput } from '../src/delivery.ts'
-import { denial } from '../plugin/hooks/policy.mjs'
-import { progressText } from '../src/progress.ts'
+import { Store } from '../src/storage/store.ts'
+import { redact } from '../src/storage/redact.ts'
+import { Core } from '../src/core/core.ts'
+import {
+  startRunner,
+  runnerArgs,
+  assertIsolationVersion,
+  normalizeEvent,
+} from '../src/execution/runner.ts'
+import { createHttp } from '../src/adapters/http.ts'
+import { SlackOutput, accepts, gatherThread, readSlackFile } from '../src/adapters/slack/adapter.ts'
+import { DurableOutput } from '../src/storage/delivery.ts'
+import { denial } from '../plugins/executor/hooks/policy.mjs'
+import { progressText } from '../src/core/progress.ts'
 
 let failed = 0
 const check = async (name, fn) => {
@@ -24,7 +30,7 @@ const check = async (name, fn) => {
   }
 }
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'regent-v2-'))
-const fake = path.resolve('test/fake-claude.mjs')
+const fake = path.resolve('test/fixtures/fake-claude.mjs')
 const config = ConfigSchema.parse({
   auth: { mode: 'indie' },
   repos: { path: tmp },
@@ -118,7 +124,7 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
         assert.ok(!fs.existsSync(path.dirname(snapshot.file)))
         return snapshot.text
       }
-      const protocol = fs.readFileSync('plugin/colleague.md', 'utf8').trim()
+      const protocol = fs.readFileSync('plugins/executor/colleague.md', 'utf8').trim()
       const defaults = fs.readFileSync('config/communication.example.md', 'utf8').trim()
       assert.equal(await run(), `${protocol}\n\n# Instance Communication\n\n${defaults}\n`)
       const policy = path.join(tmp, 'communication.md')
@@ -259,7 +265,7 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
     async () => {
       const env = { WATCH_REPORT_DEPENDENCIES: '1', REPO_TEST_VALUE: 'preserved' }
       const result = await startRunner(
-        runnerOptions({ env, prefixArgs: [path.resolve('test/runner-worker-probe.cjs')] }),
+        runnerOptions({ env, prefixArgs: [path.resolve('test/fixtures/runner-worker-probe.cjs')] }),
       ).done
       assert.equal(result.state, 'completed')
       assert.deepEqual(JSON.parse(result.text), {

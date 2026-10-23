@@ -1,6 +1,6 @@
 import { loadEnv } from './env.ts'
 import { assertAuth, authNotice, loadConfig } from './config.ts'
-import { createSlack } from './slack.ts'
+import { createSlack } from './adapters/slack/adapter.ts'
 import { createRuntime, installShutdown } from './runtime.ts'
 import { claudeVersion } from './startup.ts'
 

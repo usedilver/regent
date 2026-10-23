@@ -24,7 +24,7 @@ if (endpoint.scheme != "https" or not endpoint.hostname
     parser.error("--endpoint requires a literal public HTTPS /mcp URL without credentials, query or fragment")
 
 repo = Path(__file__).resolve().parent.parent
-source = repo / "client-plugin"
+source = repo / "plugins/talently-code"
 output = args.output or repo / "tmp" / "talently-code-plugin.zip"
 files = {
     ".claude-plugin/plugin.json": source / ".claude-plugin/plugin.json",

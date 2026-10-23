@@ -2,9 +2,9 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { routeIntent } from '../src/intent.ts'
-import { Core } from '../src/core.ts'
-import { Store } from '../src/store.ts'
+import { routeIntent } from '../src/core/intent.ts'
+import { Core } from '../src/core/core.ts'
+import { Store } from '../src/storage/store.ts'
 import { ConfigSchema } from '../src/config.ts'
 
 for (const [text, intent] of [

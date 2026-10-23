@@ -5,9 +5,9 @@ import path from 'node:path'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { setup, requestArgs } from '../src/setup.ts'
 import { ConfigSchema, loadConfig, workspaceDir, defaultRepoDir } from '../src/config.ts'
-import { repositoryRequest, isolationFor } from '../src/repository.ts'
-import { Store } from '../src/store.ts'
-import { Core } from '../src/core.ts'
+import { repositoryRequest, isolationFor } from '../src/core/repository.ts'
+import { Store } from '../src/storage/store.ts'
+import { Core } from '../src/core/core.ts'
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-setup-')))
 const configFile = path.join(root, 'config/regent.yaml')

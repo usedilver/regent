@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
-import { normalizeEmailLinks, replyPayloads } from '../src/slack-format.ts'
-import { SlackOutput } from '../src/slack.ts'
+import { normalizeEmailLinks, replyPayloads } from '../src/adapters/slack/format.ts'
+import { SlackOutput } from '../src/adapters/slack/adapter.ts'
 
 const address = 'person+test@example.com'
 const link = `[${address}](mailto:${address})`

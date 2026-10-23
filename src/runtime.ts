@@ -1,15 +1,15 @@
 import path from 'node:path'
-import { Store } from './store.ts'
-import { Core } from './core.ts'
-import { ExternalMcp } from './mcp.ts'
-import { DurableOutput } from './delivery.ts'
-import { mcpOutput, routeMcpOutput } from './mcp-output.ts'
-import { createHttp } from './http.ts'
-import { startPreviewServer } from './preview-server.ts'
-import { httpLifecycle } from './http-lifecycle.ts'
-import { BRIDGE_DIR } from './env.ts'
+import { Store } from './storage/store.ts'
+import { Core } from './core/core.ts'
+import { ExternalMcp } from './adapters/mcp/server.ts'
+import { DurableOutput } from './storage/delivery.ts'
+import { mcpOutput, routeMcpOutput } from './adapters/mcp/output.ts'
+import { createHttp } from './adapters/http.ts'
+import { startPreviewServer } from './previews/server.ts'
+import { httpLifecycle } from './adapters/http-lifecycle.ts'
+import { REGENT_DIR } from './env.ts'
 import { workspaceDir, type Config } from './config.ts'
-import type { Output } from './types.ts'
+import type { Output } from './core/types.ts'
 
 export interface SlackAdapter {
   output: Output
@@ -44,7 +44,7 @@ export function createRuntime(
   const port = options.port ?? runtimePort(process.env.REGENT_PORT, config.previews)
   const cwd = workspaceDir(config)
   const store =
-    options.store ?? new Store(process.env.REGENT_DB ?? path.join(BRIDGE_DIR, 'log/v2.sqlite'))
+    options.store ?? new Store(process.env.REGENT_DB ?? path.join(REGENT_DIR, 'log/v2.sqlite'))
   try {
     store.claimRuntime()
     const slack = options.slack

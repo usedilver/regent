@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { assertIsolationVersion } from './runner.ts'
+import { assertIsolationVersion } from './execution/runner.ts'
 
 export function claudeVersion(): string {
   const version = execFileSync('claude', ['--version'], { encoding: 'utf8', timeout: 10000 }).trim()

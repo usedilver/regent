@@ -3,12 +3,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
-import { Core } from '../src/core.ts'
-import { Store } from '../src/store.ts'
+import { Core } from '../src/core/core.ts'
+import { Store } from '../src/storage/store.ts'
 import { ConfigSchema } from '../src/config.ts'
-import { resolveRepository, projectRoot, isolationFor } from '../src/repository.ts'
-import { prepareProjectWorkspace } from '../src/project-workspace.ts'
-import { repositoryContext } from '../src/repository-context.ts'
+import { resolveRepository, projectRoot, isolationFor } from '../src/core/repository.ts'
+import { prepareProjectWorkspace } from '../src/core/project-workspace.ts'
+import { repositoryContext } from '../src/core/repository-context.ts'
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-projects-')))
 const git = (cwd, ...args) =>
@@ -239,7 +239,7 @@ try {
     }
   }
   for (const name of ['plan', 'implement', 'qa']) {
-    assert.ok(!fs.existsSync(path.resolve('plugin/skills', name, 'SKILL.md')))
+    assert.ok(!fs.existsSync(path.resolve('plugins/executor/skills', name, 'SKILL.md')))
   }
   const parent = path.join(root, 'parent')
   git(root, 'init', parent)

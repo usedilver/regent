@@ -6,10 +6,10 @@ import path from 'node:path'
 import http from 'node:http'
 import net from 'node:net'
 import { once } from 'node:events'
-import { Store } from '../src/store.ts'
+import { Store } from '../src/storage/store.ts'
 import { ConfigSchema } from '../src/config.ts'
 import { createRuntime, runtimePort } from '../src/runtime.ts'
-import { httpLifecycle } from '../src/http-lifecycle.ts'
+import { httpLifecycle } from '../src/adapters/http-lifecycle.ts'
 
 async function freePort() {
   const server = net.createServer().listen(0, '127.0.0.1')

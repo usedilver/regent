@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { Store, redactDeep } from '../src/store.ts'
+import { Store } from '../src/storage/store.ts'
+import { redactDeep } from '../src/storage/redact.ts'
 
 test('structured and embedded JSON secrets are redacted without corrupting their envelope', () => {
   const value = 'audit-fixture-value'

@@ -1,12 +1,17 @@
 /** El error viaja en attachments (Sentry, Laravel Log) o blocks, no en `text`. Forma real del hilo. */
 import assert from 'node:assert'
-import { messageBody, appLabel, threadToMarkdown, normalizeFences } from '../src/slack-thread.ts'
+import {
+  messageBody,
+  appLabel,
+  threadToMarkdown,
+  normalizeFences,
+} from '../src/adapters/slack/thread.ts'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { Store } from '../src/store.ts'
-import { conversationRoute } from '../src/slack.ts'
-import { isolationFor } from '../src/repository.ts'
+import { Store } from '../src/storage/store.ts'
+import { conversationRoute } from '../src/adapters/slack/adapter.ts'
+import { isolationFor } from '../src/core/repository.ts'
 
 let failed = 0
 const check = (name, fn) => {

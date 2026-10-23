@@ -2,8 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import YAML from 'yaml'
 import { z } from 'zod'
-import { BRIDGE_DIR } from './env.ts'
-import { projectRoot } from './repository.ts'
+import { REGENT_DIR } from './env.ts'
+import { projectRoot } from './core/repository.ts'
 
 const positive = z.number().positive().finite()
 const authUrl = z
@@ -184,7 +184,7 @@ export function assertAuth(config: Config, env: NodeJS.ProcessEnv = process.env)
 }
 
 export function loadConfig(
-  file = process.env.REGENT_CONFIG ?? path.join(BRIDGE_DIR, 'config/regent.yaml'),
+  file = process.env.REGENT_CONFIG ?? path.join(REGENT_DIR, 'config/regent.yaml'),
 ): Config {
   if (!fs.existsSync(file))
     throw new Error(

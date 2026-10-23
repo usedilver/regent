@@ -3,7 +3,7 @@ import assert from 'node:assert'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { ensureBypassAccepted } from '../src/claude-settings.ts'
+import { ensureBypassAccepted } from '../src/execution/claude-settings.ts'
 
 let failed = 0
 const check = (name, fn) => {

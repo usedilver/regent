@@ -1,11 +1,11 @@
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { BRIDGE_DIR, loadEnv } from './env.ts'
+import { REGENT_DIR, loadEnv } from './env.ts'
 import { assertAuth, authNotice, loadConfig, workspaceDir } from './config.ts'
-import { Store } from './store.ts'
-import { Core } from './core.ts'
-import { createHttp } from './http.ts'
-import type { Output } from './types.ts'
+import { Store } from './storage/store.ts'
+import { Core } from './core/core.ts'
+import { createHttp } from './adapters/http.ts'
+import type { Output } from './core/types.ts'
 import { setup, requestArgs } from './setup.ts'
 
 loadEnv()
@@ -13,7 +13,7 @@ const [command, ...args] = process.argv.slice(2)
 if (command === 'setup') {
   console.log(setup(args))
 } else {
-  const store = new Store(process.env.REGENT_DB ?? path.join(BRIDGE_DIR, 'log/v2.sqlite'))
+  const store = new Store(process.env.REGENT_DB ?? path.join(REGENT_DIR, 'log/v2.sqlite'))
   try {
     if (command === 'runs') {
       console.table(

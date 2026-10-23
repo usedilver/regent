@@ -12,5 +12,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "plugin/**/*.mjs"]
+  "include": ["src/**/*.ts", "plugins/executor/**/*.mjs"]
 }
