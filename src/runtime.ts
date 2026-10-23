@@ -1,3 +1,4 @@
+import { loadAccess, AccessReloader } from './access.ts'
 import path from 'node:path'
 import { Store } from './storage/store.ts'
 import { Core } from './core/core.ts'
@@ -8,7 +9,7 @@ import { createHttp } from './adapters/http.ts'
 import { startPreviewServer } from './previews/server.ts'
 import { httpLifecycle } from './adapters/http-lifecycle.ts'
 import { REGENT_DIR } from './env.ts'
-import { workspaceDir, type Config } from './config.ts'
+import { authNotice, workspaceDir, type Config } from './config.ts'
 import type { Output } from './core/types.ts'
 
 export interface SlackAdapter {
@@ -43,6 +44,7 @@ export function createRuntime(
 ) {
   const port = options.port ?? runtimePort(process.env.REGENT_PORT, config.previews)
   const cwd = workspaceDir(config)
+  const access = loadAccess(config)
   const store =
     options.store ?? new Store(process.env.REGENT_DB ?? path.join(REGENT_DIR, 'log/v2.sqlite'))
   try {
@@ -53,10 +55,30 @@ export function createRuntime(
     const core = new Core({
       store,
       config,
+      access: access.policy,
       output,
       cwd,
       adapter: slack ? (config.mcp.enabled ? ['slack', 'mcp'] : 'slack') : 'mcp',
     })
+    let recovered = false
+    const accessReloader = access.file
+      ? new AccessReloader(access.policy, access.file, {
+          oauthRequired: Boolean(config.mcp.oauth),
+          contentHash: access.contentHash,
+          changed: (previous) => {
+            if (recovered) core.pump()
+            if (
+              config.auth.mode === 'indie' &&
+              core.access.snapshot.slack.allowed_users.length !== 1 &&
+              previous.slack.allowed_users.join() !==
+                core.access.snapshot.slack.allowed_users.join()
+            )
+              console.warn(
+                authNotice(config, process.env, core.access.snapshot.slack.allowed_users),
+              )
+          },
+        })
+      : undefined
     const external = !slack || config.mcp.enabled ? new ExternalMcp(core) : undefined
     const server = createHttp(
       core,
@@ -81,6 +103,7 @@ export function createRuntime(
             errors.push(error)
           }
         }
+        accessReloader?.close()
         await stop(() => core.close())
         await stop(() => stopPreviews?.())
         await stop(() => durable?.close())
@@ -113,7 +136,10 @@ export function createRuntime(
           await slack?.start(core)
           if (core.stopping) throw new Error('El runtime se esta cerrando.')
           durable?.start()
+          accessReloader?.reload()
           await core.recover()
+          recovered = true
+          accessReloader?.start()
         } catch (error) {
           try {
             await close()

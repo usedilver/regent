@@ -23,6 +23,7 @@ const authUrl = z
 export const ConfigSchema = z
   .object({
     name: z.string().min(1).default('Regent'),
+    access_policy_file: z.string().trim().min(1).nullable().default(null),
     auth: z.object({ mode: z.enum(['indie', 'team']) }),
     // bypass skips native permission rules; hooks are not a filesystem sandbox.
     // native: respeta allow/ask/deny del repo — en headless lo no permitido se auto-deniega.
@@ -102,7 +103,8 @@ export const ConfigSchema = z
                       .transform((value) => value.toLowerCase()),
                   )
                   .min(1)
-                  .max(1000),
+                  .max(1000)
+                  .optional(),
               })
               .strict(),
           })
@@ -146,17 +148,30 @@ export const ConfigSchema = z
       .prefault({}),
   })
   .strict()
+  .superRefine((config, context) => {
+    if (config.mcp.oauth && !config.access_policy_file && !config.mcp.oauth.oidc.allowed_emails) {
+      context.addIssue({
+        code: 'custom',
+        path: ['mcp', 'oauth', 'oidc', 'allowed_emails'],
+        message: 'Configure inline allowed_emails or access_policy_file.',
+      })
+    }
+  })
 export type Config = z.infer<typeof ConfigSchema>
 
-export function authNotice(config: Config, env: NodeJS.ProcessEnv = process.env): string {
+export function authNotice(
+  config: Config,
+  env: NodeJS.ProcessEnv = process.env,
+  users: readonly string[] = config.slack.allowed_users,
+): string {
   if (config.auth.mode === 'team')
     return 'Modo equipo (team): usa ANTHROPIC_API_KEY, con facturacion por consumo.'
-  const sharedAudience = new Set(config.slack.allowed_users).size !== 1
+  const sharedAudience = new Set(users).size !== 1
   if (sharedAudience)
     return [
       '------------------------------------------------------------',
       'ADVERTENCIA: ACCESO AMPLIADO EN MODO INDIVIDUAL',
-      config.slack.allowed_users.length
+      users.length
         ? 'Varios usuarios autorizados a usar la misma cuenta.'
         : 'allowed_users: [] permite usuarios activos del workspace.',
       'Compartir la suscripcion puede causar suspension de la cuenta.',

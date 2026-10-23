@@ -1,3 +1,4 @@
+import type { AccessPolicy } from '../../core/access-policy.ts'
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import express from 'express'
 import * as oidc from 'openid-client'
@@ -66,7 +67,15 @@ export class OAuthServer implements OAuthServerProvider {
   private codes = new Map<string, Code>()
   private provider?: Promise<oidc.Configuration>
   private secret: string
-  constructor(settings: Settings, name: string, store: Store, env: NodeJS.ProcessEnv) {
+  private access: AccessPolicy
+  constructor(
+    settings: Settings,
+    name: string,
+    store: Store,
+    env: NodeJS.ProcessEnv,
+    access: AccessPolicy,
+  ) {
+    this.access = access
     this.settings = settings
     this.name = name
     this.issuer = new URL(settings.issuer_url)
@@ -160,7 +169,7 @@ export class OAuthServer implements OAuthServerProvider {
   private allowed(identity: OAuthIdentity): boolean {
     return (
       new URL(identity.issuer).href === new URL(this.settings.oidc.issuer_url).href &&
-      this.settings.oidc.allowed_emails.includes(identity.email)
+      this.access.allowsOAuth(identity.email)
     )
   }
   get clientsStore() {
@@ -364,6 +373,7 @@ export class OAuthServer implements OAuthServerProvider {
       !login ||
       login.phase !== 'consent' ||
       !login.identity ||
+      !this.allowed(login.identity) ||
       typeof req.body.csrf !== 'string' ||
       !equal(req.body.csrf, login.csrf) ||
       req.headers.origin !== this.issuer.origin ||

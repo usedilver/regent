@@ -33,7 +33,13 @@ export class ExternalMcp {
     if (!core.config.mcp.enabled || (!core.config.mcp.principals.length && !core.config.mcp.oauth))
       throw new Error('MCP requiere OAuth o al menos un principal configurado.')
     if (core.config.mcp.oauth) {
-      this.oauth = new OAuthServer(core.config.mcp.oauth, core.config.name, core.store, env)
+      this.oauth = new OAuthServer(
+        core.config.mcp.oauth,
+        core.config.name,
+        core.store,
+        env,
+        core.access,
+      )
       core.mcpIdentity = (author) => this.oauth!.tokens.identity(author)
     }
     const ids = new Set<string>(),

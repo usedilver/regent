@@ -1,3 +1,4 @@
+import { AccessPolicy, legacyAccess } from './access-policy.ts'
 import { ToolSchemas } from './tool-schemas.ts'
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
@@ -58,6 +59,7 @@ interface Active {
 export class Core {
   store: Store
   config: Config
+  access: AccessPolicy
   output: Output
   cwd: string
   toolsUrl = ''
@@ -79,6 +81,7 @@ export class Core {
   constructor(options: {
     store: Store
     config: Config
+    access?: AccessPolicy
     output: Output
     cwd: string
     adapter?: string | string[]
@@ -87,6 +90,9 @@ export class Core {
   }) {
     this.store = options.store
     this.config = options.config
+    if (this.config.access_policy_file && !options.access)
+      throw new Error('Load access_policy_file before creating the core.')
+    this.access = options.access ?? new AccessPolicy(legacyAccess(this.config))
     this.output = options.output
     this.cwd = options.cwd
     this.defaultCwd = defaultRepoDir(this.config, this.cwd)
@@ -103,8 +109,7 @@ export class Core {
       )
     return (
       (input.adapter === 'cli' || input.team === this.config.slack.workspace_team_id) &&
-      (!this.config.slack.allowed_users.length ||
-        this.config.slack.allowed_users.includes(input.author))
+      this.access.allowsSlack(input.author)
     )
   }
   async submit(input: Inbound, prepare?: () => Promise<string | undefined>) {
@@ -210,6 +215,7 @@ export class Core {
             .run(redact(transcript), id)
       }
     } catch (error) {
+      if (this.store.run(id)?.state !== 'queued') return accepted
       const message = `No pude preparar el mensaje: ${(error as Error).message}. Vuelve a intentarlo.`
       this.store.finish(id, 'failed', '', message)
       this.store.event(id, 'delivery_error', { message })
@@ -221,8 +227,29 @@ export class Core {
     }
     return accepted
   }
+  pruneUnauthorizedQueued(): void {
+    for (const run of this.store.pending(this.adapter)) {
+      const conversation = this.store.conversation(run.conversation_key)!
+      if (
+        !this.authorized({
+          key: conversation.key,
+          adapter: conversation.adapter,
+          channel: conversation.channel,
+          team: conversation.team ?? undefined,
+          author: run.author,
+          eventId: '',
+          text: run.prompt,
+        })
+      )
+        this.store.interruptQueued(
+          run.id,
+          'Access withdrawn before execution. Submit a new request after access is restored.',
+        )
+    }
+  }
   pump(): void {
     if (this.stopping) return
+    this.pruneUnauthorizedQueued()
     const seen = new Set<string>()
     for (const run of this.store.queued(this.adapter)) {
       if (this.active.size >= this.config.limits.max_concurrent_runs) break
@@ -630,7 +657,7 @@ export class Core {
           adapter: conversation.adapter as Inbound['adapter'],
           eventId: `context:${active.run.id}`,
           key: conversation.key,
-          author: conversation.author,
+          author: active.run.author,
           team: conversation.team ?? undefined,
           channel: conversation.channel,
           intent,

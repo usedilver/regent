@@ -1,3 +1,4 @@
+import { loadAccess } from './access.ts'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { REGENT_DIR, loadEnv } from './env.ts'
@@ -41,11 +42,12 @@ if (command === 'setup') {
     } else if (['ask', 'patch'].includes(command) && args.length) {
       store.claimRuntime()
       const config = loadConfig()
-      console.log(authNotice(config))
+      const { policy: access } = loadAccess(config)
+      console.log(authNotice(config, process.env, access.snapshot.slack.allowed_users))
       assertAuth(config)
       const request = requestArgs(args)
       const conversation = request.conversation ?? randomUUID()
-      const author = process.env.REGENT_USER_ID ?? config.slack.allowed_users[0]
+      const author = process.env.REGENT_USER_ID ?? access.snapshot.slack.allowed_users[0]
       if (!author)
         throw new Error('Configura REGENT_USER_ID para atribuir consumo al usuario local.')
       const output: Output = {
@@ -58,7 +60,14 @@ if (command === 'setup') {
           console.log(`${text}\n\nrun: ${run.id}`)
         },
       }
-      const core = new Core({ store, config, output, cwd: workspaceDir(config), adapter: 'cli' })
+      const core = new Core({
+        store,
+        config,
+        access,
+        output,
+        cwd: workspaceDir(config),
+        adapter: 'cli',
+      })
       const server = createHttp(core, () => ({ slack_connected: false }))
       await new Promise<void>((resolve, reject) => {
         server.once('error', reject)

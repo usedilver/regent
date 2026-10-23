@@ -475,6 +475,59 @@ try {
     },
   )
   await check(
+    'live policy covers consent, code exchange, current tokens, refresh and access restoration',
+    async () => {
+      const allow = (emails) =>
+        core.access.replace({ slack: { allowed_users: [] }, oauth: { allowed_emails: emails } })
+      const flow = await login(client)
+      const page = await get(flow.consentUrl, flow.cookie)
+      const csrf = /name="csrf" value="([^"]+)"/.exec(await page.text())[1]
+      allow(['bob@example.test'])
+      const denied = await post(
+        '/oauth/consent',
+        {
+          request: flow.consentUrl.searchParams.get('request'),
+          csrf,
+          decision: 'allow',
+        },
+        { cookie: flow.cookie, origin: base },
+      )
+      assert.equal(denied.status, 403)
+      const refusedLogin = await login(client)
+      assert.equal(refusedLogin.response.status, 403)
+      allow(['alice@example.test', 'bob@example.test'])
+      const approved = await approve(client)
+      allow(['bob@example.test'])
+      assert.notEqual((await exchange(client, approved)).response.status, 200)
+      allow(['alice@example.test', 'bob@example.test'])
+      const granted = (await exchange(client, await approve(client))).tokens
+      await external.oauth.verifyAccessToken(granted.access_token)
+      const author = external.oauth.tokens.verify(granted.access_token, base + '/mcp').extra.author
+      assert.ok(core.mcpIdentity(author))
+      allow(['bob@example.test'])
+      await assert.rejects(() => external.oauth.verifyAccessToken(granted.access_token))
+      assert.equal(core.mcpIdentity(author), undefined)
+      assert.equal(
+        (
+          await fetch(base + '/mcp', {
+            headers: { authorization: 'Bearer ' + granted.access_token },
+          })
+        ).status,
+        401,
+      )
+      const refresh = await post('/token', {
+        grant_type: 'refresh_token',
+        client_id: client.client_id,
+        refresh_token: granted.refresh_token,
+        resource: base + '/mcp',
+      })
+      assert.notEqual(refresh.status, 200)
+      allow(['alice@example.test', 'bob@example.test'])
+      await external.oauth.verifyAccessToken(granted.access_token)
+      assert.ok(core.mcpIdentity(author))
+    },
+  )
+  await check(
     'refresh tokens persist across restart, obey current access policy and revoke as a family',
     async () => {
       const tokens = (await exchange(client, await approve(client))).tokens
@@ -493,7 +546,10 @@ try {
       assert.equal(revoked.status, 200)
       await assert.rejects(() => external.oauth.verifyAccessToken(renewed.access_token))
       const granted = (await exchange(client, await approve(client))).tokens
-      config.mcp.oauth.oidc.allowed_emails = ['bob@example.test']
+      core.access.replace({
+        slack: { allowed_users: ['U1'] },
+        oauth: { allowed_emails: ['bob@example.test'] },
+      })
       await assert.rejects(() => external.oauth.verifyAccessToken(granted.access_token))
     },
   )
