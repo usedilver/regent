@@ -46,7 +46,7 @@ try {
  const config=ConfigSchema.parse({auth:{mode:'indie'},repos:{path:directory},slack:{workspace_team_id:'T1',allowed_users:['U1']},
   previews:{domain:'preview.example.com',port_min:port,port_max:port+3,max_active:2,ttl_minutes:5}}).previews
  let now=Date.now(),processInfo={cwd:directory,start:'owned',group:42},killed=[]
- previews=new Previews(store,config,pid=>pid===42?processInfo:null,pid=>killed.push(pid),()=>now)
+ previews=new Previews(store,config,pid=>pid===42?processInfo:null,pid=>killed.push(pid),()=>now,()=>true)
  const first=await previews.reserve('one',directory)
  assert.equal(first.port,port); assert.equal(first.ready,false)
  const second=await previews.reserve('two',directory)
@@ -104,7 +104,7 @@ try {
  assert.equal((await request({host:'127.0.0.1'},'/_regent/tls?domain=unregistered.preview.example.com')).status,403)
  console.log('  OK app-owned HTTP/WebSocket authentication, cookies, bearer tokens, redirects, origin policy and TLS allowlist')
  // Ownership is rechecked after restart and before stopping, protecting reused PIDs.
- const resumed=new Previews(store,config,pid=>processInfo,pid=>killed.push(pid),()=>now)
+ const resumed=new Previews(store,config,pid=>processInfo,pid=>killed.push(pid),()=>now,()=>true)
  assert.equal(resumed.result(resumed.get('one')).ready,true)
  processInfo.start='reused'
  assert.equal(resumed.resolve(host),undefined)

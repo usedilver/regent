@@ -2,7 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import net from 'node:net'
 import { randomBytes } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
+import { inspectProcess, ownsListener } from './preview-process.ts'
+export { inspectProcess } from './preview-process.ts'
 import { z } from 'zod'
 import type { Config } from './config.ts'
 import type { Store } from './store.ts'
@@ -12,22 +13,6 @@ export const PreviewRequest = z.object({
   pid: z.number().int().positive().optional(),
 })
 export type Preview = { id: string; conversation_key: string; port: number; cwd: string; pid: number | null; process_start: string | null; expires_at: number }
-type ProcessInfo = { cwd: string; start: string; group: number }
-
-export function inspectProcess(pid: number): ProcessInfo | null {
-  try {
-    if (process.platform === 'linux') {
-      const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8')
-      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ')
-      return { cwd: fs.realpathSync(`/proc/${pid}/cwd`), start: fields[19], group: Number(fields[2]) }
-    }
-    const cwd = execFileSync('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], { encoding: 'utf8' }).split('\n').find(line => line.startsWith('n'))?.slice(1)
-    const start = execFileSync('ps', ['-p', String(pid), '-o', 'lstart='], { encoding: 'utf8' }).trim()
-    const group = Number(execFileSync('ps', ['-p', String(pid), '-o', 'pgid='], { encoding: 'utf8' }).trim())
-    return cwd && start ? { cwd: fs.realpathSync(cwd), start, group } : null
-  } catch { return null }
-}
-
 const inside = (root: string, candidate: string) => {
   const relative = path.relative(root, candidate)
   return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
@@ -46,9 +31,10 @@ export class Previews {
   private inspect: typeof inspectProcess
   private kill: (pid: number, signal: NodeJS.Signals) => unknown
   private now: () => number
+  private listener: typeof ownsListener
   constructor(store: Store, config: NonNullable<Config['previews']>,
-    inspect = inspectProcess, kill: (pid: number, signal: NodeJS.Signals) => unknown = (pid, signal) => process.kill(-pid, signal), now = Date.now) {
-    this.store = store; this.config = config; this.inspect = inspect; this.kill = kill; this.now = now
+    inspect = inspectProcess, kill: (pid: number, signal: NodeJS.Signals) => unknown = (pid, signal) => process.kill(-pid, signal), now = Date.now, listener = ownsListener) {
+    this.store = store; this.config = config; this.inspect = inspect; this.kill = kill; this.now = now; this.listener = listener
   }
   start(): void {
     this.expire()
@@ -85,7 +71,7 @@ export class Previews {
   result(preview: Preview) {
     return { url: `https://r-${preview.id}.${this.config.domain}`, port: preview.port,
       cwd: preview.cwd, expires_at: new Date(preview.expires_at).toISOString(),
-      ready: Boolean(preview.expires_at > this.now() && preview.pid && this.ownsProcess(preview)) }
+      ready: Boolean(preview.expires_at > this.now() && preview.pid && this.ownsProcess(preview) && this.listener(preview.port, preview.pid, preview.cwd)) }
   }
   async reserve(key: string, directory: string) {
     let release!: () => void
@@ -120,11 +106,13 @@ export class Previews {
     if (preview.pid !== pid && this.ownsProcess(preview)) throw new Error('Deten el preview activo antes de reemplazar su proceso.')
     const process = this.inspect(pid)
     if (!process || process.group !== pid || !inside(preview.cwd, process.cwd)) throw new Error('El PID debe ser un proceso independiente del worktree de esta conversacion.')
+    if (!this.listener(preview.port, pid, preview.cwd)) throw new Error('El listener del puerto no pertenece al proceso del preview.')
     const response = await fetch(`http://127.0.0.1:${preview.port}/`, { headers: { connection: 'close' }, redirect: 'manual', signal: AbortSignal.timeout(5000) })
     await response.body?.cancel()
     if (response.status >= 500) throw new Error('La aplicacion todavia no responde correctamente.')
     const current = this.inspect(pid)
     if (!current || current.start !== process.start || current.group !== pid || !inside(preview.cwd, current.cwd)) throw new Error('El proceso del preview cambio durante la verificacion.')
+    if (!this.listener(preview.port, pid, preview.cwd)) throw new Error('El listener del preview cambio durante la verificacion.')
     this.store.db.prepare('UPDATE previews SET pid=?,process_start=? WHERE id=?').run(pid, process.start, preview.id)
     return this.result(this.get(key)!)
   }
@@ -139,6 +127,6 @@ export class Previews {
     const id = host.slice(0, -suffix.length)
     if (!/^r-[a-f0-9]{16}$/.test(id)) return
     const preview = this.store.db.prepare('SELECT * FROM previews WHERE id=? AND expires_at>?').get(id.slice(2), this.now()) as unknown as Preview | undefined
-    return preview && this.ownsProcess(preview) ? preview : undefined
+    return preview && this.ownsProcess(preview) && this.listener(preview.port, preview.pid!, preview.cwd) ? preview : undefined
   }
 }
