@@ -75,7 +75,7 @@ mostro `${user_config.endpoint}` sin resolver en el modal del conector. La versi
 0.3.0 con ese marcador no debe distribuirse.
 
 El artefacto se genera en
-`tmp/talently-code-plugin.zip` con una lista explicita de cinco archivos: manifiesto,
+`dist/plugins/talently-code-<version>.zip` y su checksum `.zip.sha256`, con una lista explicita de cinco archivos: manifiesto,
 configuracion MCP, skill, guia y licencia. No incluye tokens, entornos ni codigo
 del servidor. El empaquetado y las pruebas de transporte no sustituyen verificar
 la instalacion y el comando en el cliente Desktop.

@@ -10,4 +10,3 @@ config/*
 !config/README.md
 !config/regent.example.yaml
 !config/communication.example.md
-mcp-execution-plan.md

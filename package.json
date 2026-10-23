@@ -1,25 +1,26 @@
 {
   "name": "regent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Conversational Slack client for Claude Code CLI, with repository-owned context and workflows.",
   "scripts": {
     "start": "node src/server.ts",
     "start:mcp": "node src/mcp-server.ts",
-    "mcp:client": "node src/mcp-client.ts",
+    "mcp:client": "node src/adapters/mcp/client.ts",
     "plugin:pack": "python3 scripts/package-client-plugin.py",
-    "dev": "node --watch-path=src --watch-path=plugin --watch-path=config --watch-path=.env --watch-preserve-output src/server.ts",
+    "dev": "node --watch-path=src --watch-path=plugins/executor --watch-path=config --watch-path=.env --watch-preserve-output src/server.ts",
     "test": "node --test --test-concurrency=1 \"test/**/*.test.mjs\"",
     "test:mcp": "node test/mcp.test.mjs",
     "test:previews": "node test/previews.test.mjs",
     "test:intent": "node test/intent.test.mjs",
-    "smoke": "node test/smoke.mjs",
+    "smoke": "node test/smoke/smoke.mjs",
     "regent": "node src/cli.ts",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "pnpm format:check && pnpm typecheck && pnpm test"
+    "check": "pnpm format:check && pnpm typecheck && pnpm test",
+    "check:image": "docker build -t regent-check . && docker run --rm --entrypoint node regent-check scripts/check-image.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "1.1.2",

@@ -18,6 +18,8 @@ tmp/
 worktrees/
 projects/
 
+dist/
+
 # dependencias y sistema
 node_modules/
 .pnpm-store/

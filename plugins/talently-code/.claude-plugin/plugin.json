@@ -1,8 +1,10 @@
 {
   "name": "talently-code",
   "displayName": "Talently Code",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Crea, modifica e investiga webs, aplicaciones y dashboards de Talently con lenguaje natural y las instrucciones de cada proyecto.",
-  "author": { "name": "Talently" },
+  "author": {
+    "name": "Talently"
+  },
   "license": "MIT"
 }

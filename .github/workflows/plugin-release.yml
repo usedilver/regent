@@ -1,0 +1,46 @@
+name: plugin-release
+on:
+  push:
+    tags: ['talently-code-v*']
+  workflow_dispatch:
+    inputs:
+      endpoint:
+        description: Public HTTPS /mcp endpoint for this plugin artifact
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      PLUGIN_ENDPOINT: ${{ inputs.endpoint || vars.REGENT_PLUGIN_ENDPOINT }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version-file: .nvmrc, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - name: Validate client release tag
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs'
+          const { version } = JSON.parse(fs.readFileSync('plugins/talently-code/.claude-plugin/plugin.json'))
+          if (process.env.GITHUB_REF_TYPE === 'tag' && process.env.GITHUB_REF_NAME !== `talently-code-v${version}`) {
+            throw new Error('Release tag must match the client plugin manifest version')
+          }
+          JS
+      - run: pnpm plugin:pack --endpoint "$PLUGIN_ENDPOINT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: talently-code-plugin
+          path: dist/plugins/*
+          if-no-files-found: error
+      - name: Publish versioned client release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/plugins/*.zip dist/plugins/*.sha256 --verify-tag --title "$GITHUB_REF_NAME" --generate-notes

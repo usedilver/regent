@@ -1,0 +1,11 @@
+# Replace code.example.com with the instance's public MCP hostname.
+# Keep the upstream loopback-only and update its port if REGENT_PORT changes.
+code.example.com {
+	@public_mcp path /mcp /.well-known/oauth-protected-resource/mcp /.well-known/oauth-authorization-server /authorize /register /token /revoke /oauth/callback /oauth/consent
+	handle @public_mcp {
+		reverse_proxy 127.0.0.1:8788
+	}
+	handle {
+		respond 404
+	}
+}
