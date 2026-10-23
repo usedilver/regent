@@ -23,7 +23,6 @@ Do not reintroduce mandatory boards, tickets, or approval pipelines.
   `regent.yaml`. Root `.env.example` documents service environment variables.
 - `README.md` and `CONTRIBUTING.md`: public usage and contribution guidance.
   Architecture investigations and roadmap live in Notion, not a local `docs/` tree.
-  `mcp-execution-plan.md` is the explicitly requested local delivery plan for the MCP adapter.
 - `slack-manifest.json`: Slack app configuration. There is no frontend asset tree.
 
 ## Development Commands

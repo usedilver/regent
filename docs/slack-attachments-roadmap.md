@@ -2,7 +2,8 @@
 
 ## Estado
 
-Imagenes: implementadas segun [slack-images.md](slack-images.md).
+Imagenes: implementadas en [src/images.ts](../src/images.ts) y verificadas con
+[test/images.test.mjs](../test/images.test.mjs).
 Texto: ya se descargan snippets y archivos compatibles, con limite de 200 KiB y
 extracto de hasta 12000 caracteres. No es un parser de documentos estructurados.
 PDF, Office, audio, video y archivos comprimidos: pendientes. Mostrar el nombre
