@@ -56,13 +56,42 @@ acepta rutas absolutas y `~/`. El archivo externo es la fuente de acceso autorit
 Con `access_policy_file: null` u omitido, se mantienen las listas en línea y requieren
 reinicio. La CLI lee la política una vez por invocación.
 
-Slack y MCP comprueban el archivo cada dos segundos dentro del mismo proceso; no hay
-cron ni servicio adicional. Un archivo válido se aplica normalmente en menos de cinco
-segundos. Se valida el documento completo antes de sustituir ambas listas en memoria;
-no se admiten campos adicionales. Al arrancar, un archivo seleccionado ilegible o
-inválido impide iniciar. Durante la operación, conserva la última política válida y
-registra el tipo de error sin imprimir valores. Acepta guardados mediante reemplazo
-atómico. Los logs de aplicación incluyen una huella y cantidades, no identidades.
+Después de editar el archivo, recarga los accesos explícitamente:
+
+```sh
+systemctl --user reload regent
+journalctl --user -u regent -n 20 --no-pager
+```
+
+No hay temporizador, watcher ni cron para las listas. El mismo proceso recibe `SIGHUP`,
+lee el archivo y valida todo el documento antes de sustituir ambas listas en memoria.
+Editar o reemplazar el archivo no aplica permisos hasta enviar esa señal. Los logs
+confirman `applied`, `valid; effective permissions unchanged` o `rejected`; un error
+conserva la última política válida y no imprime valores. Al arrancar, un archivo
+seleccionado ilegible o inválido impide iniciar. Se aceptan guardados atómicos y
+archivos de hasta 128 KiB; no se admiten campos adicionales ni YAML malformado.
+
+Para habilitar el comando en una unidad de usuario existente:
+
+```sh
+mkdir -p ~/.config/systemd/user/regent.service.d
+cp examples/regent-reload.conf ~/.config/systemd/user/regent.service.d/reload.conf
+systemctl --user daemon-reload
+```
+
+[El drop-in](../examples/regent-reload.conf) añade `ExecReload=/bin/kill -HUP $MAINPID`.
+`ExecStart` debe ejecutar Node directamente (ruta absoluta a `node` y `src/server.ts`
+o `src/mcp-server.ts`), para que `MAINPID` sea Regent, no un wrapper de pnpm o shell.
+Instala esta configuración después de desplegar la versión con soporte de `SIGHUP`.
+`daemon-reload` actualiza la definición de systemd; no reinicia Regent ni recarga los
+accesos. En una unidad de sistema, usa el directorio de drop-ins de `/etc/systemd/system/`
+y los comandos con `sudo systemctl`/`sudo journalctl`, sin `--user`.
+
+Sin systemd, envía `kill -HUP <PID_DE_NODE_REGENT>` al PID exacto del servidor, también
+en desarrollo; no al supervisor de `node --watch` ni al grupo de procesos. En Docker
+con Node como PID principal puedes usar `docker kill --signal=HUP <contenedor>`.
+La señal y `systemctl reload` confirman su envío, **no** que el archivo haya sido
+aceptado: comprueba el resultado en los logs. No uses `restart` para recargar listas.
 
 `slack.allowed_users` debe estar presente. Una lista `[]` permite miembros activos
 verificados del workspace, excluyendo bots; **amplía el acceso**. `oauth.allowed_emails`
@@ -79,8 +108,8 @@ no revocada ni vencida puede volver a funcionar al restaurar su acceso.
 
 Cambiar la ruta, el workspace, el motor, modelos, límites, puertos, proveedor OAuth,
 callbacks, `.env`, `mcp.enabled` o los tokens técnicos `mcp.principals` requiere reinicio.
-`pnpm dev` observa el código, el protocolo y `.env`; las listas se recargan por el mismo
-mecanismo que en producción. Otros cambios de configuración requieren reinicio manual.
+`pnpm dev` observa el código, el protocolo y `.env`; las listas solo se recargan
+con `SIGHUP`, igual que en producción. Otros cambios de configuración requieren reinicio manual.
 
 ## Active Settings
 
@@ -181,8 +210,8 @@ Los access tokens duran 15 minutos; los refresh tokens rotan dentro de una sesi�
 de siete días. Reutilizar un refresh token revoca la sesión. SQLite conserva hashes,
 identidades verificadas y sesiones entre reinicios; los logins en curso deben
 reiniciarse. Cada identidad solo puede consultar o continuar sus propios trabajos.
-Cambiar usuarios o callbacks requiere reiniciar; revocar acceso no cancela un
-trabajo que ya está ejecutándose.
+Los callbacks requieren reinicio; los usuarios del archivo externo se actualizan con
+recarga manual. Revocar acceso no cancela un trabajo que ya está ejecutándose.
 
 Como alternativa, `mcp.principals` vincula un ID a una variable `REGENT_MCP_TOKEN_*`.
 Usa tokens distintos de al menos 32 caracteres; reinicia para rotarlos. Los trabajos

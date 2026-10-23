@@ -1,4 +1,4 @@
-# Copia a config/access.yaml. Solo estas listas se recargan cada 2 segundos.
+# Copia a config/access.yaml. Edita y luego recarga con SIGHUP (systemctl --user reload regent).
 slack:
   allowed_users: [U_REPLACE] # [] permite miembros activos verificados del workspace; no bloquea a todos.
 # Obligatorio cuando mcp.oauth esta configurado. Lista vacia invalida.

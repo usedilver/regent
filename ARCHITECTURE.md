@@ -51,7 +51,7 @@ writer. CLI checks alongside a running server use a separate `REGENT_DB`.
 
 Slack and MCP server modes share `createRuntime`. Startup acquires the SQLite runtime claim,
 starts configured listeners and adapters, then recovers interrupted work. Failed startup
-cleans up resources already created. The access-policy poller belongs to this runtime and stops first, including failed startup.
+cleans up resources already created. The access-policy SIGHUP handler belongs to this runtime and is removed first, including failed startup.
 Idempotent shutdown cancels work, closes preview
 connections, drains durable output, stops Slack, closes HTTP and finally closes SQLite.
 WebSocket upgrades are closed too; HTTP server close alone is insufficient.
@@ -84,8 +84,9 @@ The external reverse proxy publishes only MCP/OAuth routes; internal tool and he
 ## Configuration and runtime resources
 
 `access_policy_file` optionally selects a separate, strictly validated `config/access.yaml`.
-The runtime loads it before accepting requests and polls it every two seconds without restarting
-executors. `src/access.ts` owns file validation and detection; `src/core/access-policy.ts` exposes
+The runtime loads it before accepting requests and reloads it only on an explicit `SIGHUP`, without
+restarting executors. File edits alone do not apply permissions; there is no polling or access-file
+watcher. `src/access.ts` owns file validation and reloading; `src/core/access-policy.ts` exposes
 an immutable shared snapshot to the core, Slack and OAuth. Invalid runtime edits retain the last
 valid snapshot. Queued authorization is per run author; withdrawal interrupts only those queued
 runs and preserves active runs. CLI loads once. Legacy inline lists stay boot-only. See the
