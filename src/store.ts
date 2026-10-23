@@ -3,6 +3,10 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { randomUUID } from 'node:crypto'
 import type { Conversation, Inbound, Run } from './types.ts'
+import { commandDisplay } from './command-display.ts'
+
+const sensitiveKey = (key: string) => /(?:^|_)(?:password|passwd|secret|token|api_key|private_key|authorization|cookie|credentials?)(?:_|$)/i
+  .test(key.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/[-.]/g, '_'))
 
 export function redact(text: string): string {
   return text.replace(/\b(?:sk-ant-|sk-|xox[baprs]-|xapp-|gh[pousr]_|github_pat_|ntn_)[A-Za-z0-9_-]+/g, '[REDACTED]')
@@ -13,11 +17,17 @@ export function redact(text: string): string {
 // Redact string values in place, never the serialized JSON: redacting the envelope can
 // corrupt structure (an escaped quote inside a matched value) and make JSON.parse fail forever.
 export function redactDeep<T>(value: T): T {
-  if (typeof value === 'string') return redact(value) as T
+  if (typeof value === 'string') {
+    if (/^\s*[\[{]/.test(value)) {
+      try { return JSON.stringify(redactDeep(JSON.parse(value))) as T }
+      catch { /* Non-JSON text still passes through textual redaction. */ }
+    }
+    return redact(value) as T
+  }
   if (Array.isArray(value)) return value.map(redactDeep) as T
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(value)) out[k] = redactDeep(v)
+    for (const [k, v] of Object.entries(value)) out[k] = sensitiveKey(k) && v != null ? '[REDACTED]' : redactDeep(v)
     return out as T
   }
   return value
@@ -259,7 +269,15 @@ export class Store {
     })
   }
   event(id: string, kind: string, data: unknown): void {
-    this.db.prepare('INSERT INTO events(run_id,kind,data,created_at) VALUES(?,?,?,?)').run(id, kind, JSON.stringify(redactDeep(data)), Date.now())
+    let retained = data
+    if ((kind === 'tool_use' || kind === 'tool_result') && data && typeof data === 'object') {
+      const event = data as Record<string, unknown>
+      const input = event.input as Record<string, unknown> | undefined
+      retained = { kind, id: event.id, parentId: event.parentId, name: event.name,
+        error: event.error, background: event.background,
+        ...(event.name === 'Bash' ? { input: { command: commandDisplay(input?.command)?.command } } : {}) }
+    }
+    this.db.prepare('INSERT INTO events(run_id,kind,data,created_at) VALUES(?,?,?,?)').run(id, kind, JSON.stringify(redactDeep(retained)), Date.now())
   }
   recordUsage(id: string, cost: number, tokens: unknown): void {
     if (!Number.isFinite(cost) || cost < 0) throw new Error('Costo invalido en result de Claude.')

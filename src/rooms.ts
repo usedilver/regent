@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import { Store, redact } from './store.ts'
+import { Store, redact, redactDeep } from './store.ts'
 import type { Conversation, Rooms } from './types.ts'
 
 export const RoomRequest = z.object({
@@ -28,7 +28,7 @@ export class RoomTransfers {
       this.store.db.prepare('INSERT INTO conversation_history VALUES(?,?) ON CONFLICT(conversation_key) DO UPDATE SET source=excluded.source').run(key, JSON.stringify({ channel }))
       this.store.db.prepare("UPDATE runs SET reply_channel=?, reply_thread=NULL WHERE conversation_key=? AND state IN ('queued','running')").run(channel, key)
       this.store.db.prepare("UPDATE room_transfers SET state='moved' WHERE conversation_key=?").run(key)
-      const enqueue = (kind: string, args: unknown[]) => this.store.db.prepare('INSERT INTO deliveries(conversation_key,kind,args) VALUES(?,?,?)').run(key, kind, redact(JSON.stringify(args)))
+      const enqueue = (kind: string, args: unknown[]) => this.store.db.prepare('INSERT INTO deliveries(conversation_key,kind,args) VALUES(?,?,?)').run(key, kind, JSON.stringify(redactDeep(args)))
       enqueue('notice', [origin, `Continuamos en <#${channel}>.`])
       enqueue('status', [origin, 'active'])
       enqueue('notice', [destination, `Continuamos esta conversacion aqui.\n${transfer.summary}`])

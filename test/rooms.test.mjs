@@ -36,6 +36,20 @@ const delegate = {
 }
 const until = async fn => { for (let i = 0; i < 300; i++) { if (fn()) return; await new Promise(r => setTimeout(r, 10)) } throw new Error('Timed out') }
 try {
+  const redactionKey = 'redaction-regression'
+  store.accept(input(redactionKey), root, 24)
+  const redactionTransfer = new RoomTransfers(store)
+  const roomApi = { async validateUser() {}, async find() { return 'CFIXTURE' }, async create() { throw new Error('Unexpected create') }, async invite() {} }
+  await redactionTransfer.prepare(store.conversation(redactionKey), { name: 'redaction', summary: 'db secret: audit-fixture"trailing' }, roomApi, signal)
+  redactionTransfer.move(redactionKey, 'CFIXTURE')
+  const serialized = store.db.prepare('SELECT args FROM deliveries WHERE conversation_key=?').all(redactionKey)
+  assert.equal(serialized.length, 4)
+  for (const row of serialized) {
+    assert.doesNotThrow(() => JSON.parse(row.args))
+    assert.doesNotMatch(row.args, /audit-fixture/)
+  }
+  store.db.prepare('DELETE FROM deliveries WHERE conversation_key=?').run(redactionKey)
+
   const key = 'slack:D1:1'
   const first = store.accept({ ...input(key), thread: '1' }, root, 24)
   store.session(key, 'same-session')
