@@ -1,5 +1,4 @@
 type SocketClient = {
-  autoReconnectEnabled: boolean
   on(event: string, listener: () => void): unknown
   start(): Promise<unknown>
 }
@@ -20,7 +19,6 @@ export class SlackConnection {
     this.client = client
     this.report = report
     this.retryMs = retryMs
-    client.autoReconnectEnabled = false
     client.on('connected', () => {
       this.connected = !this.stopped
       this.failures = 0

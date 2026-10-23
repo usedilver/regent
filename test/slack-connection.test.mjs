@@ -20,7 +20,6 @@ client.start = async () => {
 }
 const logs = []
 const connection = new SlackConnection(client, message => logs.push(message), 5)
-assert.equal(client.autoReconnectEnabled, false)
 await connection.start(async () => { client.emit('connected') })
 assert.equal(connection.connected, true)
 client.emit('disconnected')
@@ -65,7 +64,7 @@ const require = createRequire(import.meta.url)
 const boltRequire = createRequire(require.resolve('@slack/bolt'))
 const { SocketModeClient } = boltRequire('@slack/socket-mode')
 let requests = 0
-const sdk = new SocketModeClient({ appToken: 'test-only', logLevel: 'error',
+const sdk = new SocketModeClient({ appToken: 'test-only', autoReconnectEnabled: false, logLevel: 'error',
   clientOptions: { retryConfig: { retries: 0 }, fetch: async () => {
     requests++
     throw new Error('simulated network timeout')

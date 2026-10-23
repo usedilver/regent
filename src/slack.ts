@@ -219,10 +219,10 @@ export class SlackOutput implements Output {
     stream.pending += text
     if (!stream.timer) stream.timer = setTimeout(() => {
       stream!.timer = undefined
-      stream!.chain = stream!.chain.then(() => this.flush(c, run, stream!)).catch(() => { stream!.failed = true })
+      stream!.chain = stream!.chain.then(() => this.flushStream(c, run, stream!)).catch(() => { stream!.failed = true })
     }, this.flushMs)
   }
-  async flush(c: Conversation, run: Run, stream: Stream): Promise<void> {
+  private async flushStream(c: Conversation, run: Run, stream: Stream): Promise<void> {
     if (!stream.pending || stream.failed) return
     // Redact complete lines: token and key/value pairs can span many deltas.
     const end = stream.pending.lastIndexOf('\n', 11000) + 1
@@ -396,18 +396,18 @@ export function conversationRoute(store: Store, event: { channel: string; channe
 }
 
 export function createSlack(config: Config) {
-  const app = new pkg.App({ token: process.env.SLACK_BOT_TOKEN, appToken: process.env.SLACK_APP_TOKEN, socketMode: true,
+  const receiver = new pkg.SocketModeReceiver({ appToken: process.env.SLACK_APP_TOKEN ?? '', autoReconnectEnabled: false })
+  const app = new pkg.App({ token: process.env.SLACK_BOT_TOKEN, receiver,
     clientOptions: { timeout: 10000, retryConfig: { retries: 2 } } })
   const api: Api = async (method, args) => {
     const response = await app.client.apiCall(method, args)
-    if (!response.ok) throw new Error(`${method}: ${response.error}`)
+    if (!response.ok) throw new Error(`${method}: Slack rejected the request`)
     return response
   }
   const output = new SlackOutput(api)
   const rooms = createRoomApi(api, config.slack.workspace_team_id, () => botId)
   let core: Core, botId = ''
   const membership = new Map<string, { allowed: boolean; checkedAt: number }>()
-  const receiver = app.receiver as any
   const connection = new SlackConnection(receiver.client, message => console.warn(`[slack v2] ${redact(message)}`))
 
   const handle = async (event: any, body: any, mention = false) => {
