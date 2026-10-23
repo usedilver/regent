@@ -4,8 +4,19 @@
  * Log y la mayoría de los webhooks) y bloques (`blocks`: section/rich_text).
  * Sin esto, el mensaje que TRAE el error llega vacío al intake.
  */
-export interface SlackAttachment { title?: string; pretext?: string; text?: string; fallback?: string; fields?: Array<{ title?: string; value?: string }> }
-export interface SlackBlock { type?: string; text?: { text?: string }; fields?: Array<{ text?: string }>; elements?: unknown[] }
+export interface SlackAttachment {
+  title?: string
+  pretext?: string
+  text?: string
+  fallback?: string
+  fields?: Array<{ title?: string; value?: string }>
+}
+export interface SlackBlock {
+  type?: string
+  text?: { text?: string }
+  fields?: Array<{ text?: string }>
+  elements?: unknown[]
+}
 export interface SlackMsgLike {
   text?: string
   bot_id?: string
@@ -58,11 +69,15 @@ export function blocksText(blocks: SlackBlock[] | undefined): string {
 /** Cuerpo completo del mensaje (sin archivos: esos se leen aparte). */
 export function messageBody(m: SlackMsgLike): string {
   const parts = [m.text ?? '', ...(m.attachments ?? []).map(attachmentText), blocksText(m.blocks)]
-  return parts.map(p => p.trim()).filter(Boolean).join('\n')
+  return parts
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .join('\n')
 }
 
 /** Cómo firmar un mensaje de app en el transcript. */
-export const appLabel = (m: SlackMsgLike): string => `[app ${m.bot_profile?.name ?? m.username ?? 'bot'}]`
+export const appLabel = (m: SlackMsgLike): string =>
+  `[app ${m.bot_profile?.name ?? m.username ?? 'bot'}]`
 
 /**
  * Transcript del hilo → markdown para el card: plegado en un toggle, autor en
@@ -73,8 +88,15 @@ export function threadToMarkdown(transcript: string, title = 'Hilo de origen (Sl
   const out: string[] = []
   let inFence = false
   for (const line of transcript.split('\n')) {
-    if (/^\s*```/.test(line)) { inFence = !inFence; out.push(line); continue }
-    if (inFence) { out.push(line); continue }
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence
+      out.push(line)
+      continue
+    }
+    if (inFence) {
+      out.push(line)
+      continue
+    }
     const m = line.match(/^(@[^:]+|\[app [^\]]+\]):\s?(.*)$/)
     out.push(m ? `**${m[1]}:** ${m[2]}` : line)
   }

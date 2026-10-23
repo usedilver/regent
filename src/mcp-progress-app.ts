@@ -2,7 +2,11 @@ import { App, applyDocumentTheme, applyHostStyleVariables } from '@modelcontextp
 
 const element = (id: string) => document.getElementById(id)!
 const displayName = element('heading').textContent ?? 'Regent'
-const app = new App({ name: `Progreso de ${displayName}`, version: '1.0.0' }, {}, { autoResize: true })
+const app = new App(
+  { name: `Progreso de ${displayName}`, version: '1.0.0' },
+  {},
+  { autoResize: true },
+)
 let runId: string | undefined
 let timer: ReturnType<typeof setTimeout> | undefined
 let busy = false
@@ -17,9 +21,16 @@ function render(data: any) {
   }
   runId = run.id
   active = ['queued', 'running'].includes(run.state)
-  element('heading').textContent = `${displayName} · ${data.activities?.title ?? (active ? 'Trabajando' : 'Estado del trabajo')}`
+  element('heading').textContent =
+    `${displayName} · ${data.activities?.title ?? (active ? 'Trabajando' : 'Estado del trabajo')}`
   element('repo').textContent = data.repo?.split(/[\\/]/).filter(Boolean).at(-1) ?? ''
-  element('connection').textContent = data.progress ?? (run.state === 'queued' ? 'Esperando turno' : active ? 'Actualizando automáticamente' : 'Trabajo detenido')
+  element('connection').textContent =
+    data.progress ??
+    (run.state === 'queued'
+      ? 'Esperando turno'
+      : active
+        ? 'Actualizando automáticamente'
+        : 'Trabajo detenido')
   const list = element('activities')
   list.replaceChildren()
   for (const task of data.activities?.tasks ?? []) {
@@ -45,39 +56,69 @@ function render(data: any) {
 
 function receive(result: any) {
   if (result.isError) throw new Error('No se pudo leer el progreso')
-  const data = result.structuredContent ?? JSON.parse(result.content.find((item: any) => item.type === 'text').text)
+  const data =
+    result.structuredContent ??
+    JSON.parse(result.content.find((item: any) => item.type === 'text').text)
   render(data)
 }
 
 function schedule() {
   clearTimeout(timer)
-  if (active && failures < 3) timer = setTimeout(() => { void refresh() }, 3000)
+  if (active && failures < 3)
+    timer = setTimeout(() => {
+      void refresh()
+    }, 3000)
 }
 
 async function refresh() {
   if (!runId || busy) return
   busy = true
   try {
-    receive(await app.callServerTool({ name: 'regent_get_run', arguments: { run_id: runId, wait_ms: 0 } }))
+    receive(
+      await app.callServerTool({
+        name: 'regent_get_run',
+        arguments: { run_id: runId, wait_ms: 0 },
+      }),
+    )
     failures = 0
   } catch {
     failures++
-    element('connection').textContent = failures < 3 ? 'Conexión interrumpida. Reintentando…' : 'No se pudo actualizar. Puedes reintentar con Actualizar.'
+    element('connection').textContent =
+      failures < 3
+        ? 'Conexión interrumpida. Reintentando…'
+        : 'No se pudo actualizar. Puedes reintentar con Actualizar.'
   } finally {
     busy = false
     schedule()
   }
 }
 
-app.ontoolresult = result => {
-  try { receive(result); schedule() }
-  catch { element('connection').textContent = 'No se pudo leer este trabajo.' }
+app.ontoolresult = (result) => {
+  try {
+    receive(result)
+    schedule()
+  } catch {
+    element('connection').textContent = 'No se pudo leer este trabajo.'
+  }
 }
-app.onteardown = async () => { active = false; clearTimeout(timer); return {} }
+app.onteardown = async () => {
+  active = false
+  clearTimeout(timer)
+  return {}
+}
 function theme(context: any) {
   if (context?.theme) applyDocumentTheme(context.theme)
   if (context?.styles?.variables) applyHostStyleVariables(context.styles.variables)
 }
 app.onhostcontextchanged = theme
-element('refresh').addEventListener('click', () => { failures = 0; void refresh() })
-void app.connect().then(() => theme(app.getHostContext())).catch(() => { element('connection').textContent = 'Este cliente no pudo conectar el panel. Consulta el estado desde el chat.' })
+element('refresh').addEventListener('click', () => {
+  failures = 0
+  void refresh()
+})
+void app
+  .connect()
+  .then(() => theme(app.getHostContext()))
+  .catch(() => {
+    element('connection').textContent =
+      'Este cliente no pudo conectar el panel. Consulta el estado desde el chat.'
+  })

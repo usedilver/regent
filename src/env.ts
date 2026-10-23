@@ -38,7 +38,10 @@ export function agentEnvFiles(configured: string[], fallbackRoot?: string): stri
 }
 
 /** Vars de esos archivos, en orden (el último gana); `~` permitido. Los que no existen cuentan 0. */
-export function loadAgentEnv(files: string[]): { vars: Record<string, string>; files: Array<{ file: string; count: number }> } {
+export function loadAgentEnv(files: string[]): {
+  vars: Record<string, string>
+  files: Array<{ file: string; count: number }>
+} {
   const vars: Record<string, string> = {}
   const report: Array<{ file: string; count: number }> = []
   for (const f of files) {

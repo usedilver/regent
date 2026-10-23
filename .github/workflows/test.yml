@@ -8,6 +8,6 @@ jobs:
       # sin `version`: package.json (packageManager) es la única fuente de verdad
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: pnpm }
+        with: { node-version-file: .nvmrc, cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test
+      - run: pnpm check

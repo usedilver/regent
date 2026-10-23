@@ -54,10 +54,10 @@ REGENT_DB=log/cli.sqlite pnpm regent ask "Explica este proyecto"
 
 ## Referencia
 
-| Necesito… | Consultar |
-| --- | --- |
-| Configurar proyectos, acceso, respuestas o ejecución | [Configuración](config/README.md) |
-| Instalar o distribuir el plugin para Claude Desktop | [Plugin cliente](client-plugin/README.md) |
-| Desarrollar y contribuir a Regent | [Contribuciones](CONTRIBUTING.md) |
+| Necesito…                                            | Consultar                                 |
+| ---------------------------------------------------- | ----------------------------------------- |
+| Configurar proyectos, acceso, respuestas o ejecución | [Configuración](config/README.md)         |
+| Instalar o distribuir el plugin para Claude Desktop  | [Plugin cliente](client-plugin/README.md) |
+| Desarrollar y contribuir a Regent                    | [Contribuciones](CONTRIBUTING.md)         |
 
 Para desarrollar: `pnpm dev`. Para ejecutar las comprobaciones: `pnpm test`.

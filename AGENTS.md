@@ -32,7 +32,8 @@ Use Node 22.20.0 or a compatible version and pnpm pinned by `packageManager`.
 - `pnpm install --frozen-lockfile`: install reproducible dependencies.
 - `pnpm dev`: run Slack with file watching.
 - `pnpm start`: run the server without watching.
-- `pnpm test`: run the complete automated suite.
+- `pnpm check`: run the same formatting, types and automatic tests as CI.
+- `pnpm test`: run the automated suites without production credentials.
 - `pnpm regent setup --repo /path/to/repo --team T_ID --user U_ID`: create instance configuration.
 - `REGENT_SMOKE=1 pnpm smoke`: opt-in real-Claude verification; requires configuration
   and authentication and may incur usage charges.
@@ -45,13 +46,14 @@ The MCP Apps browser entry is bundled in memory with esbuild when first read.
 Match existing ESM code: two-space indentation, single quotes, and generally no
 semicolons. Include file extensions in relative imports. Use camelCase for functions
 and variables, PascalCase for types/classes, and descriptive kebab-case filenames.
-Prefer existing helpers and focused modules. No formatter or linter is configured;
-run `git diff --check` before submitting.
+Prefer existing helpers and focused modules. Run `pnpm check` before submitting: Prettier formatting, strict TypeScript checking and tests.
+Use `pnpm format` for mechanical formatting changes.
 
 ## Testing Guidelines
 
 Tests use Node assertions, temporary repositories, SQLite, fake processes, and local
-HTTP servers. Name tests `test/<area>.test.mjs`; add new suites to `pnpm test`.
+HTTP servers. Name suites `test/**/*.test.mjs`; `pnpm test` discovers them automatically.
+Keep fixtures and opt-in provider checks outside that filename pattern.
 Cover changed behavior and failure paths, especially cancellation, deduplication,
 restart recovery, permissions, and secret redaction. No numeric coverage threshold
 is configured. Distinguish simulated tests from real Slack/provider verification.

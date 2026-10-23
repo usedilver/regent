@@ -5,7 +5,10 @@ import { execFileSync } from 'node:child_process'
 
 export function isolationFor(repo: string, conversation: string) {
   const root = fs.realpathSync(repo)
-  const name = `regent-${createHash('sha256').update(JSON.stringify([root, conversation])).digest('hex').slice(0, 24)}`
+  const name = `regent-${createHash('sha256')
+    .update(JSON.stringify([root, conversation]))
+    .digest('hex')
+    .slice(0, 24)}`
   return { name, dir: path.join(root, '.claude', 'worktrees', name) }
 }
 
@@ -28,13 +31,24 @@ export function projectRoot(workspace: string, repo: string): string {
     let parent: string
     try {
       parent = execFileSync('git', ['rev-parse', '--show-superproject-working-tree'], {
-        cwd: current, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 10000,
+        cwd: current,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 10000,
       }).trim()
-    } catch { return current }
+    } catch {
+      return current
+    }
     if (!parent) return current
     const resolved = resolveRepository(workspace, parent)
     const relative = path.relative(resolved, current)
-    if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error('Relacion de submodulo invalida.')
+    if (
+      !relative ||
+      relative === '..' ||
+      relative.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relative)
+    )
+      throw new Error('Relacion de submodulo invalida.')
     current = resolved
   }
 }
@@ -45,6 +59,7 @@ export function repositoryRequest(text: string): { text: string; repo?: string }
   const match = text.match(/^repo:[ \t]*([^\r\n]+)\r?\n([\s\S]+)$/i)
   if (!match) throw new Error('Indica repo: <ruta> y la solicitud en la siguiente linea.')
   const repo = match[1].trim().replace(/^(["'])(.*)\1$/, '$2')
-  if (!repo || !match[2].trim()) throw new Error('Indica repo: <ruta> y la solicitud en la siguiente linea.')
+  if (!repo || !match[2].trim())
+    throw new Error('Indica repo: <ruta> y la solicitud en la siguiente linea.')
   return { repo, text: match[2].trim() }
 }

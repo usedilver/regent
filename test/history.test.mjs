@@ -11,38 +11,76 @@ import { History } from '../src/history.ts'
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'regent-history-'))
 const db = path.join(root, 'history.sqlite')
 const key = 'slack:C1:1'
-const input = (ts, text) => ({ adapter: 'slack', eventId: `message:C1:${ts}`, key, channel: 'C1', thread: '1', team: 'T1', author: 'U1', text,
-  history: { channel: 'C1', thread: '1', latest: ts, trigger: `C1:${ts}` } })
-const until = async fn => { for (let i = 0; i < 300; i++) { if (fn()) return; await new Promise(r => setTimeout(r, 10)) } throw new Error('Timed out') }
-const config = ConfigSchema.parse({ auth: { mode: 'indie' }, repos: { path: root }, slack: { workspace_team_id: 'T1', allowed_users: ['U1'] } })
-let messages = [{ id: 'C1:1', text: '@U1: Question' }], store, core
+const input = (ts, text) => ({
+  adapter: 'slack',
+  eventId: `message:C1:${ts}`,
+  key,
+  channel: 'C1',
+  thread: '1',
+  team: 'T1',
+  author: 'U1',
+  text,
+  history: { channel: 'C1', thread: '1', latest: ts, trigger: `C1:${ts}` },
+})
+const until = async (fn) => {
+  for (let i = 0; i < 300; i++) {
+    if (fn()) return
+    await new Promise((r) => setTimeout(r, 10))
+  }
+  throw new Error('Timed out')
+}
+const config = ConfigSchema.parse({
+  auth: { mode: 'indie' },
+  repos: { path: root },
+  slack: { workspace_team_id: 'T1', allowed_users: ['U1'] },
+})
+let messages = [{ id: 'C1:1', text: '@U1: Question' }],
+  store,
+  core
 const starts = []
 let reads = 0
 function open() {
   store = new Store(db)
-  core = new Core({ store, config, cwd: root,
+  core = new Core({
+    store,
+    config,
+    cwd: root,
     output: { async notice() {}, async status() {}, async delta() {}, async finish() {} },
-    runner: options => {
+    runner: (options) => {
       options.onEvent({ kind: 'init', sessionId: options.sessionId ?? `session-${starts.length}` })
       let resolve
-      const done = new Promise(r => { resolve = r })
-      const finish = (state = 'completed') => resolve({ state, text: 'Answer', error: '', cost: 0, usage: {} })
+      const done = new Promise((r) => {
+        resolve = r
+      })
+      const finish = (state = 'completed') =>
+        resolve({ state, text: 'Answer', error: '', cost: 0, usage: {} })
       starts.push({ options, finish })
       return { done, cancel: () => finish('interrupted') }
-    } })
-  core.historyLoader = async source => {
+    },
+  })
+  core.historyLoader = async (source) => {
     reads++
-    return messages.filter(m => !source.latest || Number(m.id.split(':')[1]) <= Number(source.latest))
+    return messages.filter(
+      (m) => !source.latest || Number(m.id.split(':')[1]) <= Number(source.latest),
+    )
   }
 }
-async function close() { await core.close(); store.close() }
+async function close() {
+  await core.close()
+  store.close()
+}
 
 try {
   open()
   await core.submit(input('1', 'Question'))
   await until(() => starts.length === 1)
   assert.equal(starts[0].options.prompt.match(/Question/g).length, 1)
-  messages.push(...Array.from({ length: 5 }, (_, i) => ({ id: `C1:${i + 2}`, text: `@member-${i}: intermediate-${i}` })))
+  messages.push(
+    ...Array.from({ length: 5 }, (_, i) => ({
+      id: `C1:${i + 2}`,
+      text: `@member-${i}: intermediate-${i}`,
+    })),
+  )
   messages.push({ id: 'C1:7', text: '@U1: Apply' }, { id: 'C1:8', text: '@U1: Continue' })
   messages.push(messages[1])
   await core.submit(input('7', 'Apply'))
@@ -51,7 +89,8 @@ try {
   await core.submit(input('8', 'Continue'))
   starts[0].finish()
   await until(() => starts.length === 2)
-  for (let i = 0; i < 5; i++) assert.equal(starts[1].options.prompt.match(new RegExp(`intermediate-${i}`, 'g')).length, 1)
+  for (let i = 0; i < 5; i++)
+    assert.equal(starts[1].options.prompt.match(new RegExp(`intermediate-${i}`, 'g')).length, 1)
   assert.doesNotMatch(starts[1].options.prompt, /Continue/)
   starts[1].finish()
   await until(() => starts.length === 3)
@@ -62,8 +101,11 @@ try {
   await close()
 
   open()
-  messages = messages.filter(m => m.id !== 'C1:3')
-  messages.push({ id: 'C1:3', text: '@member: corrected requirement' }, { id: 'C1:9', text: '@U1: Review' })
+  messages = messages.filter((m) => m.id !== 'C1:3')
+  messages.push(
+    { id: 'C1:3', text: '@member: corrected requirement' },
+    { id: 'C1:9', text: '@U1: Review' },
+  )
   await core.submit(input('9', 'Review'))
   await until(() => starts.length === 4)
   assert.match(starts[3].options.prompt, /corrected requirement/)
@@ -91,16 +133,28 @@ try {
   starts[6].finish()
   await until(() => !core.active.size)
   await close()
-  console.log('  OK five intermediate messages, queued overlap, retries, edited messages, restart and session reset')
+  console.log(
+    '  OK five intermediate messages, queued overlap, retries, edited messages, restart and session reset',
+  )
 
   open()
-  messages.push({ id: 'C1:13', text: '@U2: Queued context' }, { id: 'C1:14', text: '@U1: Queued request' })
+  messages.push(
+    { id: 'C1:13', text: '@U2: Queued context' },
+    { id: 'C1:14', text: '@U1: Queued request' },
+  )
   const queued = store.accept(input('14', 'Queued request'), root, 24)
-  await new History(store).prepare(queued.runId, key, store.conversation(key).session_id, core.historyLoader)
+  await new History(store).prepare(
+    queued.runId,
+    key,
+    store.conversation(key).session_id,
+    core.historyLoader,
+  )
   await close()
   open()
   const snapshotLoader = core.historyLoader
-  core.historyLoader = async () => { throw new Error('The persisted snapshot must be used') }
+  core.historyLoader = async () => {
+    throw new Error('The persisted snapshot must be used')
+  }
   await core.recover()
   await until(() => starts.length === 8)
   assert.match(starts[7].options.prompt, /Queued context/)
@@ -108,8 +162,13 @@ try {
   await until(() => !core.active.size)
   core.historyLoader = snapshotLoader
   const loader = core.historyLoader
-  core.historyLoader = async () => { throw new Error('missing_scope') }
-  messages.push({ id: 'C1:15', text: '@U2: Recover this context' }, { id: 'C1:16', text: '@U1: Failed fetch' })
+  core.historyLoader = async () => {
+    throw new Error('missing_scope')
+  }
+  messages.push(
+    { id: 'C1:15', text: '@U2: Recover this context' },
+    { id: 'C1:16', text: '@U1: Failed fetch' },
+  )
   const failed = await core.submit(input('16', 'Failed fetch'))
   await until(() => !core.active.size)
   assert.equal(store.run(failed.runId).state, 'failed')
@@ -127,23 +186,73 @@ try {
   const calls = []
   const api = async (method, args) => {
     calls.push({ method, args })
-    if (method === 'conversations.history') return !args.cursor
-      ? { messages: [{ ts: '8', user: 'BOT', text: 'Own response' }, { ts: '7', user: 'U2', text: 'New root', files: [{ id: 'F1' }] }], response_metadata: { next_cursor: 'next' } }
-      : { messages: [{ ts: '1', user: 'U1', text: 'Old root', reply_count: 2 }] }
-    return { messages: [{ ts: '1', user: 'U1', text: 'Old root' }, { ts: '6', thread_ts: '1', user: 'U3', text: 'Fresh reply' }, { ts: '10', user: 'U4', text: 'Future' }] }
+    if (method === 'conversations.history')
+      return !args.cursor
+        ? {
+            messages: [
+              { ts: '8', user: 'BOT', text: 'Own response' },
+              { ts: '7', user: 'U2', text: 'New root', files: [{ id: 'F1' }] },
+            ],
+            response_metadata: { next_cursor: 'next' },
+          }
+        : { messages: [{ ts: '1', user: 'U1', text: 'Old root', reply_count: 2 }] }
+    return {
+      messages: [
+        { ts: '1', user: 'U1', text: 'Old root' },
+        { ts: '6', thread_ts: '1', user: 'U3', text: 'Fresh reply' },
+        { ts: '10', user: 'U4', text: 'Future' },
+      ],
+    }
   }
-  const history = await gatherHistory(api, { channel: 'C1', latest: '9' }, 'BOT', async () => 'Attachment content')
-  assert.equal(history.filter(m => m.id === 'C1:1').length, 1)
-  assert.ok(history.some(m => m.text.includes('Fresh reply')))
-  assert.ok(history.some(m => m.id === 'C1:7:files' && m.text.includes('Attachment content')))
-  assert.ok(!history.some(m => /Future|Own response/.test(m.text)))
-  const fresh = await gatherHistory(api, { channel: 'C1', latest: '9' }, 'BOT', async () => '', undefined, true)
-  assert.ok(fresh.some(m => m.text.includes('Own response')))
-  assert.ok(calls.every(c => c.args.latest === '9' && c.args.inclusive))
-  await assert.rejects(() => gatherHistory(async () => { throw new Error('missing_scope') }, { channel: 'private', thread: '1' }, 'BOT', async () => ''), /missing_scope/)
-  await assert.rejects(() => gatherHistory(async () => ({ messages: [], response_metadata: { next_cursor: 'same' } }), { channel: 'C1' }, 'BOT', async () => ''), /cursor/)
-  await assert.rejects(() => gatherHistory(api, { channel: 'C1' }, 'BOT', async () => '', AbortSignal.abort()), /abort/i)
-  console.log('  OK paginated channels, replies under old roots, attachments, bot exclusion and explicit API failures')
+  const history = await gatherHistory(
+    api,
+    { channel: 'C1', latest: '9' },
+    'BOT',
+    async () => 'Attachment content',
+  )
+  assert.equal(history.filter((m) => m.id === 'C1:1').length, 1)
+  assert.ok(history.some((m) => m.text.includes('Fresh reply')))
+  assert.ok(history.some((m) => m.id === 'C1:7:files' && m.text.includes('Attachment content')))
+  assert.ok(!history.some((m) => /Future|Own response/.test(m.text)))
+  const fresh = await gatherHistory(
+    api,
+    { channel: 'C1', latest: '9' },
+    'BOT',
+    async () => '',
+    undefined,
+    true,
+  )
+  assert.ok(fresh.some((m) => m.text.includes('Own response')))
+  assert.ok(calls.every((c) => c.args.latest === '9' && c.args.inclusive))
+  await assert.rejects(
+    () =>
+      gatherHistory(
+        async () => {
+          throw new Error('missing_scope')
+        },
+        { channel: 'private', thread: '1' },
+        'BOT',
+        async () => '',
+      ),
+    /missing_scope/,
+  )
+  await assert.rejects(
+    () =>
+      gatherHistory(
+        async () => ({ messages: [], response_metadata: { next_cursor: 'same' } }),
+        { channel: 'C1' },
+        'BOT',
+        async () => '',
+      ),
+    /cursor/,
+  )
+  await assert.rejects(
+    () => gatherHistory(api, { channel: 'C1' }, 'BOT', async () => '', AbortSignal.abort()),
+    /abort/i,
+  )
+  console.log(
+    '  OK paginated channels, replies under old roots, attachments, bot exclusion and explicit API failures',
+  )
 } finally {
   if (core && !core.stopping) await close()
   fs.rmSync(root, { recursive: true, force: true })

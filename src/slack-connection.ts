@@ -32,9 +32,12 @@ export class SlackConnection {
   async start(start: () => Promise<unknown>) {
     this.stopped = false
     this.pending = start()
-    try { await this.pending }
-    catch (error) { this.stopped = true; throw error }
-    finally {
+    try {
+      await this.pending
+    } catch (error) {
+      this.stopped = true
+      throw error
+    } finally {
       this.pending = undefined
       if (!this.connected) this.schedule()
     }
@@ -58,7 +61,9 @@ export class SlackConnection {
       if (!this.stopped && this.connected) this.report('Conexion con Slack restablecida.')
     } catch (error) {
       this.connected = false
-      this.report(`No se pudo reconectar a Slack: ${error instanceof Error ? error.message : 'conexion interrumpida'}`)
+      this.report(
+        `No se pudo reconectar a Slack: ${error instanceof Error ? error.message : 'conexion interrumpida'}`,
+      )
     } finally {
       this.pending = undefined
       this.schedule()

@@ -7,8 +7,15 @@ export const PROGRESS_URI = 'ui://regent/progress.html'
 let script: string | undefined
 
 export function progressHtml(title = 'Regent') {
-  script ??= buildSync({ entryPoints: [fileURLToPath(new URL('./mcp-progress-app.ts', import.meta.url))],
-    bundle: true, write: false, minify: true, format: 'esm', platform: 'browser', target: 'es2022' }).outputFiles[0].text
+  script ??= buildSync({
+    entryPoints: [fileURLToPath(new URL('./mcp-progress-app.ts', import.meta.url))],
+    bundle: true,
+    write: false,
+    minify: true,
+    format: 'esm',
+    platform: 'browser',
+    target: 'es2022',
+  }).outputFiles[0].text
   const heading = title.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
@@ -26,8 +33,20 @@ pre{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0}butto
 }
 
 export function registerProgressResource(server: McpServer, title = 'Regent') {
-  registerAppResource(server, `Progreso de ${title}`, PROGRESS_URI, { mimeType: RESOURCE_MIME_TYPE }, async () => ({
-    contents: [{ uri: PROGRESS_URI, mimeType: RESOURCE_MIME_TYPE, text: progressHtml(title),
-      _meta: { ui: { csp: { connectDomains: [], resourceDomains: [] }, prefersBorder: true } } }],
-  }))
+  registerAppResource(
+    server,
+    `Progreso de ${title}`,
+    PROGRESS_URI,
+    { mimeType: RESOURCE_MIME_TYPE },
+    async () => ({
+      contents: [
+        {
+          uri: PROGRESS_URI,
+          mimeType: RESOURCE_MIME_TYPE,
+          text: progressHtml(title),
+          _meta: { ui: { csp: { connectDomains: [], resourceDomains: [] }, prefersBorder: true } },
+        },
+      ],
+    }),
+  )
 }

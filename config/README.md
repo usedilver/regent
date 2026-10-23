@@ -6,12 +6,12 @@ admitidos y sus valores predeterminados.
 
 ## Archivos
 
-| Archivo | Uso | En Git |
-| --- | --- | --- |
-| `regent.yaml` | Configuración activa | No |
-| `regent.example.yaml` | Plantilla de configuración | Sí |
-| `communication.md` | Reglas personalizadas de comunicación | No |
-| `communication.example.md` | Comunicación predeterminada y plantilla | Sí |
+| Archivo                    | Uso                                     | En Git |
+| -------------------------- | --------------------------------------- | ------ |
+| `regent.yaml`              | Configuración activa                    | No     |
+| `regent.example.yaml`      | Plantilla de configuración              | Sí     |
+| `communication.md`         | Reglas personalizadas de comunicación   | No     |
+| `communication.example.md` | Comunicación predeterminada y plantilla | Sí     |
 
 Crea la instancia con `pnpm regent setup --repo /ruta/al/proyecto --team T_ID --user U_ID`.
 El setup no sobrescribe archivos ni valida conexiones; `--workspace` amplía la
@@ -24,21 +24,21 @@ o respaldos en `tmp/local/`. Conserva la base SQLite al actualizar la instancia.
 
 ## Active Settings
 
-| Ajuste | Comportamiento |
-| --- | --- |
-| `name` | Nombre visible del MCP; no cambia el perfil de la app de Slack ni los identificadores `regent_*`. |
-| `auth.mode` | `indie` usa el login local de Claude Code; `team` requiere `ANTHROPIC_API_KEY`. Autentica el motor, no a quienes llaman al MCP. |
-| `slack.workspace_team_id` / `allowed_users` | Workspace y usuarios autorizados. Una lista vacía permite miembros activos verificados, excluyendo bots. |
-| `repos.path` / `workspace_root` / `default_repo` | Proyectos accesibles y contexto inicial. El predeterminado es relativo al workspace; no sustituye un destino explícito. |
-| `repos.agent_env_files` | Archivos de entorno para el agente. Vacío carga el `.env` de la raíz del proyecto seleccionado. |
-| `repos.readonly_mcp` | Restricciones adicionales del hook; usa también credenciales de solo lectura en la fuente. |
-| `permission_mode` | `bypass` omite los permisos nativos; `native` respeta `allow/ask/deny` y puede denegar solicitudes en modo headless. Los hooks no son un sandbox. |
-| `slack.progress_mode` | `auto` para actividades; `plain` para texto actualizado. |
-| `communication.instructions_file` | Archivo de comunicación personalizado; se explica abajo. |
-| `models` / `limits` | Modelo, concurrencia, duración, inactividad y cancelación por perfil. |
-| `budget` | Límites por ejecución y usuario en modo `team`; no limitan una suscripción personal. |
-| `session.idle_reset_hours` | Reinicio de sesiones inactivas elegibles; no elimina su historial. |
-| `mcp` | Habilitación del endpoint externo y acceso mediante OAuth o tokens técnicos. |
+| Ajuste                                           | Comportamiento                                                                                                                                    |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                                           | Nombre visible del MCP; no cambia el perfil de la app de Slack ni los identificadores `regent_*`.                                                 |
+| `auth.mode`                                      | `indie` usa el login local de Claude Code; `team` requiere `ANTHROPIC_API_KEY`. Autentica el motor, no a quienes llaman al MCP.                   |
+| `slack.workspace_team_id` / `allowed_users`      | Workspace y usuarios autorizados. Una lista vacía permite miembros activos verificados, excluyendo bots.                                          |
+| `repos.path` / `workspace_root` / `default_repo` | Proyectos accesibles y contexto inicial. El predeterminado es relativo al workspace; no sustituye un destino explícito.                           |
+| `repos.agent_env_files`                          | Archivos de entorno para el agente. Vacío carga el `.env` de la raíz del proyecto seleccionado.                                                   |
+| `repos.readonly_mcp`                             | Restricciones adicionales del hook; usa también credenciales de solo lectura en la fuente.                                                        |
+| `permission_mode`                                | `bypass` omite los permisos nativos; `native` respeta `allow/ask/deny` y puede denegar solicitudes en modo headless. Los hooks no son un sandbox. |
+| `slack.progress_mode`                            | `auto` para actividades; `plain` para texto actualizado.                                                                                          |
+| `communication.instructions_file`                | Archivo de comunicación personalizado; se explica abajo.                                                                                          |
+| `models` / `limits`                              | Modelo, concurrencia, duración, inactividad y cancelación por perfil.                                                                             |
+| `budget`                                         | Límites por ejecución y usuario en modo `team`; no limitan una suscripción personal.                                                              |
+| `session.idle_reset_hours`                       | Reinicio de sesiones inactivas elegibles; no elimina su historial.                                                                                |
+| `mcp`                                            | Habilitación del endpoint externo y acceso mediante OAuth o tokens técnicos.                                                                      |
 
 Usa `indie` para el operador individual y `team` para uso compartido. El modo individual
 advierte ante acceso abierto o varios usuarios, pero no bloquea el arranque. La

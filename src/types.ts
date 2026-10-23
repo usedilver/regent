@@ -1,5 +1,11 @@
 export type ConversationState = 'idle' | 'queued' | 'running' | 'waiting_human' | 'interrupted'
-export type RunState = 'queued' | 'running' | 'completed' | 'failed' | 'interrupted' | 'waiting_human'
+export type RunState =
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'interrupted'
+  | 'waiting_human'
 
 export interface Inbound {
   adapter: 'slack' | 'cli' | 'mcp'
@@ -53,7 +59,10 @@ export interface Output {
    * skip the periodic heartbeat there. Rooms converse at channel root with no anchor, so they
    * return false and rely on the updating progress message below. */
   animates?(conversation: Conversation): boolean
-  question?(conversation: Conversation, question: { id: string; text: string; options: string[] }): Promise<void>
+  question?(
+    conversation: Conversation,
+    question: { id: string; text: string; options: string[] },
+  ): Promise<void>
   notice(conversation: Conversation, text: string): Promise<void>
   status(conversation: Conversation, status: 'processing' | 'active' | 'suspended'): Promise<void>
   /** Periodic "still working" signal for surfaces without a native indicator: posts once, then

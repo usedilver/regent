@@ -1,0 +1,13 @@
+node_modules/
+log/
+tmp/
+worktrees/
+projects/
+docs/
+dist/
+pnpm-lock.yaml
+config/*
+!config/README.md
+!config/regent.example.yaml
+!config/communication.example.md
+mcp-execution-plan.md

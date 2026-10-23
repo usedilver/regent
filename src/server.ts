@@ -8,8 +8,12 @@ loadEnv()
 const config = loadConfig()
 assertAuth(config)
 console.log(authNotice(config))
-if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_APP_TOKEN) throw new Error('Configura SLACK_BOT_TOKEN y SLACK_APP_TOKEN antes de iniciar Slack.')
-const runtime = createRuntime(config, { slack: createSlack(config), claudeVersion: claudeVersion() })
+if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_APP_TOKEN)
+  throw new Error('Configura SLACK_BOT_TOKEN y SLACK_APP_TOKEN antes de iniciar Slack.')
+const runtime = createRuntime(config, {
+  slack: createSlack(config),
+  claudeVersion: claudeVersion(),
+})
 installShutdown(runtime)
 await runtime.start()
 console.log(`${config.name} en ${runtime.core.toolsUrl.replace('/tools', '')}`)

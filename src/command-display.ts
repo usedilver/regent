@@ -9,7 +9,12 @@ const commands = new Map<string, string>([
   ['git diff --cached --stat', 'Revisando cambios'],
 ])
 for (const manager of ['npm', 'pnpm', 'yarn']) {
-  for (const [script, title] of [['test', 'Ejecutando pruebas'], ['build', 'Compilando el proyecto'], ['lint', 'Revisando estilo'], ['typecheck', 'Verificando tipos']]) {
+  for (const [script, title] of [
+    ['test', 'Ejecutando pruebas'],
+    ['build', 'Compilando el proyecto'],
+    ['lint', 'Revisando estilo'],
+    ['typecheck', 'Verificando tipos'],
+  ]) {
     commands.set(`${manager} run ${script}`, title)
     if (manager !== 'npm' || script === 'test') commands.set(`${manager} ${script}`, title)
   }
@@ -29,7 +34,9 @@ const operations = new Map<string, string>([
   ['vercel inspect', 'Consultando un despliegue en Vercel'],
   ...commands,
 ])
-const summaries = new Map([...operations].map(([command, title]) => [`${command} [argumentos y resto ocultos]`, title]))
+const summaries = new Map(
+  [...operations].map(([command, title]) => [`${command} [argumentos y resto ocultos]`, title]),
+)
 
 // Only literal vocabulary leaves this module, never parsed argument values.
 // Summaries identify the first operation, not every step of a compound command.
@@ -50,6 +57,8 @@ export function commandDisplay(value: unknown): { command: string; title: string
         return { command: `${operation} [argumentos y resto ocultos]`, title }
       }
     }
-  } catch { /* Unparseable shell stays opaque. */ }
+  } catch {
+    /* Unparseable shell stays opaque. */
+  }
 }
 import { parse } from 'shell-quote'

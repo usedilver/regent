@@ -10,10 +10,16 @@ import path from 'node:path'
 
 export const USER_SETTINGS_PATH = path.join(os.homedir(), '.claude', 'settings.json')
 
-export function ensureBypassAccepted(settingsPath = USER_SETTINGS_PATH): 'seeded' | 'already' | 'unreadable' {
+export function ensureBypassAccepted(
+  settingsPath = USER_SETTINGS_PATH,
+): 'seeded' | 'already' | 'unreadable' {
   let settings: Record<string, unknown> = {}
   if (fs.existsSync(settingsPath)) {
-    try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')) } catch { return 'unreadable' }
+    try {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'))
+    } catch {
+      return 'unreadable'
+    }
   }
   if (settings.skipDangerousModePermissionPrompt === true) return 'already'
   settings.skipDangerousModePermissionPrompt = true
@@ -59,8 +65,9 @@ export function ensureTrusted(dir: string): void {
       const declared = Object.keys(JSON.parse(fs.readFileSync(mcpPath, 'utf8')).mcpServers ?? {})
       proj.enabledMcpjsonServers ??= []
       proj.disabledMcpjsonServers ??= []
-      const nuevos = declared.filter(n =>
-        !proj.enabledMcpjsonServers.includes(n) && !proj.disabledMcpjsonServers.includes(n))
+      const nuevos = declared.filter(
+        (n) => !proj.enabledMcpjsonServers.includes(n) && !proj.disabledMcpjsonServers.includes(n),
+      )
       if (nuevos.length) {
         proj.enabledMcpjsonServers.push(...nuevos)
         changed = true
@@ -70,6 +77,8 @@ export function ensureTrusted(dir: string): void {
 
     if (changed) fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2))
   } catch (err) {
-    console.warn(`[claude] no pude sembrar trust/MCP (${(err as Error).message}); claude puede pedir confirmación`)
+    console.warn(
+      `[claude] no pude sembrar trust/MCP (${(err as Error).message}); claude puede pedir confirmación`,
+    )
   }
 }
