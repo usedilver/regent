@@ -8,6 +8,14 @@ jobs:
       # sin `version`: package.json (packageManager) es la única fuente de verdad
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: pnpm }
+        with: { node-version-file: .nvmrc, cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test
+      - run: pnpm check
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t regent-check .
+      - run: docker run --rm --entrypoint node regent-check scripts/check-image.mjs
+      - run: docker run --rm --entrypoint node regent-check --test test/preview-process.test.mjs test/runtime.test.mjs
+      - run: docker run --rm -v "$PWD/examples/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2 caddy validate --config /etc/caddy/Caddyfile

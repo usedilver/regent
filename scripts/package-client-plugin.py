@@ -1,4 +1,6 @@
 import argparse
+import hashlib
+import re
 import json
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -7,7 +9,7 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 parser = argparse.ArgumentParser(description="Package the client with an explicit public MCP endpoint.")
 parser.add_argument("--endpoint", required=True, help="Public HTTPS /mcp URL of an OAuth-enabled instance")
-parser.add_argument("--output", type=Path, help="ZIP destination (defaults to tmp/talently-code-plugin.zip)")
+parser.add_argument("--output", type=Path, help="ZIP destination (defaults to dist/plugins/<name>-<version>.zip)")
 args = parser.parse_args()
 try:
     endpoint = urlsplit(args.endpoint)
@@ -24,8 +26,12 @@ if (endpoint.scheme != "https" or not endpoint.hostname
     parser.error("--endpoint requires a literal public HTTPS /mcp URL without credentials, query or fragment")
 
 repo = Path(__file__).resolve().parent.parent
-source = repo / "client-plugin"
-output = args.output or repo / "tmp" / "talently-code-plugin.zip"
+source = repo / "plugins/talently-code"
+manifest = json.loads((source / ".claude-plugin/plugin.json").read_text())
+name, version = manifest["name"], manifest["version"]
+if not re.fullmatch(r"[a-z][a-z0-9-]*", name) or not re.fullmatch(r"\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?", version):
+    parser.error("Plugin manifest requires a safe name and semantic version")
+output = args.output or repo / "dist" / "plugins" / f"{name}-{version}.zip"
 files = {
     ".claude-plugin/plugin.json": source / ".claude-plugin/plugin.json",
     "skills/talently-code/SKILL.md": source / "skills/talently-code/SKILL.md",
@@ -39,8 +45,10 @@ contents[".mcp.json"] = (json.dumps({"mcpServers": {"talently-code": {
 output.parent.mkdir(parents=True, exist_ok=True)
 with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
     for name, content in contents.items():
-        entry = ZipInfo(f"talently-code/{name}")
+        entry = ZipInfo(f"{manifest['name']}/{name}")
         entry.compress_type = ZIP_DEFLATED
         entry.external_attr = 0o100644 << 16
         archive.writestr(entry, content)
+checksum = hashlib.sha256(output.read_bytes()).hexdigest()
+output.with_suffix(output.suffix + ".sha256").write_text(f"{checksum}  {output.name}\n")
 print(output)

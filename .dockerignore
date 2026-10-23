@@ -7,6 +7,11 @@ worktrees
 config/*
 !config/README.md
 !config/regent.example.yaml
+!config/access.example.yaml
+!config/communication.example.md
 .claude
 projects
 .git
+
+dist
+docs

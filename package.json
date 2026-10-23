@@ -1,21 +1,26 @@
 {
   "name": "regent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Conversational Slack client for Claude Code CLI, with repository-owned context and workflows.",
   "scripts": {
     "start": "node src/server.ts",
     "start:mcp": "node src/mcp-server.ts",
-    "mcp:client": "node src/mcp-client.ts",
+    "mcp:client": "node src/adapters/mcp/client.ts",
     "plugin:pack": "python3 scripts/package-client-plugin.py",
-    "dev": "node --watch-path=src --watch-path=plugin --watch-path=config --watch-path=.env --watch-preserve-output src/server.ts",
-    "test": "node test/core.test.mjs && node test/projects.test.mjs && node test/history.test.mjs && node test/rooms.test.mjs && node test/setup.test.mjs && node test/progress.test.mjs && node test/slack-connection.test.mjs && node test/slack-thread.test.mjs && node test/claude-settings.test.mjs && node test/slack-format.test.mjs && node test/delivery.test.mjs && node test/activities.test.mjs && node test/identity.test.mjs && node test/images.test.mjs && node test/intent.test.mjs && node test/mcp.test.mjs && node test/oauth.test.mjs && node test/previews.test.mjs",
+    "dev": "node --watch-path=src --watch-path=plugins/executor --watch-path=.env --watch-preserve-output src/server.ts",
+    "test": "node --test --test-concurrency=1 \"test/**/*.test.mjs\"",
     "test:mcp": "node test/mcp.test.mjs",
     "test:previews": "node test/previews.test.mjs",
     "test:intent": "node test/intent.test.mjs",
-    "smoke": "node test/smoke.mjs",
-    "regent": "node src/cli.ts"
+    "smoke": "node test/smoke/smoke.mjs",
+    "regent": "node src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "pnpm format:check && pnpm typecheck && pnpm test",
+    "check:image": "docker build -t regent-check . && docker run --rm --entrypoint node regent-check scripts/check-image.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "1.1.2",
@@ -29,5 +34,15 @@
     "yaml": "^2.9.0",
     "zod": "^4.5.2"
   },
-  "packageManager": "pnpm@10.28.1"
+  "packageManager": "pnpm@10.28.1",
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.20.5",
+    "@types/shell-quote": "1.7.5",
+    "prettier": "3.6.2",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=22.20.0"
+  }
 }

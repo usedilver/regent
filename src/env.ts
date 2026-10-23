@@ -1,9 +1,8 @@
-/** Carga .env del directorio del bridge (sin dependencias; mismo formato que siempre). */
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-export const BRIDGE_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
+export const REGENT_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 
 /**
  * KEY=VALUE de un .env, sin expansión de shell: un `$` en una contraseña llega
@@ -21,12 +20,12 @@ export function parseEnvFile(envPath: string): Record<string, string> {
 }
 
 /** Keys defined in regent's own .env (its Slack/Notion/GitHub secrets): never handed to the agent. */
-export function ownEnvKeys(file: string = path.join(BRIDGE_DIR, '.env')): string[] {
+export function ownEnvKeys(file: string = path.join(REGENT_DIR, '.env')): string[] {
   return Object.keys(parseEnvFile(file))
 }
 
 export function loadEnv(): void {
-  for (const [key, val] of Object.entries(parseEnvFile(path.join(BRIDGE_DIR, '.env')))) {
+  for (const [key, val] of Object.entries(parseEnvFile(path.join(REGENT_DIR, '.env')))) {
     if (!(key in process.env)) process.env[key] = val
   }
 }
@@ -38,7 +37,10 @@ export function agentEnvFiles(configured: string[], fallbackRoot?: string): stri
 }
 
 /** Vars de esos archivos, en orden (el último gana); `~` permitido. Los que no existen cuentan 0. */
-export function loadAgentEnv(files: string[]): { vars: Record<string, string>; files: Array<{ file: string; count: number }> } {
+export function loadAgentEnv(files: string[]): {
+  vars: Record<string, string>
+  files: Array<{ file: string; count: number }>
+} {
   const vars: Record<string, string> = {}
   const report: Array<{ file: string; count: number }> = []
   for (const f of files) {

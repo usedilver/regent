@@ -7,6 +7,7 @@
 config/*
 !config/README.md
 !config/regent.example.yaml
+!config/access.example.yaml
 !config/communication.example.md
 
 # Notas locales privadas; solo las guias publicas de adjuntos se versionan aqui.
@@ -17,6 +18,8 @@ log/
 tmp/
 worktrees/
 projects/
+
+dist/
 
 # dependencias y sistema
 node_modules/
