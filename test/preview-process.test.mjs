@@ -43,7 +43,7 @@ test('preview publication and routing require the listener to belong to the auth
       process.execPath,
       [
         '-e',
-        `const server=require('node:http').createServer((q,r)=>r.end('owned'));server.listen(${port},'127.0.0.1',()=>console.log('ready'));process.stdin.once('data',()=>server.close(()=>console.log('closed')));setInterval(()=>{},1000)`,
+        `const code=${JSON.stringify(`const server=require('node:http').createServer((q,r)=>r.end('owned'));server.listen(${port},'127.0.0.1',()=>console.log('ready'));process.stdin.once('data',()=>server.close(()=>console.log('closed')));setInterval(()=>{},1000)`)};const child=require('node:child_process').spawn(process.execPath,['-e',code],{stdio:['pipe','pipe','inherit']});child.stdout.pipe(process.stdout);process.stdin.pipe(child.stdin);setInterval(()=>{},1000)`,
       ],
       { cwd: directory, detached: true, stdio: ['pipe', 'pipe', 'inherit'] },
     )
@@ -68,7 +68,7 @@ test('preview publication and routing require the listener to belong to the auth
     for (const child of children) {
       if (child.exitCode !== null || child.signalCode !== null) continue
       const exited = once(child, 'exit')
-      child.kill('SIGTERM')
+      process.kill(-child.pid, 'SIGTERM')
       await exited
     }
     if (server.listening) {

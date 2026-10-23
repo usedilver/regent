@@ -1,5 +1,5 @@
 const sensitiveKey = (key: string) =>
-  /(?:^|_)(?:password|passwd|secret|token|api_key|private_key|authorization|cookie|credentials?)(?:_|$)/i.test(
+  /(?:^|_)(?:password|passwd|pgpassword|pwd|passphrase|secret|token|api_key|private_key|authorization|cookie|credentials?)(?:_|$)/i.test(
     key.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/[-.]/g, '_'),
   )
 

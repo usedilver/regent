@@ -10,6 +10,7 @@ test('structured and embedded JSON secrets are redacted without corrupting their
     nested: [{ accessToken: value, 'X-API-Key': value }],
     headers: { authorization: value, cookie: value },
     MYSQL_PASSWORD: 1234,
+    PGPASSWORD: value,
     empty_secret: null,
     usage: { input_tokens: 27 },
     text: JSON.stringify({ client_secret: value }),
