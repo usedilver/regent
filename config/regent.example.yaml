@@ -1,5 +1,6 @@
 # Public template; the local instance uses config/regent.yaml (ignored by Git).
 name: Regent
+access_policy_file: config/access.yaml # Copia access.example.yaml y configura las listas antes del primer arranque.
 # bypass (default): el agente usa todas las herramientas y MCPs del repo; los hooks
 # de regent filtran secretos y readonly_mcp, pero no son un sandbox de seguridad.
 # native: respeta allow/ask/deny del repo; en headless lo no permitido se auto-deniega.
@@ -19,7 +20,6 @@ repos:
 slack:
   progress_mode: auto # tarjetas de actividades; plain usa texto actualizado en el mismo mensaje.
   workspace_team_id: T_REPLACE
-  allowed_users: [U_REPLACE] # Recomendado: tu ID. [] abre acceso a usuarios del workspace; indie advierte.
 mcp:
   enabled: false
   principals: [] # [{ id: dilver, token_env: REGENT_MCP_TOKEN_DILVER }]; tokens en el entorno privado.

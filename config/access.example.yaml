@@ -1,0 +1,7 @@
+# Copia a config/access.yaml. Solo estas listas se recargan cada 2 segundos.
+slack:
+  allowed_users: [U_REPLACE] # [] permite miembros activos verificados del workspace; no bloquea a todos.
+# Obligatorio cuando mcp.oauth esta configurado. Lista vacia invalida.
+# oauth:
+#   allowed_emails:
+#     - authorized.person@example.com
