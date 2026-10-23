@@ -1,3 +1,6 @@
+export type ConversationState = 'idle' | 'queued' | 'running' | 'waiting_human' | 'interrupted'
+export type RunState = 'queued' | 'running' | 'completed' | 'failed' | 'interrupted' | 'waiting_human'
+
 export interface Inbound {
   adapter: 'slack' | 'cli' | 'mcp'
   eventId: string
@@ -16,13 +19,13 @@ export interface Inbound {
 
 export interface Conversation {
   key: string
-  adapter: string
+  adapter: Inbound['adapter']
   channel: string
   thread: string | null
   team: string | null
   author: string
   cwd: string
-  state: string
+  state: ConversationState
   session_id: string | null
   updated_at: number
   task_id: string | null
@@ -37,7 +40,7 @@ export interface Run {
   reply_thread: string | null
   reply_channel: string | null
   intent: import('./intent.ts').Intent
-  state: string
+  state: RunState
   created_at: number
   result: string | null
   error: string | null

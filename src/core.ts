@@ -1,3 +1,4 @@
+import { ToolSchemas } from './tool-schemas.ts'
 import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -12,11 +13,11 @@ import { Store, redact } from './store.ts'
 import type { Conversation, Inbound, Output, Run, Rooms } from './types.ts'
 import { RoomTransfers } from './rooms.ts'
 import { denial } from '../plugin/hooks/policy.mjs'
-import { progressText, interruptedText, StatusRequest } from './progress.ts'
+import { progressText, interruptedText } from './progress.ts'
 import { resolveRepository, projectRoot, isolationFor, repositoryRequest } from './repository.ts'
 import { History, type HistoryLoader } from './history.ts'
 import { prepareProjectWorkspace, type ProjectWorkspace } from './project-workspace.ts'
-import { PreviewRequest, type Previews } from './previews.ts'
+import { type Previews } from './previews.ts'
 
 const PROJECT_FILE_TOOLS = new Set(['Read', 'Glob', 'Grep', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash', 'PowerShell', 'Monitor'])
 
@@ -276,7 +277,7 @@ export class Core {
     if (this.output.moved) await this.output.moved(active.run).catch(error => console.error(`[v2] mover stream: ${redact((error as Error).message)}`))
     this.refreshProgress(active)
   }
-  tool(token: string, name: string, args: Record<string, any>): Promise<unknown> {
+  tool(token: string, name: string, args: unknown): Promise<unknown> {
     const active = this.byToken(token)
     const operation = this.dispatchTool(token, name, args)
     if (!active) return operation
@@ -284,7 +285,7 @@ export class Core {
     void operation.then(() => active.operations.delete(operation), () => active.operations.delete(operation))
     return operation
   }
-  async dispatchTool(token: string, name: string, args: Record<string, any>): Promise<unknown> {
+  async dispatchTool(token: string, name: string, input: unknown): Promise<unknown> {
     const active = this.byToken(token)
     if (!active || !active.controller) throw new Error('Run inexistente o terminado.')
     const conversation = { ...this.store.conversation(active.run.conversation_key)!, thread: active.run.reply_thread, author: active.run.author }
@@ -295,16 +296,16 @@ export class Core {
     if (active.moving && name !== 'regent_cancel') throw new Error('El traslado de sala esta en curso; espera a que termine.')
     if (name === 'regent_preview') {
       if (!this.previews) throw new Error('Los previews remotos no estan configurados en esta instancia.')
-      const input = PreviewRequest.parse(args)
+      const args = ToolSchemas.regent_preview.parse(input)
       const key = conversation.key
-      if (input.action === 'stop') return this.previews.stop(key)
-      if (input.action === 'status') {
+      if (args.action === 'stop') return this.previews.stop(key)
+      if (args.action === 'status') {
         const preview = this.previews.get(key)
         return preview ? this.previews.result(preview) : { ready: false }
       }
-      if (input.action === 'publish') {
-        if (!input.pid) throw new Error('Indica el PID del proceso independiente que iniciaste en el worktree.')
-        return this.previews.publish(key, input.pid)
+      if (args.action === 'publish') {
+        if (!args.pid) throw new Error('Indica el PID del proceso independiente que iniciaste en el worktree.')
+        return this.previews.publish(key, args.pid)
       }
       const reason = await this.prepareWorkspace(token)
       if (reason) throw new Error(reason)
@@ -313,6 +314,7 @@ export class Core {
         instruction: 'Inicia la app en este worktree usando el puerto reservado y bind 127.0.0.1. Usa Bash y las instrucciones del repo, con un proceso independiente (setsid en Linux), conserva su PID y luego llama publish. Conserva el login y los permisos de la app; el proxy no agrega autenticacion. Configura cookies, redirecciones y origenes permitidos para el host de preview segun las instrucciones del proyecto. Comparte el URL solo cuando publish confirme ready.' }
     }
     if (name === 'regent_create_room') {
+      const args = ToolSchemas.regent_create_room.parse(input)
       if (conversation.adapter !== 'slack' || !this.rooms) throw new Error('Crear salas requiere el cliente Slack conectado.')
       if (active.operations.size) throw new Error('Espera a que terminen las otras herramientas antes de trasladar la conversacion.')
       active.moving = true
@@ -329,6 +331,7 @@ export class Core {
       } finally { active.moving = false }
     }
     if (name === 'regent_use_repo') {
+      const args = ToolSchemas.regent_use_repo.parse(input)
       let requested = resolveRepository(this.cwd, args.repo)
       const isolatedRoot = isolationFor(conversation.cwd, conversation.key).dir
       const relative = path.relative(isolatedRoot, requested)
@@ -354,7 +357,8 @@ export class Core {
       return { repo: target, switching: true, instruction: 'Termina el turno. Regent continuara con una sesion nueva y el entorno del repositorio seleccionado.' }
     }
     if (name === 'regent_status') {
-      const message = StatusRequest.parse(args)
+      const args = ToolSchemas.regent_status.parse(input)
+      const message = args
       const text = redact(message.text ?? message.status!)
       if (Date.now() - active.lastStatusAt < 3000) return { throttled: true }
       await this.output.notice(conversation, text)
@@ -362,6 +366,7 @@ export class Core {
       return { ok: true }
     }
     if (name === 'regent_ask_human') {
+      const args = ToolSchemas.regent_ask_human.parse(input)
       active.waiting = true
       const question = { id: randomBytes(16).toString('hex'), text: redact(args.question), options: (args.options ?? []).map((o: string) => redact(o)) }
       this.store.db.prepare("INSERT INTO gates(conversation_key,question,state,question_id,options,destination) VALUES(?,?,'pending',?,?,?) ON CONFLICT(conversation_key) DO UPDATE SET question=excluded.question,state='pending',answer=NULL,question_id=excluded.question_id,options=excluded.options,destination=excluded.destination")
@@ -373,6 +378,7 @@ export class Core {
       return { waiting_human: true, instruction: 'Termina el turno; la respuesta humana reanudara esta sesion.' }
     }
     if (name === 'regent_cancel') {
+      const args = ToolSchemas.regent_cancel.parse(input)
       active.cancelled = true
       active.abort.abort()
       setTimeout(() => active.controller?.cancel(args.reason), 100)

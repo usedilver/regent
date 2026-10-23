@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { randomUUID } from 'node:crypto'
-import type { Conversation, Inbound, Run } from './types.ts'
+import type { Conversation, ConversationState, Inbound, Run, RunState } from './types.ts'
 import { commandDisplay } from './command-display.ts'
 
 const sensitiveKey = (key: string) => /(?:^|_)(?:password|passwd|secret|token|api_key|private_key|authorization|cookie|credentials?)(?:_|$)/i
@@ -245,7 +245,7 @@ export class Store {
       return { duplicate: false, runId: id, command }
     })
   }
-  state(key: string, state: string): void { this.db.prepare('UPDATE conversations SET state=? WHERE key=?').run(state, key) }
+  state(key: string, state: ConversationState): void { this.db.prepare('UPDATE conversations SET state=? WHERE key=?').run(state, key) }
   session(key: string, id: string): void { this.db.prepare('UPDATE conversations SET session_id=? WHERE key=?').run(id, key) }
   queued(adapter?: string | string[]): Run[] {
     const adapters = adapter === undefined ? null : JSON.stringify(Array.isArray(adapter) ? adapter : [adapter])
@@ -257,7 +257,7 @@ export class Store {
       this.state(this.run(id)!.conversation_key, 'running')
     })
   }
-  finish(id: string, state: string, result = '', error = '', acknowledge?: () => void): void {
+  finish(id: string, state: Exclude<RunState, 'queued' | 'running'>, result = '', error = '', acknowledge?: () => void): void {
     this.transaction(() => {
       this.db.prepare('UPDATE runs SET state=?,result=?,error=?,ended_at=? WHERE id=?').run(state, redact(result), redact(error), Date.now(), id)
       const key = this.run(id)!.conversation_key

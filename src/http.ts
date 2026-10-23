@@ -3,10 +3,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { z } from 'zod'
 import type { Core } from './core.ts'
-import { RoomRequest } from './rooms.ts'
-import { StatusRequest } from './progress.ts'
+import { ToolSchemas } from './tool-schemas.ts'
 import type { ExternalMcp } from './mcp.ts'
-import { PreviewRequest } from './previews.ts'
 
 export function createHttp(core: Core, health: () => Record<string, unknown>, external?: ExternalMcp) {
   return http.createServer(async (request, response) => {
@@ -51,16 +49,10 @@ export function createHttp(core: Core, health: () => Record<string, unknown>, ex
         return send(200, { ok: true })
       }
       const server = new McpServer({ name: 'regent', version: '0.2.0' })
-      const schemas = {
-        ...(core.previews ? { regent_preview: PreviewRequest.shape } : {}),
-        regent_create_room: RoomRequest.shape,
-        regent_use_repo: { repo: z.string().min(1), handoff: z.string().min(1).max(20000), intent: z.enum(['ask', 'patch', 'task', 'project']).optional() },
-        regent_status: StatusRequest,
-        regent_ask_human: { question: z.string().min(1).max(3000), options: z.array(z.string().max(200)).max(5).optional() },
-        regent_cancel: { reason: z.string().min(1).max(2000) },
-      }
-      for (const [name, inputSchema] of Object.entries(schemas)) {
-        server.registerTool(name, { inputSchema, ...(name === 'regent_preview' ? { description: 'Preview temporal del worktree de esta conversacion. reserve asigna puerto y URL; inicia la app con Bash, luego publish verifica el PID y su respuesta. La app conserva su login y permisos. status consulta y stop libera el preview. Prefiere el preview del PR para entrega final.' } : {}) }, async args => {
+      for (const [name, schema] of Object.entries(ToolSchemas)) {
+        if (name === 'regent_preview' && !core.previews) continue
+        const inputSchema = name === 'regent_status' ? schema : schema.shape
+        server.registerTool(name, { inputSchema, ...(name === 'regent_preview' ? { description: 'Preview temporal del worktree de esta conversacion. reserve asigna puerto y URL; inicia la app con Bash, luego publish verifica el PID y su respuesta. La app conserva su login y permisos. status consulta y stop libera el preview. Prefiere el preview del PR para entrega final.' } : {}) }, async (args: unknown) => {
           try { return { content: [{ type: 'text' as const, text: JSON.stringify(await core.tool(token, name, args)) }] } }
           catch (error) { return { isError: true, content: [{ type: 'text' as const, text: (error as Error).message }] } }
         })

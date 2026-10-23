@@ -6,7 +6,16 @@ import { ensureTrusted, ensureBypassAccepted } from './claude-settings.ts'
 import type { ImageInput } from './images.ts'
 import { createSystemPrompt } from './prompt.ts'
 
-export interface RunnerEvent { kind: string; [key: string]: any }
+type ToolEvent = { id: string; parentId?: string | null }
+type McpConnection = { name: string; status?: string }
+export type RunnerEvent =
+  | { kind: 'init'; sessionId: string; mcpServers: McpConnection[]; errors: unknown; cwd: string | null; skills: string[]; agents: string[]; tools: string[] }
+  | { kind: 'api_retry'; attempt: number; error: unknown }
+  | { kind: 'text_delta'; text: string }
+  | ({ kind: 'tool_use'; name: string; input?: Record<string, unknown> } & ToolEvent)
+  | ({ kind: 'tool_result'; background?: boolean; error?: boolean; content?: unknown } & ToolEvent)
+  | { kind: 'result'; text: string; cost: number; usage: unknown; error: boolean; errors: string[]; denials: unknown[]; subtype?: string }
+  | { kind: 'mcp_degraded'; servers: string[] }
 export interface RunnerResult { state: 'completed' | 'failed' | 'interrupted'; text: string; error: string; cost: number; usage: unknown }
 let isolationVersionChecked = false
 export function assertIsolationVersion(version: string): void {
@@ -70,7 +79,7 @@ export function startRunner(options: RunnerOptions): { done: Promise<RunnerResul
   }
   const native = options.permissionMode === 'native'
   if (!native && !options.command) { ensureTrusted(options.cwd); ensureBypassAccepted() }
-  const env = { ...(options.env ?? process.env), REGENT_RUN_ID: options.runId, REGENT_RUN_TOKEN: options.token,
+  const env: NodeJS.ProcessEnv = { ...(options.env ?? process.env), REGENT_RUN_ID: options.runId, REGENT_RUN_TOKEN: options.token,
     REGENT_TOOLS_URL: options.toolsUrl, REGENT_READONLY_MCP: JSON.stringify(options.readonlyMcp), REGENT_ROOT: options.cwd,
     ...(native ? { REGENT_PERMISSION_MODE: 'repository' } : {}),
     GIT_PAGER: 'cat', GH_PAGER: 'cat', GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0' }
@@ -92,7 +101,7 @@ export function startRunner(options: RunnerOptions): { done: Promise<RunnerResul
     systemPrompt.dispose()
     throw error
   }
-  let reason = '', fatal = '', stderr = '', buffer = '', streamed = '', result: RunnerEvent | undefined
+  let reason = '', fatal = '', stderr = '', buffer = '', streamed = '', result: Extract<RunnerEvent, {kind: 'result'}> | undefined
   let lastEvent = Date.now(), closed = false
   let termTimer: NodeJS.Timeout | undefined, killTimer: NodeJS.Timeout | undefined
   const signal = (sig: NodeJS.Signals) => {
