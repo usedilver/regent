@@ -1,73 +1,51 @@
 # Repository Guidelines
 
-## Project Structure & Architecture
+Regent is a conversational Slack/MCP/CLI client for the official Claude Code CLI.
+Keep it project-agnostic: repositories supply skills, MCPs and business workflows.
+Read [ARCHITECTURE.md](ARCHITECTURE.md) and [CONTRIBUTING.md](CONTRIBUTING.md) before changing shared behavior.
 
-Regent is a conversational Slack and MCP client for the official Claude Code CLI. Keep it
-project-agnostic: repositories supply skills, MCPs, rules, and business workflows.
-Do not reintroduce mandatory boards, tickets, or approval pipelines.
+## Layout and boundaries
 
-- `src/`: TypeScript runtime. `server.ts` starts Slack; `cli.ts` provides local
-  commands; `core.ts`, `runner.ts`, and `store.ts` handle execution and persistence.
-  `mcp.ts` exposes external jobs, `mcp-server.ts` runs without Slack, and
-  `mcp-client.ts` bridges Claude Desktop stdio to the authenticated HTTP endpoint.
-  `mcp-activities.ts` rebuilds sanitized activity summaries; `mcp-progress.ts` and
-  `mcp-progress-app.ts` serve the self-contained MCP Apps progress panel.
-- `plugin/`: CLI protocol and permission hooks, not business-specific skills.
-- `client-plugin/`: distributable host plugin with a delegation skill and remote
-  MCP configuration; separate from the executor protocol in `plugin/`. Project
-  implementation skills remain in their own repositories.
-- `scripts/package-client-plugin.py`: packages only the public client manifest,
-  MCP configuration, skill, guide and license into the ignored `tmp/talently-code-plugin.zip`.
-- `test/`: executable tests, fake Claude process, and IPC fixtures.
-- `config/`: public `regent.example.yaml`, configuration guide, and ignored local
-  `regent.yaml`. Root `.env.example` documents service environment variables.
-- `README.md` and `CONTRIBUTING.md`: public usage and contribution guidance.
-  Architecture investigations and roadmap live in Notion, not a local `docs/` tree.
-- `slack-manifest.json`: Slack app configuration. There is no frontend asset tree.
+- `src/core/`: execution/session coordination, repositories, history and shared contracts.
+- `src/execution/`: official CLI subprocess, prompts and native repository settings.
+- `src/adapters/`: Slack, MCP and loopback HTTP. Core/storage do not import adapter SDKs.
+- `src/storage/`: SQLite, durable output and redaction. Preserve migrations and restart behavior.
+- `src/previews/`: owned listeners/processes and application-authenticated preview proxy.
+- `src/runtime.ts`: shared server lifecycle. Add cleanup here, including failed startup.
+- `src/server.ts`, `src/mcp-server.ts`, `src/cli.ts`, `src/mcp-client.ts`: stable entrypoints.
+- `plugins/executor/`: internal protocol, default communication policy and hooks.
+- `plugins/talently-code/`: branded public client. Project skills remain in target repos.
+- `config/`: public templates and ignored operator settings. Never stage local instance files.
+- `test/`: automatic suites; `fixtures/` for simulations, `smoke/` for opt-in real providers.
+- `dist/plugins/`: ignored versioned ZIPs/checksums; generated from the packaging allowlist.
 
-## Development Commands
+## Checks and style
 
-Use Node 22.20.0 or a compatible version and pnpm pinned by `packageManager`.
+Use `.nvmrc` and pnpm pinned in `package.json`. `pnpm check` matches the main CI job:
+Prettier, strict TypeScript and automatic `test/**/*.test.mjs` discovery. Use `pnpm format`
+for mechanical formatting. Do not register individual test filenames in package scripts.
+New tests use `node:test`; validate meaningful behavior rather than source formatting.
+`pnpm check:image` additionally verifies the Docker image and its runtime resources.
 
-- `pnpm install --frozen-lockfile`: install reproducible dependencies.
-- `pnpm dev`: run Slack with file watching.
-- `pnpm start`: run the server without watching.
-- `pnpm check`: run the same formatting, types and automatic tests as CI.
-- `pnpm test`: run the automated suites without production credentials.
-- `pnpm regent setup --repo /path/to/repo --team T_ID --user U_ID`: create instance configuration.
-- `REGENT_SMOKE=1 pnpm smoke`: opt-in real-Claude verification; requires configuration
-  and authentication and may incur usage charges.
+Use explicit ESM imports and type shared states/events and tool arguments. Prefer existing
+helpers and focused modules; do not introduce mandatory boards, tickets, approval pipelines
+or feature inventories into prompts and instructions. Documentation explains stable contracts,
+not a changelog for every feature. Instance communication policy controls presentation, not authorization.
 
-There is no required compilation command: Node executes TypeScript directly.
-The MCP Apps browser entry is bundled in memory with esbuild when first read.
+## Compatibility and delivery
 
-## Coding Style
+Keep public tools, OAuth/session contracts, worktrees, ignored configuration and `log/v2.sqlite`
+compatible. Do not change public identifiers just because source directories move. Validate
+cancel/restart/deduplication/permissions and failure cleanup when changing execution or adapters.
+Distinguish fake integration checks from real Slack/Claude/provider verification.
 
-Match existing ESM code: two-space indentation, single quotes, and generally no
-semicolons. Include file extensions in relative imports. Use camelCase for functions
-and variables, PascalCase for types/classes, and descriptive kebab-case filenames.
-Prefer existing helpers and focused modules. Run `pnpm check` before submitting: Prettier formatting, strict TypeScript checking and tests.
-Use `pnpm format` for mechanical formatting changes.
+Make focused Conventional Commits in English. Keep PRs reviewable and report validation and
+material limitations. Contributor verification must work without access to an internal tracker.
+Maintainer planning and local execution records can remain outside the public source tree.
 
-## Testing Guidelines
+## Security
 
-Tests use Node assertions, temporary repositories, SQLite, fake processes, and local
-HTTP servers. Name suites `test/**/*.test.mjs`; `pnpm test` discovers them automatically.
-Keep fixtures and opt-in provider checks outside that filename pattern.
-Cover changed behavior and failure paths, especially cancellation, deduplication,
-restart recovery, permissions, and secret redaction. No numeric coverage threshold
-is configured. Distinguish simulated tests from real Slack/provider verification.
-
-## Commits & Pull Requests
-
-Follow history: `fix:`, `refactor:`, `docs:`, or scoped prefixes such as `fix(slack):`.
-Keep commits focused. PRs should describe behavior, relevant issues, tests performed,
-and operational risks. Include screenshots for Slack rendering changes, keep public
-guides current, and record delivery status in the project's Notion documentation
-when access is available.
-
-## Security & State
-
-Follow `CONTRIBUTING.md`: never extract or forward Claude credentials. Keep secrets
-out of commits and logs. Preserve instance configuration, worktrees, and the existing
-`log/v2.sqlite` database; its filename is not a source-layout convention.
+Never extract, copy or forward Claude credentials; use the unmodified official CLI and the
+operator's normal authentication. Follow CONTRIBUTING.md. Do not stage secrets, sensitive
+transcripts or instance credentials in public plugins. Hooks are not an OS sandbox. Keep core
+policy and transport authorization separate from presentation and application preview login.

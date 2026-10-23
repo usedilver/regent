@@ -29,7 +29,7 @@ en `config/regent.yaml`. Consulta [configuración y acceso](config/README.md).
 Slack usa Socket Mode y no necesita una URL pública.
 
 Para Claude Desktop, configura [OAuth y HTTPS](config/README.md#oauth-login-for-mcp)
-e instala el [plugin cliente](client-plugin/README.md). Puedes ejecutar solo MCP
+e instala el [plugin cliente](plugins/talently-code/README.md). Puedes ejecutar solo MCP
 con `pnpm start:mcp`, sin conectar Slack, o ambos con `pnpm start`.
 
 ## Uso
@@ -49,15 +49,17 @@ También puedes consultar desde terminal. Si el servidor está activo, usa otra
 base de sesiones para la CLI:
 
 ```sh
-REGENT_DB=log/cli.sqlite pnpm regent ask "Explica este proyecto"
+REGENT_USER_ID=U012345 REGENT_DB=log/cli.sqlite pnpm regent ask "Explica este proyecto"
 ```
 
 ## Referencia
 
-| Necesito…                                            | Consultar                                 |
-| ---------------------------------------------------- | ----------------------------------------- |
-| Configurar proyectos, acceso, respuestas o ejecución | [Configuración](config/README.md)         |
-| Instalar o distribuir el plugin para Claude Desktop  | [Plugin cliente](client-plugin/README.md) |
-| Desarrollar y contribuir a Regent                    | [Contribuciones](CONTRIBUTING.md)         |
+| Necesito…                                            | Consultar                                         |
+| ---------------------------------------------------- | ------------------------------------------------- |
+| Configurar proyectos, acceso, respuestas o ejecución | [Configuración](config/README.md)                 |
+| Instalar o distribuir el plugin para Claude Desktop  | [Plugin cliente](plugins/talently-code/README.md) |
+| Desarrollar y contribuir a Regent                    | [Contribuciones](CONTRIBUTING.md)                 |
 
-Para desarrollar: `pnpm dev`. Para ejecutar las comprobaciones: `pnpm test`.
+Para contribuir: `pnpm install --frozen-lockfile` y `pnpm check`, sin credenciales de producción.
+Consulta [arquitectura](ARCHITECTURE.md) para ubicar cada módulo. Para ejecutar la instancia
+durante desarrollo: `pnpm dev`.

@@ -6,12 +6,12 @@ admitidos y sus valores predeterminados.
 
 ## Archivos
 
-| Archivo                    | Uso                                     | En Git |
-| -------------------------- | --------------------------------------- | ------ |
-| `regent.yaml`              | Configuración activa                    | No     |
-| `regent.example.yaml`      | Plantilla de configuración              | Sí     |
-| `communication.md`         | Reglas personalizadas de comunicación   | No     |
-| `communication.example.md` | Comunicación predeterminada y plantilla | Sí     |
+| Archivo                    | Uso                                      | En Git |
+| -------------------------- | ---------------------------------------- | ------ |
+| `regent.yaml`              | Configuración activa                     | No     |
+| `regent.example.yaml`      | Plantilla de configuración               | Sí     |
+| `communication.md`         | Reglas personalizadas de comunicación    | No     |
+| `communication.example.md` | Enlace a la política incluida; plantilla | Sí     |
 
 Crea la instancia con `pnpm regent setup --repo /ruta/al/proyecto --team T_ID --user U_ID`.
 El setup no sobrescribe archivos ni valida conexiones; `--workspace` amplía la
@@ -46,7 +46,7 @@ configuración no sustituye las condiciones del proveedor; consulta [contribucio
 
 ## Communication Policy
 
-`plugin/colleague.md` define el protocolo de ejecución; cada repositorio aporta sus
+`plugins/executor/colleague.md` define el protocolo de ejecución; cada repositorio aporta sus
 convenciones. Para personalizar las respuestas de Slack, MCP y CLI:
 
 ```sh
@@ -62,7 +62,7 @@ communication:
 
 Las rutas son relativas a la instalación de Regent, independientemente del proyecto
 elegido o de `REGENT_CONFIG`; también se aceptan rutas absolutas y `~/`. Null u
-omisión usa `communication.example.md`. Un archivo explícito debe ser legible,
+omisión usa `plugins/executor/communication.md`; `communication.example.md` enlaza a ese recurso como plantilla. Un archivo explícito debe ser legible,
 contener texto y no superar 32 KiB; los errores detienen la ejecución.
 
 Editar el contenido aplica al siguiente pedido, incluso al continuar una conversación,
@@ -191,7 +191,7 @@ ejecutado bajo esa cuenta puede acceder a su entorno; limita permisos en la fuen
 
 `pnpm test` verifica el comportamiento con procesos y proveedores simulados. Las
 pruebas opt-in `REGENT_SMOKE=1 pnpm smoke` y
-`REGENT_SMOKE=1 node test/project-smoke.mjs` usan Claude real y pueden consumir saldo;
+`REGENT_SMOKE=1 node test/smoke/project-smoke.mjs` usan Claude real y pueden consumir saldo;
 la segunda verifica skills/MCP de raíz y dos submódulos. Ninguna sustituye probar la
 instalación real en Slack o Desktop. Al migrar, elimina campos retirados que rechace
 el esquema y usa la plantilla actual; no borres el historial SQLite.
@@ -235,3 +235,12 @@ publicados deben tener su propio grupo (por ejemplo, `setsid` en Linux). La limp
 solo termina grupos con PID, fecha de inicio y worktree verificados; no mata un PID
 reutilizado. El supervisor debe permitir que esos procesos sobrevivan al reinicio
 del runtime y Regent debe volver a arrancar para efectuar su limpieza pendiente.
+
+## Proxy público
+
+[examples/Caddyfile](../examples/Caddyfile) publica sólo MCP y sus rutas OAuth. Sustituye
+el hostname y, si cambias `REGENT_PORT`, el puerto loopback. Las rutas internas de
+herramientas, políticas, salud y métricas quedan sin publicar. El proxy y Regent deben
+compartir el host o namespace de red para usar `127.0.0.1`. Valida la configuración de
+tu proxy y comprueba que las rutas internas devuelvan 404 desde el dominio público.
+El proxy de previews se configura por separado y conserva la sesión de la aplicación.
