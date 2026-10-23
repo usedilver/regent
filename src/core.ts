@@ -310,7 +310,7 @@ export class Core {
       if (reason) throw new Error(reason)
       const directory = isolationFor(conversation.cwd, key).dir
       return { ...await this.previews.reserve(key, directory),
-        instruction: 'Inicia la app en este worktree usando el puerto reservado y bind 127.0.0.1. Usa Bash y las instrucciones del repo, con un proceso independiente (setsid en Linux), conserva su PID y luego llama publish. Configura el host de preview si el framework lo requiere. El gateway valida la sesion corporativa y solo pasa las cookies configuradas por el operador; no desactives la autorizacion de datos de la app. No publiques localhost ni inventes un URL antes de que publish confirme ready.' }
+        instruction: 'Inicia la app en este worktree usando el puerto reservado y bind 127.0.0.1. Usa Bash y las instrucciones del repo, con un proceso independiente (setsid en Linux), conserva su PID y luego llama publish. Conserva el login y los permisos de la app; el proxy no agrega autenticacion. Configura cookies, redirecciones y origenes permitidos para el host de preview segun las instrucciones del proyecto. Comparte el URL solo cuando publish confirme ready.' }
     }
     if (name === 'regent_create_room') {
       if (conversation.adapter !== 'slack' || !this.rooms) throw new Error('Crear salas requiere el cliente Slack conectado.')

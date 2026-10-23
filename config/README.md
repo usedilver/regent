@@ -212,21 +212,13 @@ previews:
   port_max: 32009
   max_active: 3
   ttl_minutes: 120
-  forward_cookie_names: [app_session]
-  auth:
-    cookie_name: app_session
-    verify_url: https://api.example.com/auth/me
-    login_url: https://app.example.com/login
-    email_claim: result.email
-    required_claims: {success: true, result.has_verified_email: true}
-    allowed_email_domains: [example.com]
 ```
 
-El verificador recibe solo `Authorization: Bearer` con el token JWT opaco de la
-cookie (se acepta el formato JSON/URI de Nuxt). No decodifica claims del JWT para
-autorizar: valida el resultado del servicio, los claims requeridos y el dominio del
-correo. No guarda decisiones de acceso entre peticiones; agrupa verificaciones
-simultáneas del mismo token. El login y la cookie pertenecen al servicio existente.
+La autenticación y los permisos pertenecen a cada aplicación. El proxy reenvía sus
+cookies, Authorization, respuestas de login y Set-Cookie sin añadir otro control
+de acceso. Cada proyecto configura su API, cookies, redirecciones y orígenes
+permitidos para el host de preview. Para migrar desde la configuración anterior,
+retira `previews.auth` y `previews.forward_cookie_names`.
 
 El gateway escucha solo en loopback. Caddy publica HTTPS para el dominio y
 `*.preview.example.com`, enviándolo al gateway. Para certificados por host con
@@ -234,11 +226,9 @@ On-Demand TLS, configura `ask http://127.0.0.1:8791/_regent/tls`; solo autoriza
 hostnames registrados, publicados y vigentes. DNS wildcard no proporciona por sí
 solo un certificado wildcard: el modo por host está sujeto a límites de la CA.
 
-El puerto de la app permanece interno. HTTP y WebSocket requieren sesión. Solo
-se reenvían las cookies autorizadas; se descartan Authorization y cookies que
-intenten escribirse con Domain. No es un sandbox: aloja solo proyectos confiables,
+El puerto de la app permanece interno. HTTP y WebSocket llegan a la aplicación,
+que decide qué acceso permite. No es un sandbox: aloja solo proyectos confiables,
 especialmente si comparten el dominio de cookies de una aplicación corporativa.
-Cada app conserva su autorización y puede requerir configurar orígenes de desarrollo.
 
 Los previews son temporales y no reemplazan el despliegue del PR. Los procesos
 publicados deben tener su propio grupo (por ejemplo, `setsid` en Linux). La limpieza

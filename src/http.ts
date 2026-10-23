@@ -60,7 +60,7 @@ export function createHttp(core: Core, health: () => Record<string, unknown>, ex
         regent_cancel: { reason: z.string().min(1).max(2000) },
       }
       for (const [name, inputSchema] of Object.entries(schemas)) {
-        server.registerTool(name, { inputSchema, ...(name === 'regent_preview' ? { description: 'Preview temporal autenticado del worktree de esta conversacion. reserve asigna puerto y URL; inicia la app con Bash, luego publish verifica el PID y su respuesta. status consulta y stop libera el preview. Prefiere el preview del PR para entrega final.' } : {}) }, async args => {
+        server.registerTool(name, { inputSchema, ...(name === 'regent_preview' ? { description: 'Preview temporal del worktree de esta conversacion. reserve asigna puerto y URL; inicia la app con Bash, luego publish verifica el PID y su respuesta. La app conserva su login y permisos. status consulta y stop libera el preview. Prefiere el preview del PR para entrega final.' } : {}) }, async args => {
           try { return { content: [{ type: 'text' as const, text: JSON.stringify(await core.tool(token, name, args)) }] } }
           catch (error) { return { isError: true, content: [{ type: 'text' as const, text: (error as Error).message }] } }
         })

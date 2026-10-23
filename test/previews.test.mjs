@@ -15,24 +15,36 @@ const directory=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'regent-pre
 const listen=async server=>{ server.listen(0,'127.0.0.1'); await once(server,'listening'); return server.address().port }
 const close=server=>new Promise(resolve=>server.close(resolve))
 const store=new Store(':memory:')
-let identity={success:true,result:{email:'person@example.com',has_verified_email:true}}, authCalls=0, seen
-const verify=http.createServer((req,res)=>{
- authCalls++; assert.equal(req.headers.authorization,'Bearer a.b.c')
- res.setHeader('content-type','application/json'); res.end(JSON.stringify(identity))
-})
+let seen
+const authenticated = request => request.headers.cookie?.includes('match_session=match-token')
+ || request.headers.authorization === 'Bearer app-token'
 const app=http.createServer((req,res)=>{
- seen={headers:req.headers,url:req.url}; res.setHeader('set-cookie',['session=app; Path=/; HttpOnly','parent=bad; Domain=example.com; Path=/'])
+ seen={headers:req.headers,url:req.url}
+ if (req.url === '/private' && !authenticated(req)) {
+  res.writeHead(401);return res.end('Application login required')
+ }
+ if (req.url === '/login') {
+  res.writeHead(302, { location:'/private', 'set-cookie':[
+   'match_session=match-token; Domain=example.com; Path=/; Secure; HttpOnly',
+   'csrf=app-csrf; Path=/; Secure',
+  ] });return res.end()
+ }
+ if (req.url === '/restricted-origin' && req.headers.origin !== 'https://app.example.com') {
+  res.writeHead(403);return res.end('Application origin policy')
+ }
  res.end('Preview fixture')
 })
-app.on('upgrade',(req,socket)=>{socket.end('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: test\r\n\r\n')})
+app.on('upgrade',(req,socket)=>{
+ seen={headers:req.headers,url:req.url}
+ if (!authenticated(req)) return socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+ socket.end('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: test\r\n\r\n')
+})
 let gateway,previews
 try {
- const authPort=await listen(verify)
  // Reserve a real free port, then let the fixture application occupy it.
  const probe=http.createServer(); const port=await listen(probe); await close(probe)
  const config=ConfigSchema.parse({auth:{mode:'indie'},repos:{path:directory},slack:{workspace_team_id:'T1',allowed_users:['U1']},
-  previews:{domain:'preview.example.com',port_min:port,port_max:port+3,max_active:2,ttl_minutes:5,forward_cookie_names:['session'],
-   auth:{cookie_name:'session',verify_url:`http://127.0.0.1:${authPort}/me`,login_url:'https://login.example.com/',email_claim:'result.email',required_claims:{success:true,'result.has_verified_email':true},allowed_email_domains:['example.com']}}}).previews
+  previews:{domain:'preview.example.com',port_min:port,port_max:port+3,max_active:2,ttl_minutes:5}}).previews
  let now=Date.now(),processInfo={cwd:directory,start:'owned',group:42},killed=[]
  previews=new Previews(store,config,pid=>pid===42?processInfo:null,pid=>killed.push(pid),()=>now)
  const first=await previews.reserve('one',directory)
@@ -59,20 +71,24 @@ try {
    const chunks=[];res.on('data',c=>chunks.push(c));res.on('end',()=>resolve({status:res.statusCode,headers:res.headers,text:Buffer.concat(chunks).toString()}))
   }).on('error',reject)
  })
- assert.equal((await request()).status,401)
- assert.equal((await request({cookie:'session=a.b.c',origin:'https://foreign.example.net'})).status,403)
- assert.equal(authCalls,0)
- assert.equal((await request({cookie:'session=a.b.c; session=x.y.z'})).status,401)
- identity.result.email='outsider@other.example.com'
- assert.equal((await request({cookie:'session=a.b.c'})).status,401)
- identity.result.email='person@example.com';identity.result.has_verified_email=false
- assert.equal((await request({cookie:'session=a.b.c'})).status,401)
- identity.result.has_verified_email=true
- const result=await request({cookie:'session=%22a.b.c%22; private=secret',authorization:'Bearer must-not-forward','x-forwarded-user':'forged'},'/screen?test=1')
+ assert.equal((await request()).status,200)
+ const denied = await request({},'/private')
+ assert.equal(denied.status,401);assert.equal(denied.text,'Application login required')
+ assert.equal((await request({cookie:'match_session=match-token'},'/private')).status,200)
+ assert.equal((await request({authorization:'Bearer app-token'},'/private')).status,200)
+ const result=await request({cookie:'match_session=match-token; csrf=app-csrf',authorization:'Bearer app-token',origin:'https://app.example.com','x-forwarded-user':'forged'},'/screen?test=1')
  assert.equal(result.status,200);assert.equal(result.text,'Preview fixture')
- assert.equal(seen.url,'/screen?test=1');assert.equal(seen.headers.cookie,'session=%22a.b.c%22')
- assert.equal(seen.headers.authorization,undefined);assert.equal(seen.headers['x-forwarded-user'],undefined)
- assert.deepEqual(result.headers['set-cookie'],['session=app; Path=/; HttpOnly'])
+ assert.equal(seen.url,'/screen?test=1');assert.equal(seen.headers.cookie,'match_session=match-token; csrf=app-csrf')
+ assert.equal(seen.headers.authorization,'Bearer app-token');assert.equal(seen.headers['x-forwarded-user'],undefined)
+ assert.equal(seen.headers.origin,'https://app.example.com')
+ assert.equal(seen.headers['x-forwarded-proto'],'https');assert.equal(seen.headers['x-forwarded-host'],host)
+ const login = await request({},'/login')
+ assert.equal(login.status,302);assert.equal(login.headers.location,'/private')
+ assert.deepEqual(login.headers['set-cookie'],[
+  'match_session=match-token; Domain=example.com; Path=/; Secure; HttpOnly',
+  'csrf=app-csrf; Path=/; Secure',
+ ])
+ assert.equal((await request({origin:'https://other.example.com'},'/restricted-origin')).status,403)
  assert.equal(result.headers['cache-control'],'no-store')
  const upgrade=async(cookie)=>new Promise((resolve,reject)=>{
   const req=http.request({hostname:'127.0.0.1',port:gatewayPort,headers:{host,connection:'Upgrade',upgrade:'test',...(cookie?{cookie}:{})}})
@@ -81,11 +97,12 @@ try {
   req.on('error',reject);req.end()
  })
  assert.equal(await upgrade(),401)
- assert.equal(await upgrade('session=a.b.c'),101)
- assert.equal((await request({host:'unknown.preview.example.com',cookie:'session=a.b.c'})).status,404)
+ assert.equal(await upgrade('match_session=match-token'),101)
+ assert.equal(seen.headers.cookie,'match_session=match-token')
+ assert.equal((await request({host:'unknown.preview.example.com'})).status,404)
  assert.equal((await request({host:'127.0.0.1'},`/_regent/tls?domain=${host}`)).status,200)
  assert.equal((await request({host:'127.0.0.1'},'/_regent/tls?domain=unregistered.preview.example.com')).status,403)
- console.log('  OK preview session verification, denied outsiders/unverified accounts, cookie isolation and TLS allowlist')
+ console.log('  OK app-owned HTTP/WebSocket authentication, cookies, bearer tokens, redirects, origin policy and TLS allowlist')
  // Ownership is rechecked after restart and before stopping, protecting reused PIDs.
  const resumed=new Previews(store,config,pid=>processInfo,pid=>killed.push(pid),()=>now)
  assert.equal(resumed.result(resumed.get('one')).ready,true)
@@ -116,6 +133,6 @@ try {
  core.active.clear();await close(coreHttp)
  console.log('  OK preview tool is advertised only when the server configures the gateway')
 } finally {
- previews?.close();if(gateway?.listening)await close(gateway);if(app.listening)await close(app);if(verify.listening)await close(verify)
+ previews?.close();if(gateway?.listening)await close(gateway);if(app.listening)await close(app)
  store.close();fs.rmSync(directory,{recursive:true,force:true})
 }

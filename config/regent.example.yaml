@@ -6,7 +6,7 @@ name: Regent
 permission_mode: bypass
 communication:
   instructions_file: null # Usa communication.example.md; selecciona config/communication.md para personalizar.
-previews: null # Preview temporal autenticado; configuracion en config/README.md.
+previews: null # Preview temporal; la app maneja su login. Configuracion en config/README.md.
 auth:
   # Pro/Max personal via Claude Code. Compartir la cuenta puede causar suspension/baneo.
   mode: indie
