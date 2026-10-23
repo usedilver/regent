@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 
 export function isolationFor(repo: string, conversation: string) {
   const root = fs.realpathSync(repo)
@@ -19,6 +20,23 @@ export function resolveRepository(workspace: string, value: string): string {
     throw new Error('Indica la raiz de un repositorio existente.')
   }
   return dir
+}
+
+export function projectRoot(workspace: string, repo: string): string {
+  let current = resolveRepository(workspace, repo)
+  while (true) {
+    let parent: string
+    try {
+      parent = execFileSync('git', ['rev-parse', '--show-superproject-working-tree'], {
+        cwd: current, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 10000,
+      }).trim()
+    } catch { return current }
+    if (!parent) return current
+    const resolved = resolveRepository(workspace, parent)
+    const relative = path.relative(resolved, current)
+    if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error('Relacion de submodulo invalida.')
+    current = resolved
+  }
 }
 
 /** Optional explicit selector, never a heuristic over URLs or ordinary prose. */

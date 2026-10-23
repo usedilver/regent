@@ -1,158 +1,237 @@
-# Instance Configuration
+# Configuración de la instancia
 
-Create `regent.yaml` with `pnpm regent setup --repo /path/to/repos/project --team T_ID --user U_ID`.
-See [the example](regent.example.yaml) for optional settings.
+[Volver al README](../README.md). Esta página es una referencia para quien administra
+Regent. El código y [regent.example.yaml](regent.example.yaml) definen los campos
+admitidos y sus valores predeterminados.
 
-`repos.path` is the authorized workspace; `repos.default_repo` is relative to it
-(and to `workspace_root` if configured). The repository provides rules, skills,
-MCPs and its own environment. Existing conversations retain their selected repo.
+## Archivos
 
-Only this README and `regent.example.yaml` are tracked in this directory.
-The runtime reads `regent.yaml`, never the example. Server secrets belong in the
-root `.env`. The retired v1 `workflow.json` and `process.md` are not loaded.
+| Archivo | Uso | En Git |
+| --- | --- | --- |
+| `regent.yaml` | Configuración activa | No |
+| `regent.example.yaml` | Plantilla de configuración | Sí |
+| `communication.md` | Reglas personalizadas de comunicación | No |
+| `communication.example.md` | Comunicación predeterminada y plantilla | Sí |
+
+Crea la instancia con `pnpm regent setup --repo /ruta/al/proyecto --team T_ID --user U_ID`.
+El setup no sobrescribe archivos ni valida conexiones; `--workspace` amplía la
+carpeta de proyectos y `--user` puede repetirse. También puedes copiar la plantilla.
+Slack y MCP leen `config/regent.yaml`; `REGENT_CONFIG` permite elegir otro archivo.
+`regent.example.yaml` no se carga como configuración activa.
+
+Los secretos del servidor van en `.env`, el estado en `log/` y los auxiliares locales
+o respaldos en `tmp/local/`. Conserva la base SQLite al actualizar la instancia.
 
 ## Active Settings
 
-- `auth.mode` and `slack.workspace_team_id` / `allowed_users`: identity and access.
-  Indie warns, but does not stop, with zero or multiple authorized users.
-  An empty list admits verified active workspace users, not bots. This warning
-  does not establish provider permission; prefer team/API for shared usage.
-- `permission_mode`: make this explicit. Default `bypass` skips native permission
-  rules; `native` respects them. Regent hooks are not a shell sandbox.
-- `repos.path` / `default_repo`: workspace and initial context. Optional
-  `workspace_root` narrows the workspace to a subdirectory.
-- `repos.agent_env_files`: optional explicit environment files. Empty/omitted
-  loads the selected repository's root `.env`; it does not disable environment loading.
-- `repos.readonly_mcp`: optional additional hook restrictions; not a replacement
-  for read-only credentials on the data source.
-- `slack.progress_mode`: `auto` (default) for task cards, `plain` for simple text.
-- `limits`: concurrency, per-turn seconds (`ask`, `patch`, `task`, `project`), inactivity
-  timeout (`stall_sec`) and cancellation grace period (`cancel_grace_sec`).
-- `budget`: per-run and daily USD limits, applied only in `auth.mode: team`.
-- `session.idle_reset_hours`: resets eligible idle non-thread sessions; not a
-  history retention policy.
-- `models.ask` / `patch` / `task` / `project`: optional CLI model identifiers. Null leaves
-  selection to Claude Code. `name` labels the server, not the Slack app profile.
+| Ajuste | Comportamiento |
+| --- | --- |
+| `name` | Nombre visible del MCP; no cambia el perfil de la app de Slack ni los identificadores `regent_*`. |
+| `auth.mode` | `indie` usa el login local de Claude Code; `team` requiere `ANTHROPIC_API_KEY`. Autentica el motor, no a quienes llaman al MCP. |
+| `slack.workspace_team_id` / `allowed_users` | Workspace y usuarios autorizados. Una lista vacía permite miembros activos verificados, excluyendo bots. |
+| `repos.path` / `workspace_root` / `default_repo` | Proyectos accesibles y contexto inicial. El predeterminado es relativo al workspace; no sustituye un destino explícito. |
+| `repos.agent_env_files` | Archivos de entorno para el agente. Vacío carga el `.env` de la raíz del proyecto seleccionado. |
+| `repos.readonly_mcp` | Restricciones adicionales del hook; usa también credenciales de solo lectura en la fuente. |
+| `permission_mode` | `bypass` omite los permisos nativos; `native` respeta `allow/ask/deny` y puede denegar solicitudes en modo headless. Los hooks no son un sandbox. |
+| `slack.progress_mode` | `auto` para actividades; `plain` para texto actualizado. |
+| `communication.instructions_file` | Archivo de comunicación personalizado; se explica abajo. |
+| `models` / `limits` | Modelo, concurrencia, duración, inactividad y cancelación por perfil. |
+| `budget` | Límites por ejecución y usuario en modo `team`; no limitan una suscripción personal. |
+| `session.idle_reset_hours` | Reinicio de sesiones inactivas elegibles; no elimina su historial. |
+| `mcp` | Habilitación del endpoint externo y acceso mediante OAuth o tokens técnicos. |
 
-## Shared Agent Credentials (Optional)
+Usa `indie` para el operador individual y `team` para uso compartido. El modo individual
+advierte ante acceso abierto o varios usuarios, pero no bloquea el arranque. La
+configuración no sustituye las condiciones del proveedor; consulta [contribuciones](../CONTRIBUTING.md).
 
-A dedicated, trusted instance may supply provider credentials through its service
-environment. Regent does not require or interpret any provider-specific keys.
-All agent processes inherit them, including repository scripts and MCP subprocesses;
-do not use this configuration to execute untrusted repositories. Worktrees and
-permission hooks do not isolate credentials from code running as the same OS user.
+## Communication Policy
 
-For a systemd user service, keep a private file outside all repositories, for example
-`~/.config/regent/agent-shared.env` (directory mode `700`, file mode `600`). Put
-only intentionally shared credentials there, using `KEY=value` entries. Add a
-drop-in with `systemctl --user edit regent.service`:
+`plugin/colleague.md` define el protocolo de ejecución; cada repositorio aporta sus
+convenciones. Para personalizar las respuestas de Slack, MCP y CLI:
 
-```ini
-[Service]
-EnvironmentFile=%h/.config/regent/agent-shared.env
+```sh
+cp config/communication.example.md config/communication.md
 ```
 
-Then run `systemctl --user daemon-reload` and `systemctl --user restart regent`.
-Restart after credential rotation too; existing processes retain their environment.
-For a system service use an absolute path readable by the service account instead.
-Never commit this file or copy its administrative tokens into app runtime env files.
+Selecciona el archivo en `regent.yaml`:
 
-Leave `repos.agent_env_files` empty to keep loading each selected repo's `.env`.
-Repository values override shared values. Keys declared in Regent's root `.env`
-are removed unless supplied by the repo, so do not also declare shared keys there.
-`SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, and `SLACK_SIGNING_SECRET` are reserved for
-Regent and always removed from agent environments, regardless of their source.
-The operator's `ANTHROPIC_API_KEY` remains available for Claude authentication.
+```yaml
+communication:
+  instructions_file: config/communication.md
+```
 
-Use least-privilege credentials limited at the provider to test resources. Selecting
-a team or project in a CLI does not restrict the token's permissions. Validate
-authentication with a clean CLI configuration and read-only commands before removing
-an existing login; record CLI versions, never token values. No production deploy or
-resource creation is necessary for this check.
+Las rutas son relativas a la instalación de Regent, independientemente del proyecto
+elegido o de `REGENT_CONFIG`; también se aceptan rutas absolutas y `~/`. Null u
+omisión usa `communication.example.md`. Un archivo explícito debe ser legible,
+contener texto y no superar 32 KiB; los errores detienen la ejecución.
 
-## Slack Images
+Editar el contenido aplica al siguiente pedido, incluso al continuar una conversación,
+sin reiniciar el servidor. Cambiar la ruta configurada sí requiere reiniciarlo.
+Cada ejecución recibe una copia temporal privada del protocolo y la política, que
+se elimina al terminar. Claude Code administra la caché; los cambios pueden invalidarla.
 
-Image attachments shared as Slack files are sent to Claude as visual input, including
-earlier thread messages and image-only DMs. Initial limits: five images per turn,
-3 MiB each, 10 MiB total, 8000 x 8000 pixels; PNG/JPEG/GIF/WebP only. The app needs
-`files:read`. URLs pasted as text and PDF pages are not processed as images.
-See [image transport](../docs/slack-images.md) and [future formats](../docs/slack-attachments-roadmap.md).
+Estas reglas controlan presentación, no permisos. Conserva los riesgos, fallos y
+limitaciones relevantes y no incluyas secretos. El cliente MCP puede reformular el
+resultado; la política del servidor no controla otras respuestas del cliente.
 
-## Slack Sender Identity
+## OAuth Login for MCP
 
-Each turn uses the event sender's Slack user ID and the configured workspace ID,
-not the thread starter or the owner of a connected tool. `users.info` enriches
-that identity with optional name/email. Profiles are cached for five minutes;
-failed lookups for thirty seconds. Enrichment waits at most two seconds and yields
-to cancellation. Missing profile information does not block ordinary tasks.
+OAuth identifica a las personas que conectan al MCP, separado del login del motor.
+Configura un proveedor OpenID Connect con correo verificado:
 
-The manifest requests `users:read` and `users:read.email`. For an existing Slack
-app, add the email scope in OAuth & Permissions (or update the manifest), reinstall
-the app into the workspace to approve it, and restart Regent. Editing the manifest
-in Git alone does not grant an installed app new scopes. Email may still be absent.
-No user OAuth token or additional webhook is required for this lookup.
+```yaml
+mcp:
+  enabled: true
+  principals: []
+  oauth:
+    issuer_url: https://code.example.com
+    trust_proxy: loopback
+    redirect_uris:
+      - https://claude.ai/api/mcp/auth_callback
+    oidc:
+      issuer_url: https://accounts.google.com
+      client_id: YOUR_APPLICATION_ID
+      client_secret_env: REGENT_MCP_OIDC_CLIENT_SECRET
+      allowed_emails:
+        - authorized.person@example.com
+```
 
-Profiles are mutable data, not authorization or a universal cross-service identity.
-Skills must resolve a unique external user mapping/email match before assigning
-resources; ambiguous or missing matches require a question, never the connection
-owner as a fallback. Do not publish the profile email unnecessarily.
+1. Registra `https://code.example.com/oauth/callback` en el proveedor y guarda su
+   secreto en la variable indicada, dentro de `.env`.
+2. Configura los callbacks del cliente y los correos autorizados, sin comodines.
+   La lista se verifica al iniciar sesión, renovar tokens y acceder al MCP; concede
+   acceso al workspace de esta instancia, sin roles por proyecto.
+3. Publica por HTTPS el mismo origen del issuer y verifica login, reconexión y
+   desconexión desde el cliente antes de distribuir el plugin.
 
-References: [users.info](https://docs.slack.dev/reference/methods/users.info/),
-[user objects](https://docs.slack.dev/reference/objects/user-object/),
-[email scope](https://docs.slack.dev/reference/scopes/users.read.email/).
+Google es un ejemplo. El proveedor debe soportar OIDC; la sesión JWT de Hire no es
+intercambiable sin una integración. `trust_proxy: loopback` admite un proxy local;
+usa `none` sin él. El issuer es explícito, no se deduce de cabeceras HTTP.
 
-## Project Environment Files
+Publica únicamente `/mcp`, `/.well-known/oauth-protected-resource/mcp`,
+`/.well-known/oauth-authorization-server`, `/authorize`, `/register`, `/token`,
+`/revoke`, `/oauth/callback` y `/oauth/consent`. Mantén `/tools`, `/tool-policy`,
+`/hook-denial`, `/healthz` y `/metrics` internos. Localhost sirve para pruebas;
+los conectores remotos de Claude necesitan HTTPS accesible públicamente.
 
-The hook does not impose special path or shell-operator restrictions on `.env`
-files, including `.env.local`. Reads and shell commands can access files outside
-the worktree when runtime permissions allow it. General Write/Edit confinement,
-including symlink escape checks, remains unchanged. Claude credential guards and
-repository permission rules in native mode still apply.
-This is not secret isolation between projects: in bypass mode the same OS user
-can read other checkouts' env files. Use OS-level isolation for untrusted projects.
+El consentimiento requiere CSRF y origen válido: conserva `Referrer-Policy:
+same-origin` y la CSP que permite redirigir solo a los orígenes configurados.
+El protocolo usa PKCE y tokens propios ligados al recurso; descarta los tokens
+upstream y no entrega secretos de transporte al agente.
 
-Keep runtime secrets ignored by Git, preserve unrelated keys when editing, and
-never print values to Slack or commit them. These hooks are not a shell sandbox:
-scripts and tools running as the same OS user can access that user's files.
+Los access tokens duran 15 minutos; los refresh tokens rotan dentro de una sesión
+de siete días. Reutilizar un refresh token revoca la sesión. SQLite conserva hashes,
+identidades verificadas y sesiones entre reinicios; los logins en curso deben
+reiniciarse. Cada identidad solo puede consultar o continuar sus propios trabajos.
+Cambiar usuarios o callbacks requiere reiniciar; revocar acceso no cancela un
+trabajo que ya está ejecutándose.
 
-## Turn Profiles
+Como alternativa, `mcp.principals` vincula un ID a una variable `REGENT_MCP_TOKEN_*`.
+Usa tokens distintos de al menos 32 caracteres; reinicia para rotarlos. Los trabajos
+creados con un token no se reasignan al migrar esa persona a OAuth.
 
-Each Slack DM root message starts an independent conversation, just like a normal
-channel thread. Replies in that thread reuse its session, repository and worktree;
-another root starts from the configured default unless a repo is explicitly selected.
-History and attachments are scoped to the thread. Reply inside the existing thread
-to continue work or stop it. Managed Regent rooms intentionally share channel-wide
-context, including their threads. Moving a DM thread to a room redirects only that
-source thread, not the entire DM.
+## Proyectos y ejecución
 
-Upgrading preserves old channel-wide DM records but does not reuse their sessions
-for threaded conversations. Existing DM threads start fresh sessions on their next
-message and recover their own Slack history; explicitly select their project when
-resuming older work. Other threads' old worktrees and pending work are not deleted.
+Los submódulos Git pertenecen a su proyecto raíz y conservan las conexiones y skills
+compartidas al navegar entre servicios. Antes de editar se preparan checkouts
+inicializados en worktrees aislados, desde los commits fijados por sus padres.
+No se clonan submódulos automáticamente ni se actualizan gitlinks. Cada repo mantiene
+sus pruebas y commits. `.worktreeinclude` copia archivos ignorados de setup al crear
+el worktree y conserva sus cambios al continuar.
 
-Slack no longer defaults every turn to ask. A deterministic Spanish/English router
-selects project for app creation, patch for edits, task for operational requests,
-and ask for questions. Short continuations inherit the previous turn's profile.
-Repository handoffs preserve the profile. Rules are heuristic, not a semantic guarantee:
-use `/project <request>` (a prefix in the message, not a registered Slack slash command)
-to force project, or /ask, /patch, /task for the other profiles. In Slack, put the
-prefix after the mention. Skills may set `intent` on `regent_use_repo`, including
-the current repo, to restart under the correct configured model before building.
+Un proyecto independiente carga su propio contexto mediante `regent_use_repo` y una
+nueva sesión; hacer `cd` no recarga MCPs. Las conexiones y variables del agente parten
+de la raíz del proyecto. Los entornos de ejecución de cada servicio siguen siendo
+propios. El aislamiento de worktrees y los hooks no aíslan secretos a nivel del
+sistema operativo: ejecuta solo repositorios confiables bajo la misma cuenta.
 
-`models.project` and `limits.max_run_sec.project` are active settings again.
-Default project timeout: 7200 seconds (two hours). The other defaults remain 600,
-1800 and 3600 seconds. Set models explicitly in the instance config; public templates
-leave model IDs null. If project is null, it falls back to models.task for older
-instance configurations. Routing does not grant deployment/data permissions.
-The `routing` event records chosen intent, model and timeout without credentials.
-Changing a YAML on this machine does not update the server's ignored config.
+Para elegir el contexto inicial explícitamente en Slack, escribe `repo: ruta/al/repo`
+en una línea y el pedido en la siguiente. En CLI usa `--repo`. Una ruta inválida no
+cae silenciosamente al predeterminado. Otro proyecto mencionado por nombre o URL
+se resuelve usando las instrucciones del contexto inicial.
 
-## Removed Inactive Fields
+Cada hilo normal y cada mensaje raíz de DM inicia una conversación independiente;
+responde dentro del hilo para continuar o detenerla. Las salas solicitadas al bot
+comparten contexto de canal, pero invitar a alguien no amplía `allowed_users`.
+En canales y salas se necesita @mención, salvo respuestas a una pregunta pendiente
+y comandos de control del autor. En DM no hace falta mencionar al bot.
 
-Before upgrading an old instance, remove these keys (they had no runtime effect):
-`policy`, `mcp`, `projects`, `notion`; `repos.default_base_branch`,
-`repos.base_branches`, `repos.test_commands`; `slack.ops_channel`,
-`slack.digest_channel`; `limits.max_run_sec.project_step`.
-The schema now rejects them rather than silently suggesting they are supported.
-Branches, test commands, trackers and MCP setup belong to the repository.
-Omitting a supported setting uses its default, not necessarily a disabled state.
+El router selecciona `ask`, `patch`, `task` o `project`. Puedes forzarlo con `/ask`,
+`/patch`, `/task` o `/project` después de la mención. Las continuaciones breves heredan
+el perfil; `models.project` null usa `models.task`. El perfil cambia tiempo/modelo,
+no autorización. El tramo final reserva hasta 60 segundos o el 20% del límite para
+responder; no amplía el timeout ni garantiza recuperar una herramienta interrumpida.
+
+## Operación
+
+- `pnpm start` sirve Slack y, si está habilitado, MCP; `pnpm start:mcp` sirve solo MCP.
+- El puerto predeterminado es `8788`, enlazado a `127.0.0.1`. El estado predeterminado
+  está en `log/v2.sqlite`. [`.env.example`](../.env.example) muestra los overrides.
+- Un solo runtime puede escribir en una base SQLite. Usa otra `REGENT_DB` para una
+  CLI concurrente. No cambies la base existente durante una actualización.
+- Slack usa Socket Mode. Para pruebas, usa una app separada: dos procesos con el
+  mismo app token pueden repartirse eventos. El [manifiesto](../slack-manifest.json)
+  define los scopes; reinstala la app tras cambiarlos para aprobarlos.
+- `/healthz` muestra conexión, cola y entregas; `/metrics`, las ejecuciones por estado.
+  `pnpm regent runs` y `pnpm regent tail <run_id> --follow` permiten inspeccionar trabajo.
+- Las imágenes adjuntas de Slack requieren `files:read`: hasta cinco por turno,
+  3 MiB por imagen y 10 MiB en total, en PNG/JPEG/GIF/WebP. Las URLs y páginas PDF
+  no se convierten automáticamente en imágenes.
+- El emisor se resuelve por workspace/user ID, con nombre y correo opcionales vía
+  `users.info`. El dueño de una conexión no sustituye la identidad del solicitante;
+  las asignaciones externas requieren un mapeo inequívoco.
+
+Para credenciales de servicio compartidas entre proyectos, usa un entorno externo
+privado del servicio, por ejemplo `~/.config/regent/agent-shared.env`, cargado mediante
+`EnvironmentFile` en systemd. No lo añadas también al `.env` de Regent: sus claves se
+retiran del entorno del agente salvo que las aporte el proyecto. Las variables del
+repo sobrescriben las compartidas; las credenciales Slack siempre se retiran y la
+API key del motor se conserva. Reinicia tras rotar credenciales. Cualquier script
+ejecutado bajo esa cuenta puede acceder a su entorno; limita permisos en la fuente.
+
+`pnpm test` verifica el comportamiento con procesos y proveedores simulados. Las
+pruebas opt-in `REGENT_SMOKE=1 pnpm smoke` y
+`REGENT_SMOKE=1 node test/project-smoke.mjs` usan Claude real y pueden consumir saldo;
+la segunda verifica skills/MCP de raíz y dos submódulos. Ninguna sustituye probar la
+instalación real en Slack o Desktop. Al migrar, elimina campos retirados que rechace
+el esquema y usa la plantilla actual; no borres el historial SQLite.
+
+## Previews temporales
+
+`previews: null` los deshabilita. Configurarlos habilita `regent_preview` en el
+agente de Slack/MCP: reserva puerto, inicia la app con Bash en su worktree y publica
+con el PID de un grupo de procesos independiente. No ejecuta comandos por fuera de
+los permisos del repositorio. Se conserva un preview por conversación, incluso al
+reiniciar Regent, hasta detenerlo o vencer su plazo.
+
+```yaml
+previews:
+  domain: preview.example.com
+  listen_port: 8791
+  port_min: 32000
+  port_max: 32009
+  max_active: 3
+  ttl_minutes: 120
+```
+
+La autenticación y los permisos pertenecen a cada aplicación. El proxy reenvía sus
+cookies, Authorization, respuestas de login y Set-Cookie sin añadir otro control
+de acceso. Cada proyecto configura su API, cookies, redirecciones y orígenes
+permitidos para el host de preview. Para migrar desde la configuración anterior,
+retira `previews.auth` y `previews.forward_cookie_names`.
+
+El gateway escucha solo en loopback. Caddy publica HTTPS para el dominio y
+`*.preview.example.com`, enviándolo al gateway. Para certificados por host con
+On-Demand TLS, configura `ask http://127.0.0.1:8791/_regent/tls`; solo autoriza
+hostnames registrados, publicados y vigentes. DNS wildcard no proporciona por sí
+solo un certificado wildcard: el modo por host está sujeto a límites de la CA.
+
+El puerto de la app permanece interno. HTTP y WebSocket llegan a la aplicación,
+que decide qué acceso permite. No es un sandbox: aloja solo proyectos confiables,
+especialmente si comparten el dominio de cookies de una aplicación corporativa.
+
+Los previews son temporales y no reemplazan el despliegue del PR. Los procesos
+publicados deben tener su propio grupo (por ejemplo, `setsid` en Linux). La limpieza
+solo termina grupos con PID, fecha de inicio y worktree verificados; no mata un PID
+reutilizado. El supervisor debe permitir que esos procesos sobrevivan al reinicio
+del runtime y Regent debe volver a arrancar para efectuar su limpieza pendiente.

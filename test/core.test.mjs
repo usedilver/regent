@@ -6,7 +6,7 @@ import http from 'node:http'
 import { ConfigSchema, assertAuth, authNotice, defaultRepoDir } from '../src/config.ts'
 import { Store, redact } from '../src/store.ts'
 import { Core } from '../src/core.ts'
-import { startRunner, runnerArgs, assertIsolationVersion } from '../src/runner.ts'
+import { startRunner, runnerArgs, assertIsolationVersion, normalizeEvent } from '../src/runner.ts'
 import { createHttp } from '../src/http.ts'
 import { SlackOutput, accepts, gatherThread, readSlackFile } from '../src/slack.ts'
 import { DurableOutput } from '../src/delivery.ts'
@@ -36,6 +36,60 @@ function fixture(extra = {}) {
 }
 
 try {
+  await check('runner: private protocol and communication snapshots reload on resume and clean up after exit', async () => {
+    const probe = path.join(tmp, 'prompt-probe.mjs')
+    fs.writeFileSync(probe, `import fs from 'node:fs'
+const file = process.argv[process.argv.indexOf('--append-system-prompt-file') + 1]
+const emit = event => console.log(JSON.stringify(event))
+emit({ type: 'system', subtype: 'init', session_id: 'prompt-probe', mcp_servers: [] })
+emit({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'probe', name: 'prompt-probe', input: { file } }] } })
+if (process.env.PROBE_HANG === '1') setInterval(() => {}, 1000)
+else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync(file, 'utf8'), mode: fs.statSync(file).mode & 0o777 }) })
+`)
+    const options = extra => runnerOptions({ prefixArgs: [probe], ...extra })
+    const run = async extra => {
+      const result = await startRunner(options(extra)).done
+      assert.equal(result.state, 'completed', result.error)
+      const snapshot = JSON.parse(result.text)
+      assert.equal(snapshot.mode, 0o600)
+      assert.ok(!fs.existsSync(path.dirname(snapshot.file)))
+      return snapshot.text
+    }
+    const protocol = fs.readFileSync('plugin/colleague.md', 'utf8').trim()
+    const defaults = fs.readFileSync('config/communication.example.md', 'utf8').trim()
+    assert.equal(await run(), `${protocol}\n\n# Instance Communication\n\n${defaults}\n`)
+    const policy = path.join(tmp, 'communication.md')
+    fs.writeFileSync(policy, 'Instance policy A')
+    assert.equal(await run({ communicationFile: policy }), `${protocol}\n\n# Instance Communication\n\nInstance policy A\n`)
+    fs.writeFileSync(policy, 'Instance policy B')
+    const relative = path.relative(process.cwd(), policy)
+    assert.equal(await run({ communicationFile: relative, sessionId: 'prompt-probe' }), `${protocol}\n\n# Instance Communication\n\nInstance policy B\n`)
+    let snapshot
+    const active = startRunner(options({ communicationFile: policy, env: { PROBE_HANG: '1' },
+      onEvent: event => { if (event.kind === 'tool_use') snapshot = event.input.file } }))
+    try {
+      await until(() => Boolean(snapshot))
+      assert.ok(fs.existsSync(snapshot))
+    } finally {
+      active.cancel()
+      assert.equal((await active.done).state, 'interrupted')
+    }
+    assert.ok(!fs.existsSync(path.dirname(snapshot)))
+    assert.throws(() => startRunner(options({ communicationFile: path.join(tmp, 'missing-policy.md') })), /ENOENT/)
+    for (const invalid of ['', ' '.repeat(20), 'x'.repeat(32769)]) {
+      fs.writeFileSync(policy, invalid)
+      assert.throws(() => startRunner(options({ communicationFile: policy })), /32 KiB/)
+    }
+  })
+  await check('runner init exposes cwd and loaded skills/agents/tools for context diagnostics', () => {
+    const event = normalizeEvent({ type: 'system', subtype: 'init', session_id: 'fixture', cwd: '/fixture/worktree',
+      skills: ['new-dashboard'], agents: ['reviewer'], tools: ['Read'], apiKey: 'not-an-event-field' })[0]
+    assert.equal(event.cwd, '/fixture/worktree')
+    assert.deepEqual(event.skills, ['new-dashboard'])
+    assert.deepEqual(event.agents, ['reviewer'])
+    assert.deepEqual(event.tools, ['Read'])
+    assert.equal(event.apiKey, undefined)
+  })
   await check('repo context handoff restarts without old session or repo environment', async () => {
     const repo = fs.mkdtempSync(path.join(tmp, 'selected-'))
     fs.mkdirSync(path.join(repo, '.git'))
@@ -388,7 +442,7 @@ try {
     store.db.prepare("INSERT INTO gates(conversation_key,question,state) VALUES(?,?,'pending')").run(input('x').key, 'Pregunta anterior')
     store.db.exec('DROP INDEX gates_question_id; ALTER TABLE gates DROP COLUMN question_id; ALTER TABLE gates DROP COLUMN options; ALTER TABLE gates DROP COLUMN destination; PRAGMA user_version=2;')
     store.close(); store = new Store(file)
-    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 9)
+    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 11)
     assert.ok(store.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='slack_finish'").get())
     assert.equal(store.conversation(input('x').key).session_id, 'session-before-upgrade')
     assert.equal(store.run(accepted.runId).state, 'queued')

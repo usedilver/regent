@@ -36,7 +36,7 @@ export class Store {
     this.db = new DatabaseSync(file)
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;')
     const version = this.db.prepare('PRAGMA user_version').get()!.user_version as number
-    if (version > 9) throw new Error(`Esquema SQLite ${version} mas nuevo que este servidor.`)
+    if (version > 11) throw new Error(`Esquema SQLite ${version} mas nuevo que este servidor.`)
     this.transaction(() => {
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS conversations (
@@ -150,6 +150,29 @@ export class Store {
         CREATE TABLE IF NOT EXISTS slack_finish (run_id TEXT NOT NULL, page INTEGER NOT NULL, channel TEXT NOT NULL, ts TEXT NOT NULL, PRIMARY KEY(run_id,page));
         PRAGMA user_version=9;
       `)
+      if (version < 10) this.db.exec(`
+        CREATE TABLE IF NOT EXISTS oauth_clients (id TEXT PRIMARY KEY, metadata TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS oauth_sessions (
+          id TEXT PRIMARY KEY, author TEXT NOT NULL, identity TEXT NOT NULL,
+          client_id TEXT NOT NULL REFERENCES oauth_clients(id), resource TEXT NOT NULL,
+          expires_at INTEGER NOT NULL, revoked INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS oauth_tokens (
+          hash TEXT PRIMARY KEY, kind TEXT NOT NULL, session_id TEXT NOT NULL REFERENCES oauth_sessions(id),
+          expires_at INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS oauth_sessions_author ON oauth_sessions(author);
+        CREATE INDEX IF NOT EXISTS oauth_tokens_session ON oauth_tokens(session_id);
+        PRAGMA user_version=10;
+      `)
+      if (version < 11) this.db.exec(`
+        CREATE TABLE IF NOT EXISTS previews (
+          id TEXT PRIMARY KEY, conversation_key TEXT NOT NULL UNIQUE,
+          port INTEGER NOT NULL UNIQUE, cwd TEXT NOT NULL, pid INTEGER,
+          process_start TEXT, expires_at INTEGER NOT NULL
+        );
+        PRAGMA user_version=11;
+      `)
     })
   }
   claimRuntime(): void {
@@ -214,8 +237,9 @@ export class Store {
   }
   state(key: string, state: string): void { this.db.prepare('UPDATE conversations SET state=? WHERE key=?').run(state, key) }
   session(key: string, id: string): void { this.db.prepare('UPDATE conversations SET session_id=? WHERE key=?').run(id, key) }
-  queued(adapter?: string): Run[] {
-    return this.db.prepare("SELECT r.* FROM runs r JOIN conversations c ON c.key=r.conversation_key WHERE r.state='queued' AND c.state='queued' AND (? IS NULL OR c.adapter=?) ORDER BY r.created_at,r.rowid").all(adapter ?? null, adapter ?? null) as unknown as Run[]
+  queued(adapter?: string | string[]): Run[] {
+    const adapters = adapter === undefined ? null : JSON.stringify(Array.isArray(adapter) ? adapter : [adapter])
+    return this.db.prepare("SELECT r.* FROM runs r JOIN conversations c ON c.key=r.conversation_key WHERE r.state='queued' AND c.state='queued' AND (? IS NULL OR c.adapter IN (SELECT value FROM json_each(?))) ORDER BY r.created_at,r.rowid").all(adapters, adapters) as unknown as Run[]
   }
   start(id: string): void {
     this.transaction(() => {
@@ -247,9 +271,10 @@ export class Store {
   spent(author: string): number {
     return this.db.prepare('SELECT COALESCE(SUM(cost),0) AS cost FROM usage WHERE author=? AND day=?').get(author, new Date().toISOString().slice(0, 10))!.cost as number
   }
-  recover(adapter?: string): Conversation[] {
+  recover(adapter?: string | string[]): Conversation[] {
+    const adapters = adapter === undefined ? null : JSON.stringify(Array.isArray(adapter) ? adapter : [adapter])
     return this.transaction(() => {
-      const affected = this.db.prepare("SELECT DISTINCT c.* FROM conversations c JOIN runs r ON c.key=r.conversation_key WHERE r.state='running' AND (? IS NULL OR c.adapter=?)").all(adapter ?? null, adapter ?? null) as unknown as Conversation[]
+      const affected = this.db.prepare("SELECT DISTINCT c.* FROM conversations c JOIN runs r ON c.key=r.conversation_key WHERE r.state='running' AND (? IS NULL OR c.adapter IN (SELECT value FROM json_each(?)))").all(adapters, adapters) as unknown as Conversation[]
       for (const c of affected) {
         const run = this.db.prepare("SELECT reply_thread FROM runs WHERE conversation_key=? AND state='running' LIMIT 1").get(c.key)
         if (!c.thread) c.thread = run?.reply_thread as string | null

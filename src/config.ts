@@ -3,15 +3,32 @@ import path from 'node:path'
 import YAML from 'yaml'
 import { z } from 'zod'
 import { BRIDGE_DIR } from './env.ts'
-import { resolveRepository } from './repository.ts'
+import { projectRoot } from './repository.ts'
 
 const positive = z.number().positive().finite()
+const authUrl = z.string().url().refine(value => {
+  const url = new URL(value)
+  return !url.username && !url.password && !url.search && !url.hash
+    && (url.protocol === 'https:' || (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)))
+}, 'Usa HTTPS o HTTP loopback, sin credenciales, query ni fragmento.')
 export const ConfigSchema = z.object({
   name: z.string().min(1).default('Regent'),
   auth: z.object({ mode: z.enum(['indie', 'team']) }),
   // bypass skips native permission rules; hooks are not a filesystem sandbox.
   // native: respeta allow/ask/deny del repo — en headless lo no permitido se auto-deniega.
   permission_mode: z.enum(['bypass', 'native']).default('bypass'),
+  communication: z.object({
+    instructions_file: z.string().trim().min(1).nullable().default(null),
+  }).strict().prefault({}),
+  previews: z.object({
+    domain: z.string().regex(/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/),
+    listen_port: z.number().int().min(1024).max(65535).default(8791),
+    port_min: z.number().int().min(1024).max(65535).default(32000),
+    port_max: z.number().int().min(1024).max(65535).default(32009),
+    max_active: z.number().int().min(1).max(20).default(3),
+    ttl_minutes: z.number().int().min(5).max(1440).default(120),
+  }).strict().refine(value => value.port_min <= value.port_max && value.port_max - value.port_min < 100
+    && (value.listen_port < value.port_min || value.listen_port > value.port_max), 'Rango de puertos de preview invalido.').nullable().default(null),
   repos: z.object({
     path: z.string().min(1),
     workspace_root: z.string().min(1).nullable().default(null),
@@ -24,6 +41,24 @@ export const ConfigSchema = z.object({
     workspace_team_id: z.string().min(1),
     allowed_users: z.array(z.string().min(1)).default([]),
   }).strict(),
+  mcp: z.object({
+    enabled: z.boolean().default(false),
+    principals: z.array(z.object({
+      id: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/),
+      token_env: z.string().regex(/^REGENT_MCP_TOKEN_[A-Z0-9_]+$/),
+    }).strict()).default([]),
+    oauth: z.object({
+      issuer_url: authUrl.refine(value => new URL(value).pathname === '/', 'El issuer debe estar en la raiz del dominio.'),
+      trust_proxy: z.enum(['none', 'loopback']).default('none'),
+      redirect_uris: z.array(authUrl).min(1).max(20),
+      oidc: z.object({
+        issuer_url: authUrl,
+        client_id: z.string().min(1),
+        client_secret_env: z.string().regex(/^REGENT_[A-Z0-9_]+$/),
+        allowed_emails: z.array(z.string().email().transform(value => value.toLowerCase())).min(1).max(1000),
+      }).strict(),
+    }).strict().nullable().default(null),
+  }).strict().prefault({}),
   limits: z.object({
     max_concurrent_runs: z.number().int().min(1).max(32).default(3),
     max_run_sec: z.object({ ask: positive.default(600), patch: positive.default(1800), task: positive.default(3600), project: positive.default(7200) }).strict().prefault({}),
@@ -75,6 +110,6 @@ export function workspaceDir(config: Config): string {
 
 export function defaultRepoDir(config: Config, workspace: string): string {
   if (!config.repos.default_repo) return workspace
-  try { return resolveRepository(workspace, config.repos.default_repo) }
+  try { return projectRoot(workspace, config.repos.default_repo) }
   catch (cause) { throw new Error('repos.default_repo debe ser un repo dentro del workspace.', { cause }) }
 }

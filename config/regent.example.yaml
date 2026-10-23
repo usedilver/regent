@@ -4,6 +4,9 @@ name: Regent
 # de regent filtran secretos y readonly_mcp, pero no son un sandbox de seguridad.
 # native: respeta allow/ask/deny del repo; en headless lo no permitido se auto-deniega.
 permission_mode: bypass
+communication:
+  instructions_file: null # Usa communication.example.md; selecciona config/communication.md para personalizar.
+previews: null # Preview temporal; la app maneja su login. Configuracion en config/README.md.
 auth:
   # Pro/Max personal via Claude Code. Compartir la cuenta puede causar suspension/baneo.
   mode: indie
@@ -17,6 +20,10 @@ slack:
   progress_mode: auto # tarjetas de actividades; plain usa texto actualizado en el mismo mensaje.
   workspace_team_id: T_REPLACE
   allowed_users: [U_REPLACE] # Recomendado: tu ID. [] abre acceso a usuarios del workspace; indie advierte.
+mcp:
+  enabled: false
+  principals: [] # [{ id: dilver, token_env: REGENT_MCP_TOKEN_DILVER }]; tokens en el entorno privado.
+  oauth: null # Configuracion opcional de login OIDC; ver config/README.md.
 limits:
   max_concurrent_runs: 3
   max_run_sec: { ask: 600, patch: 1800, task: 3600, project: 7200 }

@@ -5,8 +5,10 @@ import { z } from 'zod'
 import type { Core } from './core.ts'
 import { RoomRequest } from './rooms.ts'
 import { StatusRequest } from './progress.ts'
+import type { ExternalMcp } from './mcp.ts'
+import { PreviewRequest } from './previews.ts'
 
-export function createHttp(core: Core, health: () => Record<string, unknown>) {
+export function createHttp(core: Core, health: () => Record<string, unknown>, external?: ExternalMcp) {
   return http.createServer(async (request, response) => {
     const send = (code: number, value: unknown) => { response.writeHead(code, { 'content-type': 'application/json' }); response.end(JSON.stringify(value)) }
     try {
@@ -19,6 +21,8 @@ export function createHttp(core: Core, health: () => Record<string, unknown>) {
         response.writeHead(200, { 'content-type': 'text/plain; version=0.0.4' })
         return response.end(rows.map(row => `regent_runs{state="${row.state}"} ${row.n}`).join('\n') + '\n')
       }
+      if (external?.oauth?.handles(request, response)) return
+      if (request.url === '/mcp' && external) return await external.handle(request, response)
       if (!['/tools', '/hook-denial', '/tool-policy'].includes(request.url ?? '')) return send(404, { error: 'Ruta inexistente' })
       const token = request.headers.authorization?.replace(/^Bearer /, '') ?? ''
       const active = core.byToken(token)
@@ -35,7 +39,7 @@ export function createHttp(core: Core, health: () => Record<string, unknown>) {
       try { payload = JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { return send(400, { error: 'JSON invalido' }) }
       if (request.url === '/tool-policy') {
         const input = z.object({ tool_name: z.string(), tool_input: z.record(z.string(), z.unknown()).optional(), cwd: z.string().optional() }).parse(payload)
-        const reason = core.permission(token, input)
+        const reason = await core.prepareWorkspace(token, input.tool_name) ?? core.permission(token, input)
         if (reason) {
           core.store.event(active.run.id, 'permission_denied', { reason, tool: input.tool_name })
         }
@@ -48,6 +52,7 @@ export function createHttp(core: Core, health: () => Record<string, unknown>) {
       }
       const server = new McpServer({ name: 'regent', version: '0.2.0' })
       const schemas = {
+        ...(core.previews ? { regent_preview: PreviewRequest.shape } : {}),
         regent_create_room: RoomRequest.shape,
         regent_use_repo: { repo: z.string().min(1), handoff: z.string().min(1).max(20000), intent: z.enum(['ask', 'patch', 'task', 'project']).optional() },
         regent_status: StatusRequest,
@@ -55,7 +60,7 @@ export function createHttp(core: Core, health: () => Record<string, unknown>) {
         regent_cancel: { reason: z.string().min(1).max(2000) },
       }
       for (const [name, inputSchema] of Object.entries(schemas)) {
-        server.registerTool(name, { inputSchema }, async args => {
+        server.registerTool(name, { inputSchema, ...(name === 'regent_preview' ? { description: 'Preview temporal del worktree de esta conversacion. reserve asigna puerto y URL; inicia la app con Bash, luego publish verifica el PID y su respuesta. La app conserva su login y permisos. status consulta y stop libera el preview. Prefiere el preview del PR para entrega final.' } : {}) }, async args => {
           try { return { content: [{ type: 'text' as const, text: JSON.stringify(await core.tool(token, name, args)) }] } }
           catch (error) { return { isError: true, content: [{ type: 'text' as const, text: (error as Error).message }] } }
         })

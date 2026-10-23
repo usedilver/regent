@@ -1,9 +1,10 @@
-import { spawn, execFileSync } from 'node:child_process'
+import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { StringDecoder } from 'node:string_decoder'
 import path from 'node:path'
 import { BRIDGE_DIR } from './env.ts'
 import { ensureTrusted, ensureBypassAccepted } from './claude-settings.ts'
 import type { ImageInput } from './images.ts'
+import { createSystemPrompt } from './prompt.ts'
 
 export interface RunnerEvent { kind: string; [key: string]: any }
 export interface RunnerResult { state: 'completed' | 'failed' | 'interrupted'; text: string; error: string; cost: number; usage: unknown }
@@ -22,6 +23,7 @@ export interface RunnerOptions {
   env?: NodeJS.ProcessEnv; toolsUrl: string; token: string; readonlyMcp: string[]
   additionalDirectories?: string[]
   worktreeName?: string
+  communicationFile?: string | null
   /** Bypass skips native permissions. Native honors repository rules; unanswered
    * permission prompts are denied in headless mode. Hooks are not a sandbox. */
   permissionMode?: 'bypass' | 'native'
@@ -29,7 +31,7 @@ export interface RunnerOptions {
   command?: string; prefixArgs?: string[]; onEvent(event: RunnerEvent): void
 }
 
-export function runnerArgs(options: RunnerOptions): string[] {
+export function runnerArgs(options: RunnerOptions, systemPromptFile = path.join(BRIDGE_DIR, 'plugin/colleague.md')): string[] {
   const native = options.permissionMode === 'native'
   return ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
     ...(options.images?.length ? ['--input-format', 'stream-json'] : []),
@@ -38,7 +40,7 @@ export function runnerArgs(options: RunnerOptions): string[] {
     ...(options.worktreeName ? ['--worktree', options.worktreeName] : []),
     ...(native ? ['--allowedTools', 'mcp__regent__*'] : []),
     ...(options.additionalDirectories ?? []).flatMap(dir => ['--add-dir', dir]),
-    '--append-system-prompt-file', path.join(BRIDGE_DIR, 'plugin/colleague.md'),
+    '--append-system-prompt-file', systemPromptFile,
     '--plugin-dir', path.join(BRIDGE_DIR, 'plugin'),
     '--mcp-config', JSON.stringify({ mcpServers: { regent: { type: 'http', url: options.toolsUrl, headers: { Authorization: `Bearer ${options.token}` } } } }),
     ...(options.sessionId ? ['--resume', options.sessionId] : []),
@@ -48,7 +50,8 @@ export function runnerArgs(options: RunnerOptions): string[] {
 }
 
 export function normalizeEvent(raw: any): RunnerEvent[] {
-  if (raw.type === 'system' && raw.subtype === 'init') return [{ kind: 'init', sessionId: raw.session_id, mcpServers: raw.mcp_servers ?? [], errors: raw.mcp_server_errors ?? [] }]
+  if (raw.type === 'system' && raw.subtype === 'init') return [{ kind: 'init', sessionId: raw.session_id, mcpServers: raw.mcp_servers ?? [], errors: raw.mcp_server_errors ?? [],
+    cwd: raw.cwd ?? null, skills: raw.skills ?? [], agents: raw.agents ?? [], tools: raw.tools ?? [] }]
   if (raw.type === 'system' && raw.subtype === 'api_retry') return [{ kind: 'api_retry', attempt: raw.attempt, error: raw.error }]
   if (raw.type === 'stream_event' && !raw.parent_tool_use_id) {
     const event = raw.event
@@ -79,9 +82,16 @@ export function startRunner(options: RunnerOptions): { done: Promise<RunnerResul
   delete env.WATCH_REPORT_DEPENDENCIES
   // In bypass the hook is the only guard: never let an inherited var make it abstain.
   if (!native) delete env.REGENT_PERMISSION_MODE
-  const child = spawn(options.command ?? 'claude', [...(options.prefixArgs ?? []), ...runnerArgs(options)], {
-    cwd: options.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32',
-  })
+  const systemPrompt = createSystemPrompt(options.communicationFile)
+  let child: ChildProcessWithoutNullStreams
+  try {
+    child = spawn(options.command ?? 'claude', [...(options.prefixArgs ?? []), ...runnerArgs(options, systemPrompt.file)], {
+      cwd: options.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32',
+    })
+  } catch (error) {
+    systemPrompt.dispose()
+    throw error
+  }
   let reason = '', fatal = '', stderr = '', buffer = '', streamed = '', result: RunnerEvent | undefined
   let lastEvent = Date.now(), closed = false
   let termTimer: NodeJS.Timeout | undefined, killTimer: NodeJS.Timeout | undefined
@@ -141,6 +151,7 @@ export function startRunner(options: RunnerOptions): { done: Promise<RunnerResul
   const done = new Promise<RunnerResult>(resolve => {
     child.on('error', error => { fatal = `No pude iniciar Claude: ${error.message}` })
     child.on('close', code => {
+      systemPrompt.dispose()
       buffer += decoder.end()
       if (buffer) line(buffer)
       closed = true

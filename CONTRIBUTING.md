@@ -9,9 +9,10 @@ a Claude login inside regent, modify the Claude binary, or call Anthropic APIs w
 subscription credentials outside that binary. Do not commit secrets or transcripts
 containing them. Configuration of repo trust is separate from authentication.
 
-Name the product and integrations regent. Consult the upstream branding terms before
-introducing provider branding. Authentication requirements remain subject to the
-operator's current provider agreement.
+Keep Regent's runtime and tool identifiers stable. Deployments can set their own
+client-facing name through the instance `name` and distribute a branded client plugin.
+Consult the upstream branding terms before introducing provider branding. Authentication
+requirements remain subject to the operator's current provider agreement.
 
 Run `pnpm test` for changes to execution or adapters. Tests use
 temporary repositories, SQLite databases, a fake Claude process and local HTTP
