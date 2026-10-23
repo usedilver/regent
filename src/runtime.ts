@@ -64,7 +64,6 @@ export function createRuntime(
     const accessReloader = access.file
       ? new AccessReloader(access.policy, access.file, {
           oauthRequired: Boolean(config.mcp.oauth),
-          contentHash: access.contentHash,
           changed: (previous) => {
             if (recovered) core.pump()
             if (
@@ -79,6 +78,22 @@ export function createRuntime(
           },
         })
       : undefined
+    const reloadAccess = () => {
+      if (core.stopping) return
+      if (!accessReloader) {
+        console.warn(
+          'Access reload skipped: configure access_policy_file and restart once. Inline settings are boot-only.',
+        )
+        return
+      }
+      try {
+        accessReloader.reload()
+      } catch {
+        console.error(
+          'Access policy loaded; applying its effects failed. Check runtime health before retrying.',
+        )
+      }
+    }
     const external = !slack || config.mcp.enabled ? new ExternalMcp(core) : undefined
     const server = createHttp(
       core,
@@ -103,7 +118,7 @@ export function createRuntime(
             errors.push(error)
           }
         }
-        accessReloader?.close()
+        process.removeListener('SIGHUP', reloadAccess)
         await stop(() => core.close())
         await stop(() => stopPreviews?.())
         await stop(() => durable?.close())
@@ -122,6 +137,7 @@ export function createRuntime(
       close,
       async start() {
         try {
+          process.on('SIGHUP', reloadAccess)
           stopPreviews = await startPreviewServer(core)
           if (core.stopping) {
             await stopPreviews?.()
@@ -136,10 +152,8 @@ export function createRuntime(
           await slack?.start(core)
           if (core.stopping) throw new Error('El runtime se esta cerrando.')
           durable?.start()
-          accessReloader?.reload()
           await core.recover()
           recovered = true
-          accessReloader?.start()
         } catch (error) {
           try {
             await close()

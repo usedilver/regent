@@ -46,7 +46,6 @@ function reloader(config, report = () => {}, changed) {
   const loaded = loadAccess(config)
   return new AccessReloader(loaded.policy, loaded.file, {
     oauthRequired: true,
-    contentHash: loaded.contentHash,
     report,
     changed,
   })
@@ -136,10 +135,10 @@ test('invalid, missing, oversized and partial files retain the entire last valid
   const f = fixture(t),
     logs = [],
     loader = reloader(f.config, (message) => logs.push(message))
-  t.after(() => loader.close())
   const original = loader.policy.snapshot
   const invalid = [
     'secret: [unterminated-sensitive-value',
+    '{slack: {allowed_users: [U2]}, oauth: {allowed_emails: [bob@example.test]}',
     'secret: !sensitive-tag sensitive-value',
     YAML.stringify(document(['U2'], [])),
     YAML.stringify({ slack: { allowed_users: ['U2'] } }),
@@ -152,7 +151,7 @@ test('invalid, missing, oversized and partial files retain the entire last valid
     assert.equal(loader.policy.snapshot, original)
     const count = logs.length
     loader.reload()
-    assert.equal(logs.length, count)
+    assert.equal(logs.length, count + 1)
   }
   fs.unlinkSync(f.file)
   loader.reload()
@@ -160,7 +159,7 @@ test('invalid, missing, oversized and partial files retain the entire last valid
   assert.equal(loader.policy.snapshot, original)
   f.write(document())
   loader.reload()
-  assert.match(logs.at(-1), /valid again/)
+  assert.match(logs.at(-1), /valid; effective permissions unchanged/)
   assert.doesNotMatch(logs.join('\n'), /sensitive-value|alice@example/)
   f.write(document(['U2'], ['bob@example.test']))
   assert.equal(loader.reload(), true)
@@ -174,7 +173,6 @@ test('atomic replacement, reorder-only edits and recovery with identical effecti
   const f = fixture(t),
     logs = [],
     loader = reloader(f.config, (message) => logs.push(message))
-  t.after(() => loader.close())
   const next = f.file + '.next'
   fs.writeFileSync(next, YAML.stringify(document(['U2', 'U1'])))
   fs.renameSync(next, f.file)
@@ -184,12 +182,12 @@ test('atomic replacement, reorder-only edits and recovery with identical effecti
   fs.writeFileSync(f.file, '# reordered\n' + YAML.stringify(document(['U1', 'U2', 'U1'])))
   assert.equal(loader.reload(), false)
   assert.equal(loader.policy.version, version)
-  assert.equal(logs.length, count)
+  assert.equal(logs.length, count + 1)
   fs.unlinkSync(f.file)
   loader.reload()
   f.write(document(['U1', 'U2', 'U1']))
   assert.equal(loader.reload(), false)
-  assert.match(logs.at(-1), /valid again/)
+  assert.match(logs.at(-1), /valid; effective permissions unchanged/)
   f.write(document([]))
   assert.equal(loader.reload(), true)
   assert.match(logs.at(-1), /empty list broadens access/)
@@ -268,7 +266,6 @@ test('withdrawal interrupts only that author’s queued work, while active work 
     () => core.pump(),
   )
   const { core, store, controllers } = queuedCore(t, f.config, loader.policy)
-  t.after(() => loader.close())
   const active = await core.submit(inbound('active'))
   await until(() => controllers.length === 1)
   const withdrawn = await core.submit(inbound('withdrawn'))
@@ -337,7 +334,7 @@ test('admission rechecks run authors, preserves manual pauses and retains withdr
 })
 
 for (const mode of ['slack', 'mcp']) {
-  test(`${mode} runtime reloads within five seconds, preserves PID, and stops polling on close`, async (t) => {
+  test(`${mode} runtime requires SIGHUP to reload and removes its handler on close`, async (t) => {
     const f = fixture(t)
     process.env.REGENT_MCP_TOKEN_POLICY_FIXTURE = 'fixture-token-'.repeat(4)
     const config = ConfigSchema.parse({
@@ -347,6 +344,7 @@ for (const mode of ['slack', 'mcp']) {
         principals: [{ id: 'fixture', token_env: 'REGENT_MCP_TOKEN_POLICY_FIXTURE' }],
       },
     })
+    const before = process.listeners('SIGHUP')
     const runtime = createRuntime(config, {
       claudeVersion: 'fixture',
       store: new Store(':memory:'),
@@ -357,21 +355,26 @@ for (const mode of ['slack', 'mcp']) {
           : undefined,
     })
     t.after(() => runtime.close())
-    const pid = process.pid
     await runtime.start()
+    assert.equal(process.listenerCount('SIGHUP'), before.length + 1)
     f.write(document(['U2']))
-    await until(() => runtime.core.access.allowsSlack('U2'))
-    assert.equal(process.pid, pid)
-    await runtime.close()
+    await new Promise((resolve) => setTimeout(resolve, 2200))
+    assert.ok(!runtime.core.access.allowsSlack('U2'))
+    process.emit('SIGHUP')
+    assert.ok(runtime.core.access.allowsSlack('U2'))
+    fs.writeFileSync(f.file, 'invalid: [')
+    process.emit('SIGHUP')
+    assert.ok(runtime.core.access.allowsSlack('U2'))
     f.write(document(['U3']))
-    await new Promise((resolve) => setTimeout(resolve, 2100))
-    assert.ok(!runtime.core.access.allowsSlack('U3'))
+    process.emit('SIGHUP')
+    assert.ok(runtime.core.access.allowsSlack('U3'))
+    await runtime.close()
+    assert.deepEqual(process.listeners('SIGHUP'), before)
   })
 }
 
-test('a real executor subprocess finishes after access withdrawal without a signal or restart', async (t) => {
-  const f = fixture(t),
-    policy = loadAccess(f.config).policy
+test('a real executor subprocess finishes after SIGHUP withdraws access without signalling the executor', async (t) => {
+  const f = fixture(t)
   const probe = path.join(f.root, 'executor.mjs'),
     marker = path.join(f.root, 'pid')
   fs.writeFileSync(
@@ -385,28 +388,30 @@ console.log(JSON.stringify({type:'result',result:'completed after withdrawal',to
 `,
   )
   const store = new Store(':memory:')
-  const core = new Core({
-    config: { ...f.config, auth: { mode: 'indie' } },
-    access: policy,
-    store,
-    output,
-    cwd: f.root,
-    runner: startRunner,
-    runnerOverrides: {
-      command: process.execPath,
-      prefixArgs: [probe],
-      env: { ...process.env, ACCESS_MARKER: marker },
+  const runtime = createRuntime(
+    { ...f.config, auth: { mode: 'indie' } },
+    {
+      store,
+      claudeVersion: 'fixture',
+      port: 0,
+      slack: { output, connected: () => true, async start() {}, async stop() {} },
     },
-  })
-  t.after(async () => {
-    await core.close()
-    store.close()
-  })
+  )
+  const core = runtime.core
+  core.runner = startRunner
+  core.runnerOverrides = {
+    command: process.execPath,
+    prefixArgs: [probe],
+    env: { ...process.env, ACCESS_MARKER: marker },
+  }
+  t.after(() => runtime.close())
+  await runtime.start()
   const accepted = await core.submit(inbound('subprocess'))
   await until(() => fs.existsSync(marker))
   const pid = Number(fs.readFileSync(marker, 'utf8'))
-  policy.replace(document(['U2']))
-  core.pump()
+  f.write(document(['U2']))
+  process.emit('SIGHUP')
+  assert.ok(core.access.allowsSlack('U2'))
   process.kill(pid, 0)
   const active = [...core.active.values()][0]
   assert.ok(!active.cancelled)
@@ -415,7 +420,7 @@ console.log(JSON.stringify({type:'result',result:'completed after withdrawal',to
   assert.equal(store.run(accepted.runId).result, 'completed after withdrawal')
 })
 
-test('failed startup never starts a policy poller', async (t) => {
+test('failed startup removes the reload signal handler', async (t) => {
   const f = fixture(t),
     store = new Store(':memory:')
   const runtime = createRuntime(f.config, {
@@ -431,67 +436,73 @@ test('failed startup never starts a policy poller', async (t) => {
       async stop() {},
     },
   })
+  const before = process.listeners('SIGHUP')
   await assert.rejects(runtime.start(), /fixture failure/)
+  assert.deepEqual(process.listeners('SIGHUP'), before)
   f.write(document(['U3']))
-  await new Promise((resolve) => setTimeout(resolve, 2100))
   assert.ok(!runtime.core.access.allowsSlack('U3'))
   await runtime.close()
 })
 
-test(
-  'development watcher applies access edits without restarting the server',
-  { skip: process.platform !== 'darwin' },
-  async (t) => {
-    const f = fixture(t)
-    fs.mkdirSync(path.join(f.root, 'config'))
-    fs.mkdirSync(path.join(f.root, 'src'))
-    fs.mkdirSync(path.join(f.root, 'plugins/executor'), { recursive: true })
-    fs.writeFileSync(path.join(f.root, '.env'), '')
-    const file = path.join(f.root, 'config/access.yaml')
-    fs.writeFileSync(file, YAML.stringify(document()))
-    const dev = JSON.parse(fs.readFileSync('package.json', 'utf8')).scripts.dev.split(' ')
-    assert.equal(dev.shift(), 'node')
-    dev[dev.length - 1] = path.resolve('test/fixtures/access-runtime.mjs')
-    let logs = ''
-    const child = spawn(process.execPath, dev, {
-      cwd: f.root,
-      detached: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: {
-        ...process.env,
-        ACCESS_RUNTIME_MODULE: pathToFileURL(path.resolve('src/runtime.ts')).href,
-        ACCESS_CONFIG_MODULE: pathToFileURL(path.resolve('src/config.ts')).href,
-        ACCESS_STORE_MODULE: pathToFileURL(path.resolve('src/storage/store.ts')).href,
-      },
-    })
-    child.stdout.on('data', (chunk) => {
-      logs += chunk
-    })
-    child.stderr.on('data', (chunk) => {
-      logs += chunk
-    })
-    const stopped = new Promise((resolve) => child.once('exit', resolve))
-    t.after(async () => {
-      try {
-        process.kill(-child.pid, 'SIGTERM')
-      } catch {}
-      await stopped
-    })
-    const status = () => {
-      try {
-        return JSON.parse(fs.readFileSync(path.join(f.root, 'status.json'), 'utf8'))
-      } catch {
-        return undefined
+for (const devMode of [false, true])
+  test(
+    `${devMode ? 'development watcher' : 'normal process'} requires an explicit signal and preserves its PID`,
+    { skip: devMode && process.platform !== 'darwin' },
+    async (t) => {
+      const f = fixture(t)
+      fs.mkdirSync(path.join(f.root, 'config'))
+      fs.mkdirSync(path.join(f.root, 'src'))
+      fs.mkdirSync(path.join(f.root, 'plugins/executor'), { recursive: true })
+      fs.writeFileSync(path.join(f.root, '.env'), '')
+      const file = path.join(f.root, 'config/access.yaml')
+      fs.writeFileSync(file, YAML.stringify(document()))
+      const dev = devMode
+        ? JSON.parse(fs.readFileSync('package.json', 'utf8')).scripts.dev.split(' ').slice(1)
+        : ['fixture']
+      dev[dev.length - 1] = path.resolve('test/fixtures/access-runtime.mjs')
+      let logs = ''
+      const child = spawn(process.execPath, dev, {
+        cwd: f.root,
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: {
+          ...process.env,
+          ACCESS_RUNTIME_MODULE: pathToFileURL(path.resolve('src/runtime.ts')).href,
+          ACCESS_CONFIG_MODULE: pathToFileURL(path.resolve('src/config.ts')).href,
+          ACCESS_STORE_MODULE: pathToFileURL(path.resolve('src/storage/store.ts')).href,
+        },
+      })
+      child.stdout.on('data', (chunk) => {
+        logs += chunk
+      })
+      child.stderr.on('data', (chunk) => {
+        logs += chunk
+      })
+      const stopped = new Promise((resolve) => child.once('exit', resolve))
+      t.after(async () => {
+        try {
+          process.kill(-child.pid, 'SIGTERM')
+        } catch {}
+        await stopped
+      })
+      const status = () => {
+        try {
+          return JSON.parse(fs.readFileSync(path.join(f.root, 'status.json'), 'utf8'))
+        } catch {
+          return undefined
+        }
       }
-    }
-    await until(() => status()?.users.includes('U1'))
-    const pid = status().pid
-    fs.writeFileSync(file, YAML.stringify(document(['U2'])))
-    await until(() => status()?.users.includes('U2'))
-    assert.equal(status().pid, pid, logs)
-    assert.doesNotMatch(logs, /Restarting/)
-  },
-)
+      await until(() => status()?.users.includes('U1'))
+      const pid = status().pid
+      fs.writeFileSync(file, YAML.stringify(document(['U2'])))
+      await new Promise((resolve) => setTimeout(resolve, 2200))
+      assert.deepEqual(status().users, ['U1'])
+      process.kill(pid, 'SIGHUP')
+      await until(() => status()?.users.includes('U2'))
+      assert.equal(status().pid, pid, logs)
+      assert.doesNotMatch(logs, /Restarting/)
+    },
+  )
 
 test('automatic repository continuations recheck authorization before starting', async (t) => {
   const f = fixture(t),
@@ -520,7 +531,7 @@ test('automatic repository continuations recheck authorization before starting',
   assert.equal(controllers.length, 1)
 })
 
-test('policy edits during startup do not run queued work before recovery', async (t) => {
+test('an explicit startup reload does not admit queued work before recovery', async (t) => {
   const f = fixture(t),
     store = new Store(':memory:')
   const denied = store.accept(inbound('denied', 'U1', 'one'), f.root)
@@ -537,6 +548,7 @@ test('policy edits during startup do not run queued work before recovery', async
         connected: () => true,
         async start() {
           f.write(document(['U2']))
+          process.emit('SIGHUP')
         },
         async stop() {},
       },
@@ -570,7 +582,6 @@ test('queued OAuth callers follow the live policy while technical MCP principals
     () => {},
     () => core.pump(),
   )
-  t.after(() => loader.close())
   const { core, store, controllers } = queuedCore(t, config, loader.policy)
   core.mcpIdentity = (author) =>
     author === 'mcp:alice' && loader.policy.allowsOAuth('alice@example.test')
