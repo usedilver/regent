@@ -321,6 +321,33 @@ export class Store {
       )
       .all(adapters, adapters) as unknown as Run[]
   }
+  pending(adapter?: string | string[]): Run[] {
+    const adapters =
+      adapter === undefined ? null : JSON.stringify(Array.isArray(adapter) ? adapter : [adapter])
+    return this.db
+      .prepare(
+        "SELECT r.* FROM runs r JOIN conversations c ON c.key=r.conversation_key WHERE r.state='queued' AND (? IS NULL OR c.adapter IN (SELECT value FROM json_each(?))) ORDER BY r.created_at,r.rowid",
+      )
+      .all(adapters, adapters) as unknown as Run[]
+  }
+  interruptQueued(id: string, reason: string): void {
+    this.transaction(() => {
+      const run = this.run(id)
+      if (!run || run.state !== 'queued') return
+      this.db
+        .prepare(
+          "UPDATE runs SET state='interrupted',error=?,ended_at=? WHERE id=? AND state='queued'",
+        )
+        .run(reason, Date.now(), id)
+      const pending = this.db
+        .prepare("SELECT 1 FROM runs WHERE conversation_key=? AND state='queued'")
+        .get(run.conversation_key)
+      if (!pending)
+        this.db
+          .prepare("UPDATE conversations SET state='interrupted' WHERE key=? AND state='queued'")
+          .run(run.conversation_key)
+    })
+  }
   start(id: string): void {
     this.transaction(() => {
       this.db

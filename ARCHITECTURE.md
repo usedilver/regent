@@ -51,7 +51,8 @@ writer. CLI checks alongside a running server use a separate `REGENT_DB`.
 
 Slack and MCP server modes share `createRuntime`. Startup acquires the SQLite runtime claim,
 starts configured listeners and adapters, then recovers interrupted work. Failed startup
-cleans up resources already created. Idempotent shutdown cancels work, closes preview
+cleans up resources already created. The access-policy SIGHUP handler belongs to this runtime and is removed first, including failed startup.
+Idempotent shutdown cancels work, closes preview
 connections, drains durable output, stops Slack, closes HTTP and finally closes SQLite.
 WebSocket upgrades are closed too; HTTP server close alone is insufficient.
 
@@ -82,7 +83,16 @@ The external reverse proxy publishes only MCP/OAuth routes; internal tool and he
 
 ## Configuration and runtime resources
 
-`config/regent.yaml`, custom communication instructions and `.env` belong to the operator and
+`access_policy_file` optionally selects a separate, strictly validated `config/access.yaml`.
+The runtime loads it before accepting requests and reloads it only on an explicit `SIGHUP`, without
+restarting executors. File edits alone do not apply permissions; there is no polling or access-file
+watcher. `src/access.ts` owns file validation and reloading; `src/core/access-policy.ts` exposes
+an immutable shared snapshot to the core, Slack and OAuth. Invalid runtime edits retain the last
+valid snapshot. Queued authorization is per run author; withdrawal interrupts only those queued
+runs and preserves active runs. CLI loads once. Legacy inline lists stay boot-only. See the
+[configuration guide](config/README.md) for migration, list semantics and path resolution.
+
+`config/regent.yaml`, `config/access.yaml`, custom communication instructions and `.env` belong to the operator and
 remain ignored. `config/regent.example.yaml` is the public template. The bundled default policy
 is `plugins/executor/communication.md`; `config/communication.example.md` links to it as a copyable
 template. Mandatory runtime resources ship with Docker and are tested inside the built image.

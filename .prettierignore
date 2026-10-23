@@ -9,6 +9,7 @@ pnpm-lock.yaml
 config/*
 !config/README.md
 !config/regent.example.yaml
+!config/access.example.yaml
 !config/communication.example.md
 # Legacy execution notes are outside the public contributor formatting contract.
 mcp-execution-plan.md

@@ -1,3 +1,4 @@
+import { SlackAccess } from './access.ts'
 import pkg from '@slack/bolt'
 import { SlackActivities } from './activities.ts'
 import { replyPayloads } from './format.ts'
@@ -637,7 +638,7 @@ export function createSlack(config: Config) {
   const rooms = createRoomApi(api, config.slack.workspace_team_id, () => botId)
   let core: Core,
     botId = ''
-  const membership = new Map<string, { allowed: boolean; checkedAt: number }>()
+  let access: SlackAccess
   const connection = new SlackConnection(receiver.client, (message) =>
     console.warn(`[slack v2] ${redact(message)}`),
   )
@@ -684,24 +685,7 @@ export function createSlack(config: Config) {
       },
     }
     if (!core.authorized(input)) return
-    if (!config.slack.allowed_users.length) {
-      let entry = membership.get(event.user)
-      if (!entry || Date.now() - entry.checkedAt > 300000) {
-        const { user } = await api('users.info', { user: event.user })
-        entry = {
-          allowed: Boolean(
-            user &&
-              !user.is_bot &&
-              !user.deleted &&
-              !user.is_stranger &&
-              user.team_id === config.slack.workspace_team_id,
-          ),
-          checkedAt: Date.now(),
-        }
-        membership.set(event.user, entry)
-      }
-      if (!entry.allowed) return
-    }
+    if (!(await access.allowed(event.user))) return
     const { redirect, pending } = conversationRoute(core.store, event)
     if (pending) {
       await api('chat.postMessage', {
@@ -745,7 +729,11 @@ export function createSlack(config: Config) {
       author: event.user,
       text: 'stop',
     }
-    if (core.authorized(input) && core.store.conversation(key)?.channel === event.channel)
+    if (
+      core.authorized(input) &&
+      (await access.allowed(event.user)) &&
+      core.store.conversation(key)?.channel === event.channel
+    )
       await core.submit(input)
   })
   app.action(/^regent_question_([0-4])$/, async ({ ack, body, action, respond }: any) => {
@@ -753,6 +741,8 @@ export function createSlack(config: Config) {
     try {
       if (body.user?.team_id && body.user.team_id !== config.slack.workspace_team_id)
         throw new Error('Usuario de otro workspace.')
+      if (!(await access.allowed(body.user.id)))
+        throw new Error('Usuario fuera de la configuracion autorizada.')
       const result = await core.answerQuestion(
         action.value,
         Number(action.action_id.replace('regent_question_', '')),
@@ -783,6 +773,11 @@ export function createSlack(config: Config) {
     connected: () => connection.connected,
     async start(value: Core) {
       core = value
+      access = new SlackAccess(
+        core.access,
+        config.slack.workspace_team_id,
+        async (author) => (await api('users.info', { user: author })).user,
+      )
       output.store = core.store
       output.activities = new SlackActivities(
         api,
