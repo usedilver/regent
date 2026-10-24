@@ -868,7 +868,7 @@ try {
   await check(
     'Desktop stdio connector forwards MCP tools and results to the authenticated HTTP runtime',
     async () => {
-      const f = await fixture({ name: 'Talently Code' })
+      const f = await fixture({ name: 'Example Code' })
       const client = new Client({ name: 'desktop-fixture', version: '1' })
       const transport = new StdioClientTransport({
         command: process.execPath,
@@ -884,20 +884,20 @@ try {
         await client.connect(transport)
         assert.deepEqual(client.getServerVersion(), {
           name: 'regent',
-          title: 'Talently Code',
+          title: 'Example Code',
           version: '0.3.0',
         })
         assert.equal((await client.listTools()).tools.length, 6)
         assert.equal(
           (await client.listTools()).tools.find((t) => t.name === 'regent_start').title,
-          'Talently Code · Iniciar trabajo',
+          'Example Code · Iniciar trabajo',
         )
         assert.equal(client.getInstructions(), f.gateway.instructions())
-        assert.match(client.getInstructions(), /Talently Code/)
-        assert.equal((await client.listResources()).resources[0].name, 'Progreso de Talently Code')
+        assert.match(client.getInstructions(), /Example Code/)
+        assert.equal((await client.listResources()).resources[0].name, 'Progreso de Example Code')
         const resource = await client.readResource({ uri: 'ui://regent/progress.html' })
         assert.equal(resource.contents[0].mimeType, 'text/html;profile=mcp-app')
-        assert.match(resource.contents[0].text, /<h2 id="heading">Talently Code<\/h2>/)
+        assert.match(resource.contents[0].text, /<h2 id="heading">Example Code<\/h2>/)
         assert.equal(
           (await client.listTools()).tools.find((t) => t.name === 'regent_get_run')._meta?.ui
             ?.resourceUri,

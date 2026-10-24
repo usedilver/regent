@@ -30,7 +30,7 @@ export function loadEnv(): void {
   }
 }
 
-/** Lista de .env a inyectar: la configurada, o el .env de la raíz dada (como `talently claude`). */
+/** Lista de .env a inyectar: la configurada, o el .env de la raíz del proyecto. */
 export function agentEnvFiles(configured: string[], fallbackRoot?: string): string[] {
   if (configured.length) return configured
   return fallbackRoot ? [path.join(fallbackRoot, '.env')] : []

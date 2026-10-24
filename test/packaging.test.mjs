@@ -13,20 +13,20 @@ test('plugin artifact is versioned, reproducible and limited to its five public 
     for (const name of [
       'scripts/package-client-plugin.py',
       'LICENSE',
-      'plugins/talently-code/.claude-plugin/plugin.json',
-      'plugins/talently-code/skills/talently-code/SKILL.md',
-      'plugins/talently-code/README.md',
+      'plugins/regent/.claude-plugin/plugin.json',
+      'plugins/regent/skills/regent/SKILL.md',
+      'plugins/regent/README.md',
     ]) {
       const dest = path.join(directory, name)
       fs.mkdirSync(path.dirname(dest), { recursive: true })
       fs.copyFileSync(name, dest)
     }
     fs.writeFileSync(
-      path.join(directory, 'plugins/talently-code/private.env'),
+      path.join(directory, 'plugins/regent/private.env'),
       'secret=fixture-must-never-ship',
     )
     const manifest = JSON.parse(
-      fs.readFileSync(path.join(directory, 'plugins/talently-code/.claude-plugin/plugin.json')),
+      fs.readFileSync(path.join(directory, 'plugins/regent/.claude-plugin/plugin.json')),
     )
     const args = [
       'scripts/package-client-plugin.py',
@@ -55,18 +55,12 @@ test('plugin artifact is versioned, reproducible and limited to its five public 
     )
     assert.deepEqual(
       Object.keys(bundle).sort(),
-      [
-        '.claude-plugin/plugin.json',
-        '.mcp.json',
-        'LICENSE',
-        'README.md',
-        'skills/talently-code/SKILL.md',
-      ]
+      ['.claude-plugin/plugin.json', '.mcp.json', 'LICENSE', 'README.md', 'skills/regent/SKILL.md']
         .map((n) => `${manifest.name}/${n}`)
         .sort(),
     )
     assert.equal(
-      JSON.parse(bundle[`${manifest.name}/.mcp.json`]).mcpServers['talently-code'].url,
+      JSON.parse(bundle[`${manifest.name}/.mcp.json`]).mcpServers.regent.url,
       'https://regent.example.org/mcp',
     )
     assert.doesNotMatch(JSON.stringify(bundle), /fixture-must-never-ship/)

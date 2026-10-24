@@ -6,7 +6,7 @@ updated: 2026-10-24
 
 Regent is one runtime with Slack, MCP and CLI interfaces. The official Claude Code CLI
 executes agent work; project repositories supply their own instructions, skills and MCPs.
-Talently Code is a branded client distribution, not a dependency of the execution engine.
+Branded client distributions live in their owners' repositories, independently of the execution engine.
 
 ## Request flow
 
@@ -40,7 +40,7 @@ Transport-specific checks coexist with core authorization and validated tool arg
 | `src/storage/`                                     | SQLite state, durable deliveries and shared redaction.                                |
 | `src/previews/`                                    | Allocation, process/listener ownership, expiration and HTTP/WebSocket proxy.          |
 | `plugins/executor/`                                | Executor protocol, default communication policy and permission hooks.                 |
-| `plugins/talently-code/`                           | Public client manifest, delegation skill and installation guide.                      |
+| `plugins/regent/`                                  | Generic client manifest, delegation skill and installation guide.                     |
 
 The core and storage do not import Slack/MCP SDKs or adapter implementations. CI checks this
 boundary. Configuration, the runtime and adapters assemble implementations; there is no

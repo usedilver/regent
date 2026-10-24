@@ -2,7 +2,7 @@
 
 Regent is a project-agnostic conversational client for the official Claude Code CLI.
 Read [ARCHITECTURE.md](ARCHITECTURE.md) to locate the component you want to change.
-Contributors do not need access to Talently, its production services or its internal tracker.
+Contributors do not need access to an operator's production services or internal tracker.
 
 ## Local checks
 
@@ -77,12 +77,13 @@ The client packager produces `dist/plugins/<name>-<version>.zip` and `.zip.sha25
 five-file allowlist. It requires a literal public HTTPS MCP endpoint and bundles no instance config,
 server implementation or credentials. Verify the generated endpoint before distribution.
 
-Client releases use `talently-code-v<client-manifest-version>` tags. The release workflow reads
+Generic client releases use `regent-client-v<client-manifest-version>` tags. The release workflow reads
 `REGENT_PLUGIN_ENDPOINT` from repository variables, runs `pnpm check`, validates the tag against
 the client manifest and uploads the ZIP/checksum to the GitHub release. Set that non-secret variable
 before tagging. The manual workflow accepts an explicit endpoint and uploads an Actions artifact
 without publishing a release; this supports independent Regent instances.
 
-See the [client guide](plugins/talently-code/README.md) for packaging and installation. The root
+Branded clients, their packaging tests and their releases belong in the organization's own repository.
+See the [client guide](plugins/regent/README.md) for packaging and installation. The root
 runtime version and client release tag are independent; do not overwrite an existing client release
 with a different endpoint or archive.

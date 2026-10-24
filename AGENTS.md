@@ -14,7 +14,7 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) and [CONTRIBUTING.md](CONTRIBUTING.md) b
 - `src/runtime.ts`: shared server lifecycle. Add cleanup here, including failed startup.
 - `src/server.ts`, `src/mcp-server.ts`, `src/cli.ts`, `src/mcp-client.ts`: stable entrypoints.
 - `plugins/executor/`: internal protocol, default communication policy and hooks.
-- `plugins/talently-code/`: branded public client. Project skills remain in target repos.
+- `plugins/regent/`: generic public client. Branded distributions live in their owner's repository.
 - `config/`: public templates and ignored operator settings. Never stage local instance files.
 - `test/`: automatic suites; `fixtures/` for simulations, `smoke/` for opt-in real providers.
 - `dist/plugins/`: ignored versioned ZIPs/checksums; generated from the packaging allowlist.

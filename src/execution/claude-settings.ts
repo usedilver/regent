@@ -58,7 +58,7 @@ export function ensureTrusted(dir: string): void {
     }
 
     // claude busca .mcp.json hacia ARRIBA: el agente corre en un submódulo
-    // (…/talently-code/frontend/frontend-hire) y el archivo vive en la raíz del
+    // y el archivo vive en la raíz del
     // monorepo. Mirar solo el cwd dejaba el diálogo sin pre-aprobar.
     const mcpPath = findUp('.mcp.json', dir)
     if (mcpPath) {

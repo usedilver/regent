@@ -26,7 +26,7 @@ if (endpoint.scheme != "https" or not endpoint.hostname
     parser.error("--endpoint requires a literal public HTTPS /mcp URL without credentials, query or fragment")
 
 repo = Path(__file__).resolve().parent.parent
-source = repo / "plugins/talently-code"
+source = repo / "plugins/regent"
 manifest = json.loads((source / ".claude-plugin/plugin.json").read_text())
 name, version = manifest["name"], manifest["version"]
 if not re.fullmatch(r"[a-z][a-z0-9-]*", name) or not re.fullmatch(r"\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?", version):
@@ -34,12 +34,12 @@ if not re.fullmatch(r"[a-z][a-z0-9-]*", name) or not re.fullmatch(r"\d+\.\d+\.\d
 output = args.output or repo / "dist" / "plugins" / f"{name}-{version}.zip"
 files = {
     ".claude-plugin/plugin.json": source / ".claude-plugin/plugin.json",
-    "skills/talently-code/SKILL.md": source / "skills/talently-code/SKILL.md",
+    f"skills/{name}/SKILL.md": source / f"skills/{name}/SKILL.md",
     "README.md": source / "README.md",
     "LICENSE": repo / "LICENSE",
 }
 contents = {name: file.read_bytes() for name, file in files.items()}
-contents[".mcp.json"] = (json.dumps({"mcpServers": {"talently-code": {
+contents[".mcp.json"] = (json.dumps({"mcpServers": {name: {
     "type": "http", "url": args.endpoint,
 }}}, indent=2) + "\n").encode()
 output.parent.mkdir(parents=True, exist_ok=True)

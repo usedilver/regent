@@ -40,7 +40,7 @@ const laravelLog = {
         {
           title: 'Context',
           value:
-            '```{\n  "file": "/var/www/api/app/Services/Match/Http/Resource/MatchUserTalentlyCertificateResource.php:17"\n}```',
+            '```{\n  "file": "/var/www/api/app/Services/Match/Http/Resource/MatchUserCertificateResource.php:17"\n}```',
         },
       ],
     },
@@ -51,7 +51,7 @@ check('bot_message con attachment: título, texto y campos entran (el caso Larav
   const body = messageBody(laravelLog)
   assert.match(body, /Attempt to read property "name" on null/)
   assert.match(body, /Level: ERROR/)
-  assert.match(body, /MatchUserTalentlyCertificateResource\.php:17/)
+  assert.match(body, /MatchUserCertificateResource\.php:17/)
 })
 
 check('mensaje sin nada útil → vacío (se descarta del transcript)', () => {
@@ -87,11 +87,11 @@ check('appLabel: bot_profile > username > bot', () => {
 
 check('threadToMarkdown: plegado, autores en negrita, vallas intactas', () => {
   const t =
-    '[app bot]: Message\nLevel: ERROR\nContext:\n```\n{"file": "@x.php"}\n```\n@Dilver: @Talently ayudame'
+    '[app bot]: Message\nLevel: ERROR\nContext:\n```\n{"file": "@x.php"}\n```\n@Alex: @Example ayudame'
   const md = threadToMarkdown(t)
   assert.match(md, /^<details><summary>Hilo de origen \(Slack\)<\/summary>\n/)
   assert.match(md, /\*\*\[app bot\]:\*\* Message/)
-  assert.match(md, /\*\*@Dilver:\*\* @Talently ayudame/)
+  assert.match(md, /\*\*@Alex:\*\* @Example ayudame/)
   assert.match(md, /\{"file": "@x.php"\}/, 'dentro de la valla no se toca')
   assert.doesNotMatch(md, /\*\*@x\.php/)
   assert.match(md, /<\/details>$/)

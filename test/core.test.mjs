@@ -1149,11 +1149,11 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
       assert.equal(test('Glob', { pattern: '/other/**/.env*' }), null)
       // bypass: general repo commands and operators just run (the hook is the guard, not an allowlist).
       for (const command of [
-        'talently db list',
+        'project-cli db list',
         'find . -iname "schema*.sql"',
         'npm run build',
         'ls -la',
-        'talently 2>&1 | head -40',
+        'project-cli 2>&1 | head -40',
       ])
         assert.equal(test('Bash', { command }), null, command)
       assert.ok(test('Bash', { command: 'rm -rf /Users/x' }))
