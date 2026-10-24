@@ -91,8 +91,12 @@ trigger this recovery. The total run deadline also bounds history loading.
 
 `execution_failure` events distinguish provider context, provider quota, request rate,
 authentication, Regent budget and Slack history failures. The runner preserves error result
-text even when the CLI reports subtype `success` and exits nonzero. Slack presents an
-actionable explanation; failed MCP run summaries additionally expose optional
+text even when the CLI reports subtype `success` and exits nonzero. Deadline and
+inactivity interruptions, unexpected process exits, invalid events and startup failures
+also produce a terminal notice marking the work incomplete. A user stop takes precedence
+over a concurrent executor error, preserves queued work and does not trigger recovery.
+Slack persists terminal notices through durable delivery; MCP clients must report failures
+instead of presenting a partial `result` as completed work. Failed and interrupted MCP run summaries expose optional
 `failure.source`, `failure.code` and `failure.message`, including provider reset text when
 available. Cost and token usage cover all attempts; successful recovery is not reported as
 a terminal failure. Tests simulate these conditions and do not claim to exhaust a real

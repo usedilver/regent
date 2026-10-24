@@ -20,7 +20,7 @@ import { redact } from '../storage/redact.ts'
 import type { Conversation, Inbound, Output, Run, Rooms } from './types.ts'
 import { RoomTransfers } from './rooms.ts'
 import { denial } from '../../plugins/executor/hooks/policy.mjs'
-import { progressText, interruptedText, type DevelopmentPhase } from './progress.ts'
+import { progressText, interruptedText, failedText, type DevelopmentPhase } from './progress.ts'
 import {
   resolveRepository,
   projectRoot,
@@ -56,6 +56,7 @@ interface Active {
   wrapUpAt?: number
   waiting: boolean
   cancelled: boolean
+  cancelReason?: string
   reserved: number
   lastTool: string
   output: Promise<void>
@@ -172,6 +173,7 @@ export class Core {
         const active = this.active.get(input.key)
         if (active) {
           active.cancelled = true
+          active.cancelReason = 'Detenido por el usuario.'
           active.abort.abort()
           active.controller?.cancel()
         }
@@ -542,7 +544,6 @@ export class Core {
           failure.fresh_session = !options.sessionId
           result.failure = failure
         }
-        if (failure) this.store.event(run.id, 'execution_failure', { ...failure, attempt })
         if (
           failure?.code !== 'context_window' ||
           active.cancelled ||
@@ -633,7 +634,24 @@ export class Core {
               ? 'waiting_human'
               : result.state
       const deliveredSession = this.store.conversation(conversation.key)?.session_id
-      this.store.finish(run.id, state, result.text, result.error, () => {
+      const error = active.cancelled
+        ? (active.cancelReason ?? 'Detenido por el usuario.')
+        : this.stopping
+          ? 'Servidor detenido.'
+          : timedOut
+            ? 'Se alcanzó el tiempo máximo de ejecución de este turno.'
+            : result.error
+      const failure =
+        !active.cancelled && !this.stopping && ['failed', 'interrupted'].includes(state)
+          ? ((timedOut ? executionFailure(error) : result.failure) ??
+            executionFailure(`${error}\n${result.text}`) ?? {
+              source: 'claude' as const,
+              code: 'execution_failed' as const,
+              detail: error,
+            })
+          : undefined
+      if (failure) this.store.event(run.id, 'execution_failure', failure)
+      this.store.finish(run.id, state, result.text, error, () => {
         if (
           deliveredSession &&
           !active.contextChanged &&
@@ -641,34 +659,47 @@ export class Core {
         )
           history.acknowledge(deliveredSession, visual.skipped)
       })
-      const failure =
-        state === 'failed'
-          ? (result.failure ?? executionFailure(`${result.error}\n${result.text}`))
-          : undefined
-      const text =
-        active.contextChanged && !active.cancelled && !this.stopping
-          ? 'Continuo en el proyecto seleccionado.'
+      const text = ['failed', 'interrupted'].includes(state)
+        ? failure
+          ? failedText(failure, result.text)
+          : interruptedText(error, result.text)
+        : active.contextChanged
+          ? 'Continuo con el perfil seleccionado.'
           : active.resumeAfterWait
             ? 'Respuesta recibida; continuo con el siguiente mensaje.'
             : state === 'waiting_human'
               ? 'Espero tu respuesta para continuar.'
-              : state === 'completed'
-                ? result.text || 'La consulta termino sin texto de respuesta.'
-                : failure
-                  ? failureMessage(failure)
-                  : interruptedText(result.error, result.text)
+              : result.text || 'La consulta termino sin texto de respuesta.'
       this.publish(active, () => this.output.finish(conversation, run, redact(text)))
       this.publish(active, () =>
         this.output.status(conversation, state === 'waiting_human' ? 'suspended' : 'active'),
       )
     } catch (error) {
       active.controller?.cancel('Error del servidor')
-      if (active.controller) await active.controller.done
-      const message = redact(error instanceof Error ? error.message : String(error))
+      if (active.controller) await active.controller.done.catch(() => {})
+      const message = redact(
+        active.cancelled
+          ? (active.cancelReason ?? 'Detenido por el usuario.')
+          : this.stopping
+            ? 'Servidor detenido.'
+            : timedOut
+              ? 'Se alcanzó el tiempo máximo de ejecución de este turno.'
+              : error instanceof Error
+                ? error.message
+                : String(error),
+      )
       const failure =
-        error instanceof HistoryUnavailable
-          ? { source: 'slack' as const, code: 'history_unavailable' as const, detail: message }
-          : executionFailure(message)
+        active.cancelled || this.stopping
+          ? undefined
+          : timedOut
+            ? executionFailure(message)
+            : error instanceof HistoryUnavailable
+              ? { source: 'slack' as const, code: 'history_unavailable' as const, detail: message }
+              : (executionFailure(message) ?? {
+                  source: 'regent' as const,
+                  code: 'execution_failed' as const,
+                  detail: message,
+                })
       if (failure) this.store.event(run.id, 'execution_failure', failure)
       this.store.finish(
         run.id,
@@ -680,7 +711,7 @@ export class Core {
         this.output.finish(
           conversation,
           run,
-          failure ? failureMessage(failure) : `No pude completar la consulta: ${message}`,
+          failure ? failureMessage(failure) : interruptedText(message, ''),
         ),
       )
       this.publish(active, () => this.output.status(conversation, 'active'))
@@ -947,6 +978,7 @@ export class Core {
     if (name === 'regent_cancel') {
       const args = ToolSchemas.regent_cancel.parse(input)
       active.cancelled = true
+      active.cancelReason = redact(args.reason)
       active.abort.abort()
       setTimeout(() => active.controller?.cancel(args.reason), 100)
       return { cancelled: true }

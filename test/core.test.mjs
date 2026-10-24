@@ -569,7 +569,7 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
               (m) =>
                 m.kind === 'finish' &&
                 m.args[2].includes(
-                  state === 'failed' ? 'No se pudo completar' : 'Resultado verificado',
+                  state === 'failed' ? 'trabajo quedó incompleto' : 'Resultado verificado',
                 ),
             ),
           )

@@ -97,7 +97,8 @@ Remote reviews in query mode use configured MCP readers without cloning.
 
 Use simple commands and literal worktree paths. Respect hook denials; split
 unsupported commands rather than bypassing them. Inspect nonzero exits. Skip
-no-op edits. Reuse dev servers, tracking their PID/job and port; stop only your
+no-op edits. For Python dependencies, create or reuse the project's virtual environment
+and use its python -m pip; do not install into the system Python. Reuse dev servers, tracking their PID/job and port; stop only your
 own process, never every matching process. If the native worktree is unavailable
 or a custom hook returns another path, report the blocker instead of editing the
 source or creating symlinks to shared code.

@@ -8,6 +8,9 @@ export interface ExecutionFailure {
     | 'run_budget'
     | 'history_unavailable'
     | 'compaction_failed'
+    | 'run_timeout'
+    | 'run_stalled'
+    | 'execution_failed'
   detail: string
   reset?: string
   fresh_session?: boolean
@@ -24,6 +27,10 @@ const contextOverflow =
   /prompt[_ -](?:is[_ -])?too[_ -]long|conversation too long|context[_ -]length[_ -]exceeded|context[_ -]window(?:[_ -]exceeded| (?:is )?(?:full|exceeded))|context[_ -]limit[_ -](?:reached|exceeded)|maximum context length/i
 
 export function executionFailure(detail: string): ExecutionFailure | undefined {
+  if (/tiempo m[aá]ximo de ejecuci[oó]n de este turno/i.test(detail))
+    return { source: 'regent', code: 'run_timeout', detail }
+  if (/Claude dej[oó] de emitir eventos/i.test(detail))
+    return { source: 'regent', code: 'run_stalled', detail }
   // A failed compaction can wrap the real blocker: quota, authentication or rate limiting.
   if (
     /you['’]ve hit your (?:session|weekly|usage) limit|usage limit (?:reached|exceeded)|out of (?:extra )?usage|credit balance is too low/i.test(
@@ -75,5 +82,11 @@ export function failureMessage(failure: ExecutionFailure): string {
       return 'Claude no pudo compactar su contexto para continuar. El trabajo se conserva; el operador debe revisar el fallo de compactación antes de reintentarlo.'
     case 'history_unavailable':
       return `Regent no pudo recuperar el historial de Slack. No es un límite de contexto de Claude. Detalle: ${failure.detail.slice(0, 500)}`
+    case 'run_timeout':
+      return 'Regent detuvo este turno al alcanzar el tiempo máximo de ejecución configurado. El trabajo quedó incompleto; el código y el hilo se conservan. Escribe «continúa» para retomarlo.'
+    case 'run_stalled':
+      return 'Regent detuvo este turno porque la ejecución dejó de emitir actividad. El trabajo quedó incompleto; el código y el hilo se conservan. Escribe «continúa» para retomarlo.'
+    case 'execution_failed':
+      return `${failure.source === 'claude' ? 'Claude terminó con un error o sin una respuesta final.' : 'Regent encontró un error al ejecutar la solicitud.'} El trabajo quedó incompleto; el código y el hilo se conservan. Puedes pedir que continúe; si vuelve a fallar, el operador puede revisar el registro.`
   }
 }

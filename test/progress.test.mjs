@@ -339,7 +339,7 @@ try {
   await until(() => !core.active.size)
   const final = messages.find((text) => text.includes('Respuesta parcial del agente'))
   assert.ok(final.includes('Verified partial findings'))
-  assert.equal(final.match(/escribe continua/g).length, 1)
+  assert.equal(final.match(/escribe «?contin[uú]a»?/gi).length, 1)
   assert.match(interruptedText('Timeout.', ''), /No se obtuvo una respuesta parcial/)
   assert.equal(messages.filter((text) => text.includes('limite de tiempo')).length, 1)
   console.log(
