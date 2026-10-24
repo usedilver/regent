@@ -2,8 +2,8 @@
 
 Agente de código conversacional para Slack, Claude Desktop y terminal, basado en
 el CLI oficial de Claude Code. Puede investigar y modificar proyectos usando sus
-propias instrucciones, skills y conexiones. Cada conversación trabaja en un
-worktree separado y conserva su contexto al continuar.
+propias instrucciones, skills y conexiones. Las consultas leen el repositorio existente;
+los cambios usan un worktree separado por conversación y conservan el contexto al continuar.
 
 ## Empezar
 

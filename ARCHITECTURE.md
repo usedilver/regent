@@ -18,7 +18,7 @@ flowchart LR
     Core --> Runner[Official Claude CLI]
     Core --> Store[SQLite store]
     Core --> Previews[Preview manager]
-    Runner --> Project[Project worktree and project MCPs]
+    Runner --> Project[Source checkout or worktree and project MCPs]
 ```
 
 Adapters authenticate the caller, translate input into `Inbound` and present `Output`.
@@ -58,12 +58,31 @@ WebSocket upgrades are closed too; HTTP server close alone is insufficient.
 
 Preserve `log/v2.sqlite`: its historical filename is part of deployed instance configuration.
 Schema migrations are versioned in the store. Keep migrations compatible with existing state;
-folder moves do not justify deleting databases, conversations or worktrees.
+folder moves do not justify deleting databases, conversations or worktrees. Back up SQLite before
+a schema upgrade; older runtimes reject newer schema versions, so do not downgrade against a
+newer live database or restore an old snapshot over newly accepted work.
 
 ## Execution and data boundaries
 
-The runner launches the unmodified official CLI in a conversation worktree. It loads the
-selected project's environment, preserving shared context for registered Git submodules.
+The runner launches the unmodified official CLI. Query runs start in the selected source
+checkout without allocating a worktree; editing runs create/reuse the conversation worktree.
+Queries after an edit read that existing worktree. `src/core/execution-context.ts` selects the
+location and `conversations.session_cwd` binds the persisted CLI session to it (schema 12).
+A directory change starts a fresh CLI session with a bounded prior-request/result handoff;
+the Regent conversation, history, caller and queued work remain the same. Legacy sessions
+resume only when their existing worktree matches; a removed worktree is not recreated for a query.
+
+Query mode limits native built-ins to readers, skill loading and MCP discovery. Core/hook
+policy denies shell execution, writers, delegation, preview mutations and self-promotion, and constrains
+MCP operations to query conventions. `regent_git_read` executes bounded read-only Git argv
+without a shell, disabling executable Git filters, fsmonitor and external diff/textconv.
+It receives a minimal environment, not transport credentials. Trusted project hooks and MCP
+implementations still execute under the operator's account; these guards are not an OS sandbox.
+External services/database credentials must enforce their own data permissions.
+
+The selected project's environment and connections load in both modes, preserving shared
+root context for registered Git submodules. Query reads never prepare nested worktrees;
+editing preparation initializes the isolated checkouts at pinned commits.
 Independent repositories get their own context and connections. MCP availability inside the
 executor is independent of the host chat's connections. Tools and public session contracts
 remain compatible when source files move.
