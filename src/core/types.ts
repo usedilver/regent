@@ -33,6 +33,7 @@ export interface Conversation {
   cwd: string
   state: ConversationState
   session_id: string | null
+  session_cwd?: string | null
   updated_at: number
   task_id: string | null
 }

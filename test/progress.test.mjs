@@ -162,6 +162,17 @@ try {
     assert.equal(result.result.isError, undefined)
     assert.equal(calls.at(-1).args.text, args.text ?? args.status)
   }
+  for (const phase of ['investigation', 'implementation', 'validation']) {
+    const result = await tool({ phase, text: `Starting ${phase}` })
+    assert.equal(result.result.isError, undefined)
+    assert.doesNotMatch(JSON.stringify(result), /throttled/)
+    assert.equal(calls.at(-1).args.text, `Starting ${phase}`)
+    assert.equal(active.lastPhase, phase)
+  }
+  assert.match(
+    JSON.stringify(await tool({ phase: 'validation', text: 'Repeated validation update' })),
+    /throttled/,
+  )
   const count = calls.length
   assert.match(JSON.stringify(await tool({ status: 'Demasiado pronto' })), /throttled/)
   for (const args of [
@@ -170,6 +181,8 @@ try {
     { text: '   ' },
     { text: 42 },
     { status: 'x'.repeat(2001) },
+    { phase: 'completed', text: 'Unknown phase' },
+    { phase: 'validation' },
   ]) {
     const result = await tool(args)
     assert.ok(
@@ -312,12 +325,15 @@ try {
     core.permission(closing.token, { tool_name: 'Read', tool_input: { file_path: 'README.md' } }),
     null,
   )
-  await until(() => messages.some((text) => text.includes('limite de tiempo')))
+  await until(
+    () =>
+      messages.some((text) => text.includes('limite de tiempo')) && Date.now() >= closing.wrapUpAt,
+  )
   assert.match(core.permission(closing.token, { tool_name: 'Read' }), /margen de cierre/)
   assert.match(core.permission(closing.token, { tool_name: 'Agent' }), /margen de cierre/)
   assert.equal(core.permission(closing.token, { tool_name: 'mcp__regent__regent_status' }), null)
-  assert.equal(core.permission(closing.token, { tool_name: 'TaskOutput' }), null)
-  assert.equal(core.permission(closing.token, { tool_name: 'TaskStop' }), null)
+  assert.match(core.permission(closing.token, { tool_name: 'TaskOutput' }), /Query mode/)
+  assert.match(core.permission(closing.token, { tool_name: 'TaskStop' }), /Query mode/)
   await assert.rejects(() => core.tool(closing.token, 'regent_create_room', {}), /margen de cierre/)
   finish()
   await until(() => !core.active.size)

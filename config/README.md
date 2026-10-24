@@ -219,6 +219,28 @@ creados con un token no se reasignan al migrar esa persona a OAuth.
 
 ## Proyectos y ejecución
 
+Las consultas (`ask`) leen el repositorio existente, sin crear worktree. Una petición
+para implementar/corregir usa `patch`, `task` o `project` y crea/reutiliza el worktree.
+Si después vuelves a consultar, se lee ese mismo trabajo. Una aprobación explícita como
+«implementalo» o «procede» puede pasar de investigación a edición; «continúa investigando»
+y los acuses breves no se interpretan por sí solos como una petición de escribir.
+
+El hilo y su historial son independientes del directorio. Al pasar del checkout al
+worktree, una sesión CLI nueva recibe un resumen acotado de lo investigado; las sesiones
+MCP del cliente y la conversación Regent continúan. La base conserva `session_cwd`
+(esquema 12), sin borrar sesiones ni worktrees anteriores. Haz respaldo antes de actualizar;
+una versión antigua no puede abrir una base con esquema nuevo.
+
+Se conserva el `permission_mode` configurado (`native` o `bypass`); las restricciones
+de consulta se aplican en ambos modos. En consulta están disponibles lectores de archivos,
+skills, descubrimiento y consultas MCP; el agente usa `regent_git_read` para historial/diffs/estado. Se bloquean Bash,
+intérpretes, herramientas de escritura, subagentes y el arranque/modificación de previews.
+Consultar el estado de un preview existente sigue permitido. Los MCPs siguen cargándose
+desde el proyecto; sus operaciones deben cumplir las convenciones de consulta y sus
+credenciales deben limitar los datos en la fuente. Estas restricciones no son un sandbox
+para código de configuración o servidores MCP confiables. La selección de herramientas
+nativas usa las [opciones del CLI oficial](https://code.claude.com/docs/en/cli-reference).
+
 Los submódulos Git pertenecen a su proyecto raíz y conservan las conexiones y skills
 compartidas al navegar entre servicios. Antes de editar se preparan checkouts
 inicializados en worktrees aislados, desde los commits fijados por sus padres.
@@ -245,8 +267,8 @@ y comandos de control del autor. En DM no hace falta mencionar al bot.
 
 El router selecciona `ask`, `patch`, `task` o `project`. Puedes forzarlo con `/ask`,
 `/patch`, `/task` o `/project` después de la mención. Las continuaciones breves heredan
-el perfil; `models.project` null usa `models.task`. El perfil cambia tiempo/modelo,
-no autorización. El tramo final reserva hasta 60 segundos o el 20% del límite para
+el perfil; `models.project` null usa `models.task`. El perfil cambia tiempo/modelo; `ask` impone además modo consulta. La autorización de
+usuarios y el alcance de su pedido siguen comprobándose por separado. El tramo final reserva hasta 60 segundos o el 20% del límite para
 responder; no amplía el timeout ni garantiza recuperar una herramienta interrumpida.
 
 ## Operación

@@ -43,6 +43,7 @@ if (scenario === 'hang' || scenario === 'ignore-signals') {
         'regent_ask_human',
         'regent_cancel',
         'regent_create_room',
+        'regent_git_read',
         'regent_status',
         'regent_use_repo',
       ])

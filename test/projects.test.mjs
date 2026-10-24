@@ -443,7 +443,7 @@ try {
       team: 'T1',
       channel: 'C1',
       author: 'U1',
-      text: 'Review backend',
+      text: 'Update backend',
       repo: hire,
     }
     await core.submit(input)

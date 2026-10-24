@@ -85,7 +85,7 @@ export function createHttp(
         core.store.event(active.run.id, 'permission_denied', { reason })
         return send(200, { ok: true })
       }
-      const server = new McpServer({ name: 'regent', version: '0.2.0' })
+      const server = new McpServer({ name: 'regent', version: '0.3.0' })
       for (const [name, schema] of Object.entries(ToolSchemas)) {
         if (name === 'regent_preview' && !core.previews) continue
         const inputSchema = name === 'regent_status' ? schema : schema.shape
@@ -93,6 +93,12 @@ export function createHttp(
           name,
           {
             inputSchema,
+            ...(name === 'regent_git_read'
+              ? {
+                  description:
+                    'Read Git history, diffs, status, registered worktrees or tracked files using literal argument arrays, without a shell. Use directory for a submodule inside the selected project. Output is bounded; narrow large requests. No commits, checkouts or write/output options.',
+                }
+              : {}),
             ...(name === 'regent_preview'
               ? {
                   description:

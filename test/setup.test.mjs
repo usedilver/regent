@@ -213,7 +213,8 @@ try {
   assert.equal(starts[1].cwd, other)
   assert.equal(starts[2].cwd, other)
   assert.equal(starts[1].env.SETUP_FIXTURE_REPO, 'other repo')
-  assert.equal(starts[1].worktreeName, isolationFor(other, 'explicit').name)
+  assert.equal(starts[1].worktreeName, undefined)
+  assert.equal(starts[1].readOnly, true)
   assert.equal(starts[1].sessionId, null)
   assert.equal(
     store.run(store.db.prepare("SELECT run_id FROM inbound WHERE event_id='explicit'").get().run_id)

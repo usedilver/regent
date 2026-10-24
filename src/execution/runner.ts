@@ -64,6 +64,7 @@ export interface RunnerOptions {
   token: string
   readonlyMcp: string[]
   additionalDirectories?: string[]
+  readOnly?: boolean
   worktreeName?: string
   communicationFile?: string | null
   /** Bypass skips native permissions. Native honors repository rules; unanswered
@@ -97,7 +98,16 @@ export function runnerArgs(
     '--setting-sources',
     'user,project,local',
     ...(options.worktreeName ? ['--worktree', options.worktreeName] : []),
-    ...(native ? ['--allowedTools', 'mcp__regent__*'] : []),
+    ...(options.readOnly
+      ? [
+          '--tools',
+          'Read,Glob,Grep,Skill,ToolSearch,WebFetch,WebSearch',
+          '--allowedTools',
+          'Read,Glob,Grep,Skill,ToolSearch,WebFetch,WebSearch,mcp__*',
+        ]
+      : native
+        ? ['--allowedTools', 'mcp__regent__*']
+        : []),
     ...(options.additionalDirectories ?? []).flatMap((dir) => ['--add-dir', dir]),
     '--append-system-prompt-file',
     systemPromptFile,
@@ -192,13 +202,14 @@ export function startRunner(options: RunnerOptions): {
     isolationVersionChecked = true
   }
   const native = options.permissionMode === 'native'
-  if (!native && !options.command) {
+  if (!native && !options.command && !options.readOnly) {
     ensureTrusted(options.cwd)
     ensureBypassAccepted()
   }
   const env: NodeJS.ProcessEnv = {
     ...(options.env ?? process.env),
     REGENT_RUN_ID: options.runId,
+    REGENT_READ_ONLY: options.readOnly ? '1' : '0',
     REGENT_RUN_TOKEN: options.token,
     REGENT_TOOLS_URL: options.toolsUrl,
     REGENT_READONLY_MCP: JSON.stringify(options.readonlyMcp),

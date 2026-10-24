@@ -23,6 +23,10 @@ Suites named `test/**/*.test.mjs` are discovered automatically and run sequentia
 processes. Add regression cases for changed behavior without adding filenames to package scripts.
 Keep reusable fixtures under `test/fixtures/`; use `node:test` for new cases. Real-Claude and Slack
 checks live in `test/smoke/` and require explicit opt-in and the operator's own authentication.
+`REGENT_SMOKE=1 node test/smoke/on-demand-worktrees.mjs` checks query → edit → query with the
+unmodified CLI, a temporary repository and a synthetic project MCP. It incurs normal provider
+usage, keeps source files unchanged and removes its temporary files; it never inspects or copies
+authentication files. Simulated tests are the default in CI.
 Set `REGENT_USER_ID` for local CLI attribution if the instance has no single allowed Slack user.
 A simulated test does not establish production or provider compatibility.
 

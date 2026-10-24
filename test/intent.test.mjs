@@ -92,13 +92,20 @@ try {
   await until(() => starts.length === 4)
   assert.equal(starts[3].opts.model, 'sonnet-test')
   assert.equal(starts[3].opts.timeoutMs, 600000)
-  await core.tool(core.active.get('slack:C1:1').token, 'regent_use_repo', {
-    repo,
-    intent: 'project',
-    handoff: 'Ahora construir con el perfil explicito',
-  })
+  await assert.rejects(
+    () =>
+      core.tool(core.active.get('slack:C1:1').token, 'regent_use_repo', {
+        repo,
+        intent: 'project',
+        handoff: 'Do not promote a query without a user editing request',
+      }),
+    /Query mode/,
+  )
+  starts[3].finish()
+  await until(() => !core.active.size)
+  await core.submit(inbound('approved', 'implementalo'))
   await until(() => starts.length === 5)
-  assert.equal(starts[4].opts.model, 'opus-project')
+  assert.equal(starts[4].opts.readOnly, false)
   starts[4].finish()
   await until(() => !core.active.size)
   console.log(

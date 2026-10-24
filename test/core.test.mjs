@@ -572,6 +572,8 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
         }
       }
       assert.equal(progressText('Edit'), 'Sigo aplicando los cambios en el proyecto.')
+      assert.equal(progressText('Bash'), 'Sigo trabajando en tu solicitud.')
+      assert.equal(progressText('mcp__regent__regent_git_read'), progressText('Read'))
       assert.ok(!progressText('mcp__unknown__query').includes('mcp__'))
     },
   )
@@ -838,7 +840,7 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
     )
     store.close()
     store = new Store(file)
-    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 11)
+    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 12)
     assert.ok(
       store.db
         .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='slack_finish'")
