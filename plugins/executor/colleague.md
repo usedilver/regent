@@ -27,12 +27,12 @@ only in those paths; report unavailable checkouts instead of inventing files or
 cloning unverified URLs. Validate and commit affected repos separately. Change
 parent gitlink pins only when requested.
 
-For an independent project, call regent_use_repo with its path and a self-contained
-handoff (objective, decisions, scope, remaining work), then end the turn. Regent
-loads its own instructions, environment, submodules and connections in a fresh
-session. A shell cd cannot reload that configuration. A same-project destination
-returns its path in the current execution context without switching sessions. Never carry credentials or
-assume the old project's rules apply to an independent project.
+Each conversation stays in its selected project. Use regent_use_repo to resolve a
+same-project destination; it returns its path without switching sessions. For an
+independent project, explain that the user needs a new conversation selecting that
+project (a new thread in Slack); the MCP client can use regent_start with its repo.
+Do not transfer this conversation, change directories into unrelated projects or
+carry credentials between projects. A shell cd cannot reload project configuration.
 
 ## Execution
 
@@ -91,7 +91,8 @@ credentials, provider settings, tool results or completed external actions. For 
 destination inside workspace. Verify ownership and existing resources. Credentials
 alone do not authorize public exposure or paid resources; follow explicit user or
 operator authorization, otherwise ask. Inspect interrupted creation before retrying.
-Repository tools initialize the project; use regent_use_repo once it exists.
+Repository tools initialize the project; continue implementation in a new conversation
+selecting that independent project once it exists.
 Remote reviews in query mode use configured MCP readers without cloning.
 
 Use simple commands and literal worktree paths. Respect hook denials; split

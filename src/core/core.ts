@@ -21,7 +21,13 @@ import type { Conversation, Inbound, Output, Run, Rooms } from './types.ts'
 import { RoomTransfers } from './rooms.ts'
 import { denial } from '../../plugins/executor/hooks/policy.mjs'
 import { progressText, interruptedText, type DevelopmentPhase } from './progress.ts'
-import { resolveRepository, projectRoot, isolationFor, repositoryRequest } from './repository.ts'
+import {
+  resolveRepository,
+  projectRoot,
+  isolationFor,
+  repositoryRequest,
+  requireSameProject,
+} from './repository.ts'
 import { History, type HistoryLoader } from './history.ts'
 import { prepareProjectWorkspace, type ProjectWorkspace } from './project-workspace.ts'
 import { type Previews } from '../previews/manager.ts'
@@ -143,12 +149,10 @@ export class Core {
     const target = requested ? resolveRepository(this.cwd, requested) : undefined
     const selected = target ? projectRoot(this.cwd, target) : undefined
     const existing = this.store.conversation(input.key)
-    const switching = selected && existing && selected !== existing.cwd
+    if (selected && existing) requireSameProject(existing.cwd, selected)
     let text = selection.text
     if (target && selected && target !== selected)
       text = `Trabaja en el submodulo ${JSON.stringify(path.relative(selected, target))} del proyecto ${JSON.stringify(selected)}. Conserva el contexto compartido del proyecto y lee las instrucciones especificas del destino.\nSolicitud:\n${text}`
-    if (switching)
-      text = `El usuario selecciono explicitamente el repositorio ${JSON.stringify(target)}. Antes de ejecutar la solicitud, llama regent_use_repo con esa ruta y un handoff del contexto relevante; termina el turno para cargar su entorno. No ejecutes la solicitud en el repo actual.\nSolicitud:\n${text}`
     input = { ...input, text }
     const accepted = this.store.accept(
       input,
@@ -842,6 +846,7 @@ export class Core {
       if (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
         requested = resolveRepository(this.cwd, path.join(conversation.cwd, relative))
       const target = projectRoot(this.cwd, requested)
+      requireSameProject(conversation.cwd, target)
       const intent = args.intent ?? active.run.intent
       if (!['ask', 'patch', 'task', 'project'].includes(intent)) throw new Error('Intent invalido.')
       if (target === conversation.cwd && intent === active.run.intent)

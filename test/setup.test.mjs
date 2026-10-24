@@ -224,11 +224,14 @@ try {
   const invalid = input('invalid', 'repo: missing\nReview this')
   await assert.rejects(() => core.submit(invalid), /ENOENT/)
   assert.equal(store.conversation('invalid'), undefined)
-  const switching = await core.submit(
-    input('default', 'Review this', { eventId: 'switch', repo: 'other repo' }),
+  await assert.rejects(
+    () => core.submit(input('default', 'Review this', { eventId: 'switch', repo: 'other repo' })),
+    /nueva conversación/,
   )
-  assert.match(store.run(switching.runId).prompt, /regent_use_repo/)
-  assert.equal(store.run(switching.runId).state, 'queued')
+  assert.equal(
+    store.db.prepare("SELECT run_id FROM inbound WHERE event_id='switch'").get(),
+    undefined,
+  )
   assert.equal(store.conversation('default').cwd, repo)
   const duplicate = await core.submit(input('explicit', 'repo: missing\nRetry'))
   assert.equal(duplicate.duplicate, true)

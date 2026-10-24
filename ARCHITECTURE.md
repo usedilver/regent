@@ -113,6 +113,13 @@ Independent repositories get their own context and connections. MCP availability
 executor is independent of the host chat's connections. Tools and public session contracts
 remain compatible when source files move.
 
+The initial request selects the conversation's project. Later explicit selections and
+`regent_use_repo` may resolve services and registered submodules in that same project,
+but reject a different independent project before changing state or queuing work. The
+user starts a new conversation/thread for that project; MCP clients use `regent_start`
+with `repo`. Execution-profile changes within the selected project retain their normal
+handoff and authorization checks.
+
 Executor instructions guide code changes through investigation, implementation and validation.
 The optional `regent_status.phase` labels transitions for immediate progress updates; repeated
 updates remain throttled. A phase label neither authorizes an action nor proves a check passed.

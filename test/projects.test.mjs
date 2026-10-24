@@ -517,9 +517,23 @@ try {
     assert.equal(starts[1].worktreeName, starts[0].worktreeName)
     assert.doesNotMatch(starts[1].prompt, /Antes de ejecutar la solicitud, llama regent_use_repo/)
     const next = [...core.active.values()][0]
-    await core.tool(next.token, 'regent_use_repo', {
+    await assert.rejects(
+      () =>
+        core.tool(next.token, 'regent_use_repo', {
+          repo: independent,
+          handoff: 'Work on independent project',
+        }),
+      /nueva conversación/,
+    )
+    assert.equal(starts.length, 2)
+    assert.equal(store.conversation(input.key).cwd, parent)
+    finish[1]()
+    await wait(() => !core.active.size)
+    await core.submit({
+      ...input,
+      key: 'independent-session',
+      eventId: 'independent-start',
       repo: independent,
-      handoff: 'Work on independent project',
     })
     await wait(() => starts.length === 3)
     assert.equal(starts[2].cwd, independent)
@@ -527,7 +541,7 @@ try {
     assert.equal(starts[2].env.PROJECT_ONLY, undefined)
     assert.equal(starts[2].env.INDEPENDENT_ONLY, 'independent')
     console.log(
-      '  OK shared root environment/session across submodules, scoped edits, and independent project handoff',
+      '  OK shared context across submodules, scoped edits, and separate independent project sessions',
     )
   } finally {
     await core.close()
