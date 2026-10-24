@@ -1,3 +1,4 @@
+import { failureMessage, type ExecutionFailure } from '../../execution/failures.ts'
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -89,14 +90,40 @@ export class ExternalMcp {
         "SELECT data FROM events WHERE run_id=? AND kind='mcp_notice' ORDER BY id DESC LIMIT 1",
       )
       .get(latest.id)
-    const summary = (value: Run) => ({
-      id: value.id,
-      state: value.state,
-      result: value.result?.slice(0, MAX_RESULT_CHARS) ?? null,
-      result_truncated: (value.result?.length ?? 0) > MAX_RESULT_CHARS,
-      error: value.error,
-      cost_usd: value.cost,
-    })
+    const summary = (value: Run) => {
+      const event =
+        value.state === 'failed'
+          ? this.core.store.db
+              .prepare(
+                "SELECT data FROM events WHERE run_id=? AND kind='execution_failure' ORDER BY id DESC LIMIT 1",
+              )
+              .get(value.id)
+          : undefined
+      const failure: ExecutionFailure | undefined = event
+        ? JSON.parse(event.data as string)
+        : undefined
+      return {
+        id: value.id,
+        state: value.state,
+        result: value.result?.slice(0, MAX_RESULT_CHARS) ?? null,
+        result_truncated: (value.result?.length ?? 0) > MAX_RESULT_CHARS,
+        error: value.error,
+        cost_usd: value.cost,
+        ...(failure
+          ? {
+              failure: {
+                source: failure.source,
+                code: failure.code,
+                message: failureMessage(failure),
+                ...(failure.reset ? { reset: failure.reset } : {}),
+                ...(failure.fresh_session !== undefined
+                  ? { fresh_session: failure.fresh_session }
+                  : {}),
+              },
+            }
+          : {}),
+      }
+    }
     return {
       conversation_id: conversation.key,
       conversation_state: conversation.state,

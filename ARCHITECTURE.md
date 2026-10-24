@@ -72,6 +72,32 @@ A directory change starts a fresh CLI session with a bounded prior-request/resul
 the Regent conversation, history, caller and queued work remain the same. Legacy sessions
 resume only when their existing worktree matches; a removed worktree is not recreated for a query.
 
+Slack history has no conversation-wide 2,000-message or 200,000-character rejection.
+The redacted snapshot is retained for the run; previously delivered messages are filtered
+before packing recent context. The prompt body has a 60,000-character history budget,
+independent of Claude's token window. Omitted contents remain available through the internal
+`regent_read_history` reader, in pages of at most 16,000 characters, scoped to the active
+run token. Only complete delivered messages are acknowledged. Missing history and pagination
+failures remain explicit errors, rather than silently returning an incomplete snapshot.
+
+The official CLI still owns automatic compaction. A failed resumed execution may retry once
+in a fresh CLI session only for a recognized context overflow, before any agent tool use,
+with current authorization and remaining time/cost budget. The conversation, intent,
+repository environment and worktree remain unchanged; the retry receives prior decisions,
+bounded history and the original request. A known-full session is detached for the next
+human continuation when recovery is unsafe or fails. Its transcript and project files are
+not deleted. Quota, authentication, rate, budget and unknown compaction failures do not
+trigger this recovery. The total run deadline also bounds history loading.
+
+`execution_failure` events distinguish provider context, provider quota, request rate,
+authentication, Regent budget and Slack history failures. The runner preserves error result
+text even when the CLI reports subtype `success` and exits nonzero. Slack presents an
+actionable explanation; failed MCP run summaries additionally expose optional
+`failure.source`, `failure.code` and `failure.message`, including provider reset text when
+available. Cost and token usage cover all attempts; successful recovery is not reported as
+a terminal failure. Tests simulate these conditions and do not claim to exhaust a real
+provider context window or subscription quota.
+
 Query mode limits native built-ins to readers, skill loading and MCP discovery. Core/hook
 policy denies shell execution, writers, delegation, preview mutations and self-promotion, and constrains
 MCP operations to query conventions. `regent_git_read` executes bounded read-only Git argv

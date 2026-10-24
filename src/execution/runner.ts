@@ -5,6 +5,7 @@ import { REGENT_DIR } from '../env.ts'
 import { ensureTrusted, ensureBypassAccepted } from './claude-settings.ts'
 import type { ImageInput } from '../core/images.ts'
 import { createSystemPrompt } from './prompt.ts'
+import { executionFailure, type ExecutionFailure } from './failures.ts'
 
 type ToolEvent = { id: string; parentId?: string | null }
 type McpConnection = { name: string; status?: string }
@@ -40,6 +41,7 @@ export interface RunnerResult {
   error: string
   cost: number
   usage: unknown
+  failure?: ExecutionFailure
 }
 let isolationVersionChecked = false
 export function assertIsolationVersion(version: string): void {
@@ -359,19 +361,23 @@ export function startRunner(options: RunnerOptions): {
       const error =
         fatal ||
         reason ||
-        (code !== 0
-          ? stderr || `Claude termino con codigo ${code}`
-          : !result
-            ? 'Claude termino sin evento result.'
-            : result.error
-              ? result.errors.join('; ') || result.subtype || 'Claude reporto un error.'
+        (result?.error
+          ? [...result.errors, result.text].filter(Boolean).join('; ') ||
+            result.subtype ||
+            'Claude reporto un error.'
+          : code !== 0
+            ? stderr || `Claude termino con codigo ${code}`
+            : !result
+              ? 'Claude termino sin evento result.'
               : '')
+      const failure = !fatal && !reason && error ? executionFailure(error) : undefined
       resolve({
         state: fatal ? 'failed' : reason ? 'interrupted' : error ? 'failed' : 'completed',
         text: result?.text || streamed,
         error,
         cost: result?.cost ?? 0,
         usage: result?.usage ?? {},
+        ...(failure ? { failure } : {}),
       })
     })
   })

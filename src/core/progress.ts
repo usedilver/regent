@@ -1,7 +1,16 @@
 import { z } from 'zod'
 
 export function progressText(tool: string): string {
-  if (['Read', 'Glob', 'Grep', 'Skill', 'mcp__regent__regent_git_read'].includes(tool))
+  if (
+    [
+      'Read',
+      'Glob',
+      'Grep',
+      'Skill',
+      'mcp__regent__regent_git_read',
+      'mcp__regent__regent_read_history',
+    ].includes(tool)
+  )
     return 'Sigo revisando el codigo y el contexto del proyecto.'
   if (['Write', 'Edit', 'MultiEdit', 'NotebookEdit'].includes(tool))
     return 'Sigo aplicando los cambios en el proyecto.'

@@ -687,7 +687,11 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
       assert.equal(starts.length, 1)
       assert.equal(starts[0].maxCost, 1)
       assert.ok(
-        f.messages.some((m) => m.kind === 'finish' && m.args[2].includes('Presupuesto diario')),
+        f.messages.some(
+          (m) =>
+            m.kind === 'finish' &&
+            m.args[2].includes('presupuesto de ejecución configurado en Regent'),
+        ),
       )
     } finally {
       await f.close()

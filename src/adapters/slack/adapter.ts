@@ -49,8 +49,6 @@ export async function gatherHistory(
         if (!source.latest || stamp(message.ts) <= stamp(source.latest))
           messages.set(message.ts, message)
       }
-      if (messages.size > 2000)
-        throw new Error('Historial Slack demasiado grande; usa un hilo mas acotado.')
       cursor = result.response_metadata?.next_cursor || undefined
       if (result.has_more && !cursor)
         throw new Error('Slack devolvio historial incompleto sin cursor de continuacion.')
