@@ -20,7 +20,7 @@ export class Store {
     this.db = new DatabaseSync(file)
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;')
     const version = this.db.prepare('PRAGMA user_version').get()!.user_version as number
-    if (version > 11) throw new Error(`Esquema SQLite ${version} mas nuevo que este servidor.`)
+    if (version > 12) throw new Error(`Esquema SQLite ${version} mas nuevo que este servidor.`)
     this.transaction(() => {
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS conversations (
@@ -166,6 +166,16 @@ export class Store {
         );
         PRAGMA user_version=11;
       `)
+      if (version < 12) {
+        if (
+          !this.db
+            .prepare('PRAGMA table_info(conversations)')
+            .all()
+            .some((column) => column.name === 'session_cwd')
+        )
+          this.db.exec('ALTER TABLE conversations ADD COLUMN session_cwd TEXT;')
+        this.db.exec('PRAGMA user_version=12;')
+      }
     })
   }
   claimRuntime(): void {
@@ -244,7 +254,9 @@ export class Store {
         resettable &&
         now - conversation.updated_at > idleHours * 3600000
       ) {
-        this.db.prepare('UPDATE conversations SET session_id=NULL WHERE key=?').run(input.key)
+        this.db
+          .prepare('UPDATE conversations SET session_id=NULL,session_cwd=NULL WHERE key=?')
+          .run(input.key)
       }
       const text = input.text.trim().toLowerCase()
       const command = ['stop', 'para', 'reset', 'nuevo'].includes(text) ? text : null
@@ -301,7 +313,7 @@ export class Store {
       }
       if (switchContext && id)
         this.db
-          .prepare('UPDATE conversations SET cwd=?,session_id=NULL WHERE key=?')
+          .prepare('UPDATE conversations SET cwd=?,session_id=NULL,session_cwd=NULL WHERE key=?')
           .run(cwd, input.key)
       return { duplicate: false, runId: id, command }
     })
@@ -309,8 +321,10 @@ export class Store {
   state(key: string, state: ConversationState): void {
     this.db.prepare('UPDATE conversations SET state=? WHERE key=?').run(state, key)
   }
-  session(key: string, id: string): void {
-    this.db.prepare('UPDATE conversations SET session_id=? WHERE key=?').run(id, key)
+  session(key: string, id: string, directory?: string): void {
+    this.db
+      .prepare('UPDATE conversations SET session_id=?,session_cwd=? WHERE key=?')
+      .run(id, directory ?? null, key)
   }
   queued(adapter?: string | string[]): Run[] {
     const adapters =

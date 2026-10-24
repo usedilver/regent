@@ -55,6 +55,18 @@ async function fixture(options = {}) {
   const repo = path.join(dir, 'dashboard')
   fs.mkdirSync(repo)
   execFileSync('git', ['init', '-q', repo])
+  execFileSync('git', [
+    '-C',
+    repo,
+    '-c',
+    'user.name=Fixture',
+    '-c',
+    'user.email=fixture@example.test',
+    'commit',
+    '--allow-empty',
+    '-qm',
+    'fixture',
+  ])
   const store = new Store(options.file ?? ':memory:')
   const messages = [],
     starts = [],
@@ -81,6 +93,13 @@ async function fixture(options = {}) {
     adapter: ['slack', 'mcp'],
     runner: (args) => {
       starts.push(args)
+      if (args.worktreeName) {
+        const directory = path.join(args.cwd, '.claude/worktrees', args.worktreeName)
+        if (!fs.existsSync(path.join(directory, '.git')))
+          execFileSync('git', ['-C', args.cwd, 'worktree', 'add', '--detach', directory, 'HEAD'], {
+            stdio: 'ignore',
+          })
+      }
       return startRunner({
         ...args,
         command: process.execPath,
@@ -509,6 +528,43 @@ try {
         const immediate = Date.now()
         await client.callTool({ name: 'regent_get_run', arguments: { run_id: work.run_id } })
         assert.ok(Date.now() - immediate < 1000)
+      } finally {
+        await f.close()
+      }
+    },
+  )
+  await check(
+    'MCP query-to-edit promotion keeps its conversation and later queries reuse that worktree',
+    async () => {
+      const f = await fixture()
+      try {
+        const client = await f.client()
+        const work = await start(client, { prompt: 'Explica el repositorio sin hacer cambios' })
+        await until(() => !f.core.active.size)
+        assert.equal(f.starts[0].readOnly, true)
+        assert.equal(f.starts[0].worktreeName, undefined)
+        assert.ok(!fs.existsSync(path.join(f.repo, '.claude/worktrees')))
+        const querySession = f.store.conversation(work.conversation_id).session_id
+        await call(client, 'regent_continue', {
+          conversation_id: work.conversation_id,
+          request_id: randomUUID(),
+          prompt: 'Implementa el cambio en el código',
+        })
+        await until(() => !f.core.active.size)
+        assert.equal(f.starts[1].readOnly, false)
+        assert.equal(f.starts[1].sessionId, null)
+        assert.match(f.starts[1].prompt, /Prior conversation handoff/)
+        const editingSession = f.store.conversation(work.conversation_id).session_id
+        assert.notEqual(editingSession, querySession)
+        await call(client, 'regent_continue', {
+          conversation_id: work.conversation_id,
+          request_id: randomUUID(),
+          prompt: 'Explica lo que cambiaste',
+        })
+        await until(() => !f.core.active.size)
+        assert.equal(f.starts[2].readOnly, true)
+        assert.equal(f.starts[2].worktreeName, f.starts[1].worktreeName)
+        assert.equal(f.starts[2].sessionId, editingSession)
       } finally {
         await f.close()
       }

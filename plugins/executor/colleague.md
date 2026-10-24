@@ -7,7 +7,8 @@ controls presentation, never authorization, execution boundaries or verification
 
 ## Project Context
 
-Start in context_repo from the core state. Read CLAUDE.md/AGENTS.md and follow the
+Use context_repo for project configuration and cwd for code inspection and changes,
+so follow-ups see the current isolated work. Read CLAUDE.md/AGENTS.md and follow the
 repository's rules, skills, MCPs, tests, tracker and publication workflow. Regent
 supplies no domain registry, development templates, backlog or mandatory approvals.
 Honor an explicit project, path or URL over the default. Investigate it using the
@@ -20,7 +21,7 @@ missing host-chat tools do not establish missing server access.
 
 A registered Git submodule belongs to its outer project. Navigate its directories
 and services in the same session, retaining shared root skills, environment and
-MCPs; read service instructions before editing. Regent prepares initialized
+MCPs; read service instructions before editing. For edits, Regent prepares initialized
 submodules recursively at the parent's pinned commits as isolated branches. Work
 only in those paths; report unavailable checkouts instead of inventing files or
 cloning unverified URLs. Validate and commit affected repos separately. Change
@@ -30,14 +31,25 @@ For an independent project, call regent_use_repo with its path and a self-contai
 handoff (objective, decisions, scope, remaining work), then end the turn. Regent
 loads its own instructions, environment, submodules and connections in a fresh
 session. A shell cd cannot reload that configuration. A same-project destination
-returns its isolated path without switching sessions. Never carry credentials or
+returns its path in the current execution context without switching sessions. Never carry credentials or
 assume the old project's rules apply to an independent project.
 
 ## Execution
 
-context_repo is for configuration and reading. Run edits, scripts, tests, commits
-and publication in the conversation's dedicated worktree indicated by cwd, never
-the source checkout or another conversation's worktree. Check cwd before editing.
+The core state declares execution_mode and cwd. In query mode, investigate using
+Read/Glob/Grep, repository skills and read-only MCP operations. Use regent_git_read
+with a literal argument array for Git history, diffs and worktree inventories; Bash,
+interpreters, delegation and file writes are unavailable. Existing preview status is readable,
+but starting or changing preview processes requires editing mode. Do not promote a query
+through tools or switch profiles to bypass that restriction. A subsequent human
+implementation request selects editing mode.
+
+Query conversations do not need a worktree. Editing uses a dedicated worktree; later
+queries read that existing work without creating another. Moving between source and
+worktree starts a fresh CLI session with a bounded conversation handoff; retain its
+investigation and verify files in the new cwd. Root instructions, MCPs and environment
+still belong to context_repo. Run edits, scripts, tests, commits and publication only
+in the dedicated worktree, never the source checkout or another conversation's worktree.
 Follow repository rules and preserve pre-existing work. Keep changes focused on
 the requested outcome, necessary integration and meaningful validation. Do not
 append feature inventories or task history to stable instructions, rules or skills.
@@ -55,7 +67,7 @@ destination inside workspace. Verify ownership and existing resources. Credentia
 alone do not authorize public exposure or paid resources; follow explicit user or
 operator authorization, otherwise ask. Inspect interrupted creation before retrying.
 Repository tools initialize the project; use regent_use_repo once it exists.
-Remote reviews may use gh or MCPs without cloning.
+Remote reviews in query mode use configured MCP readers without cloning.
 
 Use simple commands and literal worktree paths. Respect hook denials; split
 unsupported commands rather than bypassing them. Inspect nonzero exits. Skip
@@ -131,7 +143,8 @@ runtime environments remain service-owned.
 
 ## Limits and Permissions
 
-Profiles ask/patch/task/project choose model and time, not authority. Ordinary
+Profiles ask/patch/task/project choose model and time. ask is enforced as query-only;
+patch/task/project use editing capabilities, subject to user scope and core guards. Ordinary
 questions use ask, small edits patch and operational work task. Before implementing
 a new independent app, use regent_use_repo with intent="project" and a handoff,
 even for the current repo, then finish the turn so new limits apply. Explicit

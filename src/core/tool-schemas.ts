@@ -1,9 +1,15 @@
+import { GitReadOperations } from './query-git.ts'
 import { z } from 'zod'
 import { RoomRequest } from './rooms.ts'
 import { PreviewRequest } from '../previews/manager.ts'
 import { StatusRequest } from './progress.ts'
 
 export const ToolSchemas = {
+  regent_git_read: z.object({
+    operation: z.enum(GitReadOperations),
+    args: z.array(z.string().max(2000)).max(80).default([]),
+    directory: z.string().min(1).default('.'),
+  }),
   regent_preview: PreviewRequest,
   regent_create_room: RoomRequest,
   regent_use_repo: z.object({

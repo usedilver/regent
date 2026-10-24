@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { queryDenial } from './query.mjs'
 import { literalCommand } from './command.mjs'
 
 const WORKSPACE_PREPARATION_TIMEOUT_MS = 240000
@@ -8,6 +9,10 @@ const WORKSPACE_PREPARATION_TIMEOUT_MS = 240000
 export function denial(input, env = process.env) {
   const name = input.tool_name ?? ''
   const args = input.tool_input ?? {}
+  if (env.REGENT_READ_ONLY === '1') {
+    const reason = queryDenial(input)
+    if (reason) return reason
+  }
   if (name === 'Skill') return null
   if (['Read', 'Glob', 'Grep'].includes(name)) {
     const paths = [
@@ -95,9 +100,8 @@ export function denial(input, env = process.env) {
     return 'Configuracion readonly_mcp invalida.'
   }
   if (servers.some((server) => name.startsWith(`mcp__${server}__`))) {
-    const tool = name.split('__').slice(2).join('_')
-    if (!/^(?:get|list|read|search|query|select|describe|show|explain|count)(?:_|$)/i.test(tool))
-      return 'Solo herramientas de consulta del MCP readonly.'
+    const reason = queryDenial(input)
+    if (reason) return reason
     const payload = JSON.stringify(args)
     if (
       /\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|merge|call|execute|copy|into|set)\b/i.test(
