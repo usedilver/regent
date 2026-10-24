@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-23
+updated: 2026-10-24
 ---
 
 # Regent architecture
@@ -86,6 +86,11 @@ editing preparation initializes the isolated checkouts at pinned commits.
 Independent repositories get their own context and connections. MCP availability inside the
 executor is independent of the host chat's connections. Tools and public session contracts
 remain compatible when source files move.
+
+Executor instructions guide code changes through investigation, implementation and validation.
+The optional `regent_status.phase` labels transitions for immediate progress updates; repeated
+updates remain throttled. A phase label neither authorizes an action nor proves a check passed.
+It is presentation metadata for the active run, not a persisted workflow or approval gate.
 
 Prompts guide behavior; hooks and authorization enforce their documented checks. Hooks are
 not an operating-system sandbox. Never read or transfer Claude credentials. Keep runtime

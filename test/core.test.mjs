@@ -572,6 +572,8 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
         }
       }
       assert.equal(progressText('Edit'), 'Sigo aplicando los cambios en el proyecto.')
+      assert.equal(progressText('Bash'), 'Sigo trabajando en tu solicitud.')
+      assert.equal(progressText('mcp__regent__regent_git_read'), progressText('Read'))
       assert.ok(!progressText('mcp__unknown__query').includes('mcp__'))
     },
   )

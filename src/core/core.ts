@@ -18,7 +18,7 @@ import { redact } from '../storage/redact.ts'
 import type { Conversation, Inbound, Output, Run, Rooms } from './types.ts'
 import { RoomTransfers } from './rooms.ts'
 import { denial } from '../../plugins/executor/hooks/policy.mjs'
-import { progressText, interruptedText } from './progress.ts'
+import { progressText, interruptedText, type DevelopmentPhase } from './progress.ts'
 import { resolveRepository, projectRoot, isolationFor, repositoryRequest } from './repository.ts'
 import { History, type HistoryLoader } from './history.ts'
 import { prepareProjectWorkspace, type ProjectWorkspace } from './project-workspace.ts'
@@ -52,6 +52,7 @@ interface Active {
   lastTool: string
   output: Promise<void>
   lastStatusAt: number
+  lastPhase?: DevelopmentPhase
   abort: AbortController
   operations: Set<Promise<unknown>>
   resumeAfterWait?: boolean
@@ -731,8 +732,10 @@ export class Core {
       const args = ToolSchemas.regent_status.parse(input)
       const message = args
       const text = redact(message.text ?? message.status!)
-      if (Date.now() - active.lastStatusAt < 3000) return { throttled: true }
+      const phaseChanged = args.phase !== undefined && args.phase !== active.lastPhase
+      if (!phaseChanged && Date.now() - active.lastStatusAt < 3000) return { throttled: true }
       await this.output.notice(conversation, text)
+      if (args.phase) active.lastPhase = args.phase
       active.lastStatusAt = Date.now()
       return { ok: true }
     }
