@@ -312,7 +312,10 @@ try {
     core.permission(closing.token, { tool_name: 'Read', tool_input: { file_path: 'README.md' } }),
     null,
   )
-  await until(() => messages.some((text) => text.includes('limite de tiempo')))
+  await until(
+    () =>
+      messages.some((text) => text.includes('limite de tiempo')) && Date.now() >= closing.wrapUpAt,
+  )
   assert.match(core.permission(closing.token, { tool_name: 'Read' }), /margen de cierre/)
   assert.match(core.permission(closing.token, { tool_name: 'Agent' }), /margen de cierre/)
   assert.equal(core.permission(closing.token, { tool_name: 'mcp__regent__regent_status' }), null)
