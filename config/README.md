@@ -25,6 +25,12 @@ Slack y MCP leen `config/regent.yaml`; `REGENT_CONFIG` permite elegir otro archi
 Los secretos del servidor van en `.env`, el estado en `log/` y los auxiliares locales
 o respaldos en `tmp/local/`. Conserva la base SQLite al actualizar la instancia.
 
+La imagen Docker incluye Python 3, `venv` y `pip` para scripts del agente. En una
+instalación directa sobre Debian/Ubuntu, instala `python3 python3-venv python3-pip`.
+Las dependencias de cada script o proyecto se instalan en su propio entorno virtual
+(`python3 -m venv .venv` y `.venv/bin/python -m pip install ...`), sin modificar el
+Python del sistema. Disponer de Python no amplía los permisos del modo consulta.
+
 ## Recarga de accesos
 
 La configuración de arranque y los permisos editables tienen ciclos distintos. Para
@@ -248,8 +254,11 @@ No se clonan submódulos automáticamente ni se actualizan gitlinks. Cada repo m
 sus pruebas y commits. `.worktreeinclude` copia archivos ignorados de setup al crear
 el worktree y conserva sus cambios al continuar.
 
-Un proyecto independiente carga su propio contexto mediante `regent_use_repo` y una
-nueva sesión; hacer `cd` no recarga MCPs. Las conexiones y variables del agente parten
+Cada conversación permanece vinculada a su proyecto. `regent_use_repo` permite navegar
+entre servicios y submódulos del mismo proyecto o cambiar su perfil de ejecución,
+pero rechaza otro proyecto independiente e indica abrir una conversación nueva
+(un hilo nuevo en Slack; `regent_start` con `repo` desde MCP). Hacer `cd` no recarga
+MCPs. Las conexiones y variables del agente parten
 de la raíz del proyecto. Los entornos de ejecución de cada servicio siguen siendo
 propios. El aislamiento de worktrees y los hooks no aíslan secretos a nivel del
 sistema operativo: ejecuta solo repositorios confiables bajo la misma cuenta.

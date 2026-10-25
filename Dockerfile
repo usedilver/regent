@@ -1,6 +1,6 @@
 # Regent: Slack Socket Mode and official Claude Code CLI.
 FROM node:22-slim
-RUN apt-get update && apt-get install -y --no-install-recommends git curl ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends git curl ca-certificates python3 python3-venv python3-pip \
   && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/gh.gpg \
   && echo "deb [signed-by=/usr/share/keyrings/gh.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/gh.list \
   && apt-get update && apt-get install -y gh && rm -rf /var/lib/apt/lists/*

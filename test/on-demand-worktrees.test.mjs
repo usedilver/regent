@@ -304,18 +304,26 @@ test('Git reader rejects writes and shell expansion and disables repository exec
   assert.equal(fs.existsSync(marker), false)
 })
 
-test('query project switching loads independent environment and never creates either worktree', async (t) => {
+test('independent queries use a new conversation and load only their own environment', async (t) => {
   const f = fixture(t),
     other = path.join(f.root, 'other')
   init(other)
   fs.writeFileSync(path.join(other, '.env'), 'OTHER_ROOT_VALUE=independent\n')
   await f.submit('Investiga el proyecto')
   const active = [...f.core.active.values()][0]
-  await f.core.tool(active.token, 'regent_use_repo', {
+  await assert.rejects(
+    () =>
+      f.core.tool(active.token, 'regent_use_repo', {
+        repo: other,
+        handoff: 'Investigate the other repository in read mode.',
+      }),
+    /nueva conversación/,
+  )
+  await f.finish()
+  await f.core.submit({
+    ...f.input('Investiga este proyecto', 'other-project'),
     repo: other,
-    handoff: 'Investigate the other repository in read mode.',
   })
-  f.starts[0].finish()
   await until(() => f.starts.length === 2)
   assert.equal(f.starts[1].opts.cwd, other)
   assert.equal(f.starts[1].opts.worktreeName, undefined)

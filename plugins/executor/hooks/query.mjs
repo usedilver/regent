@@ -1,5 +1,13 @@
 const readers = new Set(['Read', 'Glob', 'Grep', 'Skill', 'ToolSearch', 'WebFetch', 'WebSearch'])
-const internal = new Set(['git_read', 'use_repo', 'create_room', 'status', 'ask_human', 'cancel'])
+const internal = new Set([
+  'read_history',
+  'git_read',
+  'use_repo',
+  'create_room',
+  'status',
+  'ask_human',
+  'cancel',
+])
 const sqlExecutors = new Set(['execute_sql', 'execute_query', 'run_sql_query'])
 const mutations =
   /\b(?:insert|update|delete|drop|alter|create|truncate|grant|revoke|merge|call|execute|copy|into|set|mutation)\b/i

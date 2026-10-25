@@ -3,6 +3,13 @@ import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 
+export function requireSameProject(current: string, target: string): void {
+  if (current !== target)
+    throw new Error(
+      'Esta conversación está vinculada a otro proyecto. Abre una nueva conversación (un hilo nuevo en Slack) y selecciona allí el proyecto antes de continuar. Los servicios y submódulos del mismo proyecto sí pueden compartir esta sesión.',
+    )
+}
+
 export function isolationFor(repo: string, conversation: string) {
   const root = fs.realpathSync(repo)
   const name = `regent-${createHash('sha256')

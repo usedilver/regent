@@ -34,7 +34,7 @@ const store = new Store(':memory:'),
   starts = []
 const config = ConfigSchema.parse({
   auth: { mode: 'indie' },
-  repos: { path: root },
+  repos: { path: root, default_repo: 'new-app' },
   slack: { workspace_team_id: 'T1', allowed_users: ['U1'] },
   models: { ask: 'sonnet-test', patch: 'opus-patch', task: 'opus-task', project: 'opus-project' },
 })
@@ -72,15 +72,19 @@ const until = async (predicate) => {
   throw new Error('Timed out')
 }
 try {
-  await core.submit(inbound('create', 'crea un proyecto de gastos'))
+  await core.submit({ ...inbound('create', 'crea un proyecto de gastos'), intent: 'task' })
   await until(() => starts.length === 1)
-  assert.equal(starts[0].opts.model, 'opus-project')
-  assert.equal(starts[0].opts.timeoutMs, 7200000)
+  assert.equal(starts[0].opts.model, 'opus-task')
+  assert.ok(starts[0].opts.timeoutMs <= 3600000 && starts[0].opts.timeoutMs > 3600000 * 0.99)
   const active = core.active.get('slack:C1:1')
-  await core.tool(active.token, 'regent_use_repo', { repo, handoff: 'construir toda la app' })
+  await core.tool(active.token, 'regent_use_repo', {
+    repo,
+    intent: 'project',
+    handoff: 'construir toda la app',
+  })
   await until(() => starts.length === 2)
   assert.equal(starts[1].opts.model, 'opus-project')
-  assert.equal(starts[1].opts.timeoutMs, 7200000)
+  assert.ok(starts[1].opts.timeoutMs <= 7200000 && starts[1].opts.timeoutMs > 7200000 * 0.99)
   starts[1].finish()
   await until(() => !core.active.size)
   await core.submit(inbound('continue', 'continua'))
@@ -91,7 +95,7 @@ try {
   await core.submit(inbound('question', 'explica el codigo'))
   await until(() => starts.length === 4)
   assert.equal(starts[3].opts.model, 'sonnet-test')
-  assert.equal(starts[3].opts.timeoutMs, 600000)
+  assert.ok(starts[3].opts.timeoutMs <= 600000 && starts[3].opts.timeoutMs > 600000 * 0.99)
   await assert.rejects(
     () =>
       core.tool(core.active.get('slack:C1:1').token, 'regent_use_repo', {

@@ -187,7 +187,7 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
       assert.equal(event.apiKey, undefined)
     },
   )
-  await check('repo context handoff restarts without old session or repo environment', async () => {
+  await check('independent project selection requires a new conversation', async () => {
     const repo = fs.mkdtempSync(path.join(tmp, 'selected-'))
     fs.mkdirSync(path.join(repo, '.git'))
     fs.writeFileSync(path.join(repo, '.env'), 'PROJECT_ONLY=selected\n')
@@ -224,18 +224,24 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
       ]) {
         await assert.rejects(() => f.core.tool(active.token, name, {}), /Tool desconocida/)
       }
+      const session = f.store.conversation(input('x').key).session_id
+      await assert.rejects(
+        () =>
+          f.core.tool(active.token, 'regent_use_repo', {
+            repo,
+            handoff: 'Build the requested report.',
+          }),
+        /nueva conversación/,
+      )
+      assert.equal(f.store.conversation(input('x').key).session_id, session)
+      assert.equal(f.store.db.prepare('SELECT COUNT(*) AS n FROM runs').get().n, 1)
+      assert.equal(starts.length, 1)
       f.core.runnerOverrides = { command: process.execPath, prefixArgs: [fake] }
-      await f.core.tool(active.token, 'regent_use_repo', {
-        repo,
-        handoff: 'Build the requested report.',
-      })
-      await until(() => starts.length === 2 && !f.core.active.size)
+      await f.core.submit({ ...input('new-project', 'slack:C1:2'), repo })
+      await until(() => starts.length === 2 && f.store.conversation('slack:C1:2').state === 'idle')
       assert.equal(starts[1].cwd, fs.realpathSync(repo))
       assert.equal(starts[1].sessionId, null)
       assert.equal(starts[1].env.PROJECT_ONLY, 'selected')
-      assert.ok(starts[1].prompt.includes('Build the requested report.'))
-      assert.equal(f.store.conversation(input('x').key).cwd, fs.realpathSync(repo))
-      assert.equal(f.store.db.prepare('SELECT COUNT(*) AS n FROM runs').get().n, 2)
     } finally {
       await f.close()
     }
@@ -563,7 +569,7 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
               (m) =>
                 m.kind === 'finish' &&
                 m.args[2].includes(
-                  state === 'failed' ? 'No se pudo completar' : 'Resultado verificado',
+                  state === 'failed' ? 'trabajo quedó incompleto' : 'Resultado verificado',
                 ),
             ),
           )
@@ -687,7 +693,11 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
       assert.equal(starts.length, 1)
       assert.equal(starts[0].maxCost, 1)
       assert.ok(
-        f.messages.some((m) => m.kind === 'finish' && m.args[2].includes('Presupuesto diario')),
+        f.messages.some(
+          (m) =>
+            m.kind === 'finish' &&
+            m.args[2].includes('presupuesto de ejecución configurado en Regent'),
+        ),
       )
     } finally {
       await f.close()
@@ -1149,11 +1159,11 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
       assert.equal(test('Glob', { pattern: '/other/**/.env*' }), null)
       // bypass: general repo commands and operators just run (the hook is the guard, not an allowlist).
       for (const command of [
-        'talently db list',
+        'project-cli db list',
         'find . -iname "schema*.sql"',
         'npm run build',
         'ls -la',
-        'talently 2>&1 | head -40',
+        'project-cli 2>&1 | head -40',
       ])
         assert.equal(test('Bash', { command }), null, command)
       assert.ok(test('Bash', { command: 'rm -rf /Users/x' }))

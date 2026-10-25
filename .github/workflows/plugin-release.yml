@@ -1,7 +1,7 @@
 name: plugin-release
 on:
   push:
-    tags: ['talently-code-v*']
+    tags: ['regent-client-v*']
   workflow_dispatch:
     inputs:
       endpoint:
@@ -28,15 +28,15 @@ jobs:
         run: |
           node --input-type=module <<'JS'
           import fs from 'node:fs'
-          const { version } = JSON.parse(fs.readFileSync('plugins/talently-code/.claude-plugin/plugin.json'))
-          if (process.env.GITHUB_REF_TYPE === 'tag' && process.env.GITHUB_REF_NAME !== `talently-code-v${version}`) {
+          const { version } = JSON.parse(fs.readFileSync('plugins/regent/.claude-plugin/plugin.json'))
+          if (process.env.GITHUB_REF_TYPE === 'tag' && process.env.GITHUB_REF_NAME !== `regent-client-v${version}`) {
             throw new Error('Release tag must match the client plugin manifest version')
           }
           JS
       - run: pnpm plugin:pack --endpoint "$PLUGIN_ENDPOINT"
       - uses: actions/upload-artifact@v4
         with:
-          name: talently-code-plugin
+          name: regent-client-plugin
           path: dist/plugins/*
           if-no-files-found: error
       - name: Publish versioned client release

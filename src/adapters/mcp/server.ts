@@ -1,3 +1,4 @@
+import { failureMessage, type ExecutionFailure } from '../../execution/failures.ts'
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -64,7 +65,7 @@ export class ExternalMcp {
   instructions(): string {
     const defaultRepo = this.defaultRepo()
     const name = this.core.config.name
-    return `${name} ejecuta un agente de codigo con acceso a los repositorios del servidor, sus skills, instrucciones y fuentes configuradas. Para crear, modificar, eliminar o investigar codigo, webs, aplicaciones, vistas, dashboards o graficos de esos proyectos, usa ${name}. El repo predeterminado es ${JSON.stringify(defaultRepo)}. Llama regent_context cuando necesites descubrir el destino; si su resultado responde la pregunta, responde sin iniciar un trabajo. Para investigar o modificar el repo, delega el pedido a regent_start; repo es opcional y usa ese predeterminado. Conserva el proyecto o URL y el alcance del usuario: no conviertas preguntas breves en auditorias, checklists extensos ni informes de muchas secciones. No deduzcas que falta acceso al repo o a sus datos porque esas herramientas no aparezcan en el chat: el agente las usa en el servidor. Presenta el servicio como ${name}; regent_* son nombres internos. Consulta regent_get_run con su espera predeterminada y continua con regent_continue. El seguimiento normal es texto, sin paneles: para una consulta breve entrega solo el resultado, sin narrar cada consulta de estado. Solo si el usuario pide un panel visual, llama regent_show_progress una vez y deja que se actualice. No crees tareas programadas ni recordatorios. No afirmes acceso a datos ni cambios sin el resultado del agente. Las skills de otros plugins del chat no sustituyen las instrucciones del repo seleccionado.`
+    return `${name} ejecuta un agente de codigo con acceso a los repositorios del servidor, sus skills, instrucciones y fuentes configuradas. Para crear, modificar, eliminar o investigar codigo, webs, aplicaciones, vistas, dashboards o graficos de esos proyectos, usa ${name}. El repo predeterminado es ${JSON.stringify(defaultRepo)}. Llama regent_context cuando necesites descubrir el destino; si su resultado responde la pregunta, responde sin iniciar un trabajo. Para investigar o modificar el repo, delega el pedido a regent_start; repo es opcional y usa ese predeterminado. Cada conversación conserva su proyecto; para otro proyecto independiente inicia una nueva con regent_start y repo. Los servicios y submódulos del mismo proyecto comparten sesión. Conserva el proyecto o URL y el alcance del usuario: no conviertas preguntas breves en auditorias, checklists extensos ni informes de muchas secciones. No deduzcas que falta acceso al repo o a sus datos porque esas herramientas no aparezcan en el chat: el agente las usa en el servidor. Presenta el servicio como ${name}; regent_* son nombres internos. Consulta regent_get_run con su espera predeterminada y continua con regent_continue. Si el turno falla o se interrumpe, comunica failure.message o error; result puede ser parcial y no demuestra que el trabajo terminó. El seguimiento normal es texto, sin paneles: para una consulta breve entrega solo el resultado, sin narrar cada consulta de estado. Solo si el usuario pide un panel visual, llama regent_show_progress una vez y deja que se actualice. No crees tareas programadas ni recordatorios. No afirmes acceso a datos ni cambios sin el resultado del agente. Las skills de otros plugins del chat no sustituyen las instrucciones del repo seleccionado.`
   }
   conversation(author: string, key: string): Conversation {
     const conversation = this.core.store.conversation(key)
@@ -89,14 +90,39 @@ export class ExternalMcp {
         "SELECT data FROM events WHERE run_id=? AND kind='mcp_notice' ORDER BY id DESC LIMIT 1",
       )
       .get(latest.id)
-    const summary = (value: Run) => ({
-      id: value.id,
-      state: value.state,
-      result: value.result?.slice(0, MAX_RESULT_CHARS) ?? null,
-      result_truncated: (value.result?.length ?? 0) > MAX_RESULT_CHARS,
-      error: value.error,
-      cost_usd: value.cost,
-    })
+    const summary = (value: Run) => {
+      const event = ['failed', 'interrupted'].includes(value.state)
+        ? this.core.store.db
+            .prepare(
+              "SELECT data FROM events WHERE run_id=? AND kind='execution_failure' ORDER BY id DESC LIMIT 1",
+            )
+            .get(value.id)
+        : undefined
+      const failure: ExecutionFailure | undefined = event
+        ? JSON.parse(event.data as string)
+        : undefined
+      return {
+        id: value.id,
+        state: value.state,
+        result: value.result?.slice(0, MAX_RESULT_CHARS) ?? null,
+        result_truncated: (value.result?.length ?? 0) > MAX_RESULT_CHARS,
+        error: value.error,
+        cost_usd: value.cost,
+        ...(failure
+          ? {
+              failure: {
+                source: failure.source,
+                code: failure.code,
+                message: failureMessage(failure),
+                ...(failure.reset ? { reset: failure.reset } : {}),
+                ...(failure.fresh_session !== undefined
+                  ? { fresh_session: failure.fresh_session }
+                  : {}),
+              },
+            }
+          : {}),
+      }
+    }
     return {
       conversation_id: conversation.key,
       conversation_state: conversation.state,

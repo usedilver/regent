@@ -504,18 +504,18 @@ for (const devMode of [false, true])
     },
   )
 
-test('automatic repository continuations recheck authorization before starting', async (t) => {
+test('automatic profile continuations recheck authorization before starting', async (t) => {
   const f = fixture(t),
     policy = loadAccess(f.config).policy
-  const other = path.join(f.root, 'other')
-  fs.mkdirSync(path.join(other, '.git'), { recursive: true })
+  fs.mkdirSync(path.join(f.root, '.git'))
   const { core, store, controllers } = queuedCore(t, f.config, policy)
-  await core.submit(inbound('switch'))
+  await core.submit({ ...inbound('switch'), text: '/task Review this' })
   await until(() => controllers.length === 1)
   const active = [...core.active.values()][0]
   policy.replace(document(['U2']))
   const selected = await core.tool(active.token, 'regent_use_repo', {
-    repo: other,
+    repo: f.root,
+    intent: 'project',
     handoff: 'Continue the work',
   })
   assert.ok(selected.switching)

@@ -5,6 +5,7 @@ import { REGENT_DIR } from '../env.ts'
 import { ensureTrusted, ensureBypassAccepted } from './claude-settings.ts'
 import type { ImageInput } from '../core/images.ts'
 import { createSystemPrompt } from './prompt.ts'
+import { executionFailure, type ExecutionFailure } from './failures.ts'
 
 type ToolEvent = { id: string; parentId?: string | null }
 type McpConnection = { name: string; status?: string }
@@ -40,6 +41,7 @@ export interface RunnerResult {
   error: string
   cost: number
   usage: unknown
+  failure?: ExecutionFailure
 }
 let isolationVersionChecked = false
 export function assertIsolationVersion(version: string): void {
@@ -297,12 +299,19 @@ export function startRunner(options: RunnerOptions): {
   }
   const line = (value: string) => {
     if (!value.trim() || fatal) return
+    let raw: unknown
     try {
-      const raw = JSON.parse(value)
+      raw = JSON.parse(value)
+    } catch (error) {
+      fatal = `Stream de Claude invalido: ${(error as Error).message}`
+      cancel(fatal)
+      return
+    }
+    try {
       lastEvent = Date.now()
       for (const event of normalizeEvent(raw)) emit(event)
     } catch (error) {
-      fatal = `Stream de Claude invalido: ${(error as Error).message}`
+      fatal = `No pude procesar un evento de Claude: ${(error as Error).message}`
       cancel(fatal)
     }
   }
@@ -347,7 +356,7 @@ export function startRunner(options: RunnerOptions): {
     child.on('error', (error) => {
       fatal = `No pude iniciar Claude: ${error.message}`
     })
-    child.on('close', (code) => {
+    child.on('close', (code, signal) => {
       systemPrompt.dispose()
       buffer += decoder.end()
       if (buffer) line(buffer)
@@ -359,19 +368,34 @@ export function startRunner(options: RunnerOptions): {
       const error =
         fatal ||
         reason ||
-        (code !== 0
-          ? stderr || `Claude termino con codigo ${code}`
-          : !result
-            ? 'Claude termino sin evento result.'
-            : result.error
-              ? result.errors.join('; ') || result.subtype || 'Claude reporto un error.'
+        (result?.error
+          ? [...result.errors, result.text].filter(Boolean).join('; ') ||
+            result.subtype ||
+            'Claude reporto un error.'
+          : code !== 0
+            ? stderr ||
+              (signal ? `Claude termino por señal ${signal}` : `Claude termino con codigo ${code}`)
+            : !result
+              ? 'Claude termino sin evento result.'
               : '')
+      const failure = fatal
+        ? { source: 'regent' as const, code: 'execution_failed' as const, detail: error }
+        : reason
+          ? executionFailure(reason)
+          : error
+            ? (executionFailure(error) ?? {
+                source: 'claude' as const,
+                code: 'execution_failed' as const,
+                detail: error,
+              })
+            : undefined
       resolve({
         state: fatal ? 'failed' : reason ? 'interrupted' : error ? 'failed' : 'completed',
         text: result?.text || streamed,
         error,
         cost: result?.cost ?? 0,
         usage: result?.usage ?? {},
+        ...(failure ? { failure } : {}),
       })
     })
   })
