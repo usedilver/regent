@@ -13,6 +13,7 @@ export function mcpActivities(store: Store, run: Run) {
     FROM events WHERE run_id=? AND kind IN ('tool_use','tool_result') ORDER BY events.id`,
     )
     .all(run.id)
+
   for (const event of rows) activityEvent(state, { ...event, input: { command: event.command } })
   if (!['running', 'queued'].includes(run.state)) state.terminal = run.state
   return activityView(state)

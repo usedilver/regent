@@ -11,10 +11,14 @@ import {
 
 async function main() {
   const token = process.env.REGENT_MCP_TOKEN?.trim()
-  if (!token || token.length < 32)
+
+  if (!token || token.length < 32) {
     throw new Error('Configura REGENT_MCP_TOKEN con el token personal del conector.')
+  }
+
   const url = new URL(process.env.REGENT_MCP_URL ?? '')
   const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+
   if (
     (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) ||
     url.username ||
@@ -26,7 +30,9 @@ async function main() {
       'REGENT_MCP_URL requiere HTTPS o HTTP loopback, sin credenciales, query ni fragmento.',
     )
   }
+
   const remote = new Client({ name: 'regent-desktop', version: '0.3.0' })
+
   try {
     await remote.connect(
       new StreamableHTTPClientTransport(url, {
@@ -37,6 +43,7 @@ async function main() {
       capabilities: { tools: {}, resources: {} },
       instructions: remote.getInstructions(),
     })
+
     local.setRequestHandler(ListToolsRequestSchema, (request, extra) =>
       remote.listTools(request.params, { signal: extra.signal }),
     )
@@ -49,12 +56,15 @@ async function main() {
     local.setRequestHandler(ReadResourceRequestSchema, (request, extra) =>
       remote.readResource(request.params, { signal: extra.signal }),
     )
+
     local.onclose = () => {
       void remote.close()
     }
+
     const close = () => {
       void local.close().finally(() => remote.close())
     }
+
     process.once('SIGINT', close)
     process.once('SIGTERM', close)
     await local.connect(new StdioServerTransport())

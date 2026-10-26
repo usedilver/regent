@@ -3,13 +3,10 @@ import type { Store } from '../../storage/store.ts'
 
 export function mcpOutput(store: Store): Output {
   return {
+    /** MCP clients poll; a notice is the latest progress text they read back. */
     async notice(conversation, text) {
-      const run = store.db
-        .prepare(
-          'SELECT id FROM runs WHERE conversation_key=? ORDER BY created_at DESC,rowid DESC LIMIT 1',
-        )
-        .get(conversation.key)
-      if (run) store.event(run.id as string, 'mcp_notice', { text })
+      const run = store.latestRun(conversation.key)
+      if (run) store.event(run.id, 'mcp_notice', { text })
     },
     async status() {},
     async delta() {},

@@ -17,6 +17,7 @@ import { startRunner } from '../src/execution/runner.ts'
 import { isolationFor } from '../src/core/repository.ts'
 
 let failed = 0
+
 const check = async (name, fn) => {
   try {
     await fn()
@@ -26,6 +27,7 @@ const check = async (name, fn) => {
     console.error(`  FAIL ${name}: ${error.stack}`)
   }
 }
+
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'regent-mcp-'))
 const fake = path.resolve('test/fixtures/fake-claude.mjs')
 const tokens = { REGENT_MCP_TOKEN_ALICE: 'a'.repeat(48), REGENT_MCP_TOKEN_BOB: 'b'.repeat(48) }
@@ -43,13 +45,16 @@ const baseConfig = () =>
     },
     limits: { cancel_grace_sec: 0.05 },
   })
+
 const until = async (predicate) => {
   const deadline = Date.now() + 6000
+
   while (!predicate()) {
     if (Date.now() > deadline) throw new Error('wait timed out')
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
 }
+
 async function fixture(options = {}) {
   const dir = fs.mkdtempSync(path.join(root, 'fixture-'))
   const repo = path.join(dir, 'dashboard')
@@ -68,9 +73,9 @@ async function fixture(options = {}) {
     'fixture',
   ])
   const store = new Store(options.file ?? ':memory:')
-  const messages = [],
-    starts = [],
-    clients = []
+  const messages = []
+  const starts = []
+  const clients = []
   const slack = Object.fromEntries(
     ['notice', 'status', 'delta', 'finish', 'question', 'progress', 'activity'].map((kind) => [
       kind,
@@ -93,13 +98,17 @@ async function fixture(options = {}) {
     adapter: ['slack', 'mcp'],
     runner: (args) => {
       starts.push(args)
+
       if (args.worktreeName) {
         const directory = path.join(args.cwd, '.claude/worktrees', args.worktreeName)
-        if (!fs.existsSync(path.join(directory, '.git')))
+
+        if (!fs.existsSync(path.join(directory, '.git'))) {
           execFileSync('git', ['-C', args.cwd, 'worktree', 'add', '--detach', directory, 'HEAD'], {
             stdio: 'ignore',
           })
+        }
       }
+
       return startRunner({
         ...args,
         command: process.execPath,
@@ -141,14 +150,17 @@ async function fixture(options = {}) {
     },
   }
 }
+
 const call = async (client, name, args) => {
   const response = await client.callTool({
     name,
     arguments: name === 'regent_get_run' ? { wait_ms: 0, ...args } : args,
   })
+
   assert.ok(!response.isError, response.content[0].text)
   return JSON.parse(response.content[0].text)
 }
+
 const start = (client, extra = {}) =>
   call(client, 'regent_start', {
     request_id: randomUUID(),
@@ -164,6 +176,7 @@ try {
       const config = baseConfig()
       const store = new Store(':memory:')
       const core = new Core({ store, config, output: mcpOutput(store), cwd: root })
+
       try {
         assert.throws(() => new ExternalMcp(core, {}), /al menos 32/)
         assert.throws(
@@ -190,6 +203,7 @@ try {
         assert.equal(core.authorized({ adapter: 'mcp', author: 'mcp:alice' }), false)
         const server = createHttp(core, () => ({}))
         await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+
         try {
           assert.equal((await fetch(`http://127.0.0.1:${server.address().port}/mcp`)).status, 404)
         } finally {
@@ -204,16 +218,20 @@ try {
     'external HTTP auth is separate from run auth; malformed, browser and oversized requests fail closed',
     async () => {
       const f = await fixture()
+
       try {
-        for (const token of ['', 'wrong'])
+        for (const token of ['', 'wrong']) {
           assert.equal(
             (await fetch(`${f.url}/mcp`, { headers: { Authorization: `Bearer ${token}` } })).status,
             401,
           )
+        }
+
         const headers = {
           Authorization: `Bearer ${tokens.REGENT_MCP_TOKEN_ALICE}`,
           'content-type': 'application/json',
         }
+
         assert.equal(
           (await fetch(`${f.url}/tools`, { method: 'POST', headers, body: '{}' })).status,
           401,
@@ -253,6 +271,7 @@ try {
     'tools start once under retries, preserve attribution and never send MCP results to Slack',
     async () => {
       const f = await fixture()
+
       try {
         const client = await f.client()
         assert.deepEqual((await client.listTools()).tools.map((tool) => tool.name).sort(), [
@@ -273,6 +292,7 @@ try {
           start(client, { request_id }),
           start(client, { request_id }),
         ])
+
         assert.equal(one.run_id, retry.run_id)
         assert.equal(Number(one.duplicate) + Number(retry.duplicate), 1)
         await until(() => !f.core.active.size)
@@ -294,6 +314,7 @@ try {
     'context discovers independent repo skills without inheriting unrelated parent MCPs; start uses the default repo',
     async () => {
       const f = await fixture()
+
       try {
         fs.writeFileSync(path.join(f.dir, 'AGENTS.md'), 'Parent workspace guidance')
         fs.writeFileSync(
@@ -343,6 +364,7 @@ try {
           request_id: randomUUID(),
           prompt: 'Modifica el grafico existente.',
         })
+
         await until(() => !f.core.active.size)
         assert.equal(f.store.conversation(work.conversation_id).cwd, fs.realpathSync(f.repo))
       } finally {
@@ -354,10 +376,12 @@ try {
     'principals cannot read, resume or cancel other conversations; repos cannot escape the workspace',
     async () => {
       const f = await fixture()
+
       try {
-        const alice = await f.client(),
-          bob = await f.client(tokens.REGENT_MCP_TOKEN_BOB)
+        const alice = await f.client()
+        const bob = await f.client(tokens.REGENT_MCP_TOKEN_BOB)
         const work = await start(alice)
+
         for (const [name, args] of [
           ['regent_get_run', { run_id: work.run_id }],
           [
@@ -370,9 +394,12 @@ try {
           ],
           ['regent_cancel', { conversation_id: work.conversation_id }],
           ['regent_start', { request_id: randomUUID(), repo: '/', prompt: 'Modificar' }],
-        ])
+        ]) {
           assert.equal((await bob.callTool({ name, arguments: args })).isError, true)
+        }
+
         const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'regent-outside-'))
+
         try {
           fs.mkdirSync(path.join(outside, '.git'))
           fs.symlinkSync(outside, path.join(f.dir, 'escape'))
@@ -397,6 +424,7 @@ try {
     'MCP progress exposes real activity transitions, survives reopen and omits raw tool data',
     async () => {
       const f = await fixture({ file: path.join(root, 'activity.sqlite') })
+
       try {
         const client = await f.client()
         const work = await start(client)
@@ -433,6 +461,7 @@ try {
         f.store.event(work.run_id, 'tool_result', { id: 'a', kind: 'tool_result', error: true })
         f.store.db.prepare("UPDATE runs SET state='failed' WHERE id=?").run(work.run_id)
         const reopened = new Store(path.join(root, 'activity.sqlite'))
+
         try {
           const progress = new ExternalMcp(
             {
@@ -444,11 +473,13 @@ try {
             },
             tokens,
           ).status('mcp:alice', work.run_id)
+
           assert.equal(progress.activities.tasks.find((t) => t.id === 'command').status, 'error')
           assert.equal(progress.activities.title, 'Turno detenido')
         } finally {
           reopened.close()
         }
+
         const bob = await f.client(tokens.REGENT_MCP_TOKEN_BOB)
         assert.equal(
           (await bob.callTool({ name: 'regent_get_run', arguments: { run_id: work.run_id } }))
@@ -456,6 +487,7 @@ try {
           true,
         )
         const tools = (await client.listTools()).tools
+
         for (const name of [
           'regent_context',
           'regent_start',
@@ -464,6 +496,7 @@ try {
         ]) {
           assert.equal(tools.find((t) => t.name === name)._meta?.ui?.resourceUri, undefined)
         }
+
         assert.equal(
           tools.find((t) => t.name === 'regent_show_progress')._meta.ui.resourceUri,
           'ui://regent/progress.html',
@@ -484,6 +517,7 @@ try {
     'plain status waits for completion, bounds polling and aborts without cancelling the job',
     async () => {
       const f = await fixture()
+
       try {
         f.state.scenario = 'hang'
         const client = await f.client()
@@ -491,6 +525,7 @@ try {
           intent: 'ask',
           prompt: 'Answer a short read-only question.',
         })
+
         await until(() => Boolean(f.store.conversation(work.conversation_id).session_id))
         const before = Date.now()
         const running = await call(client, 'regent_get_run', { run_id: work.run_id, wait_ms: 80 })
@@ -500,6 +535,7 @@ try {
           name: 'regent_get_run',
           arguments: { run_id: work.run_id, wait_ms: 20001 },
         })
+
         assert.equal(invalid.isError, true)
         let finished = false
         const waiting = client
@@ -508,6 +544,7 @@ try {
             finished = true
             return result
           })
+
         await new Promise((resolve) => setTimeout(resolve, 50))
         assert.equal(finished, false)
         const controller = new AbortController()
@@ -537,6 +574,7 @@ try {
     'MCP query-to-edit promotion keeps its conversation and later queries reuse that worktree',
     async () => {
       const f = await fixture()
+
       try {
         const client = await f.client()
         const work = await start(client, { prompt: 'Explica el repositorio sin hacer cambios' })
@@ -574,11 +612,14 @@ try {
     'continuation answers questions and reuses the session/worktree without Slack identity lookups',
     async () => {
       const f = await fixture()
+
       try {
         f.state.scenario = 'hang'
+
         f.core.identities = () => {
           throw new Error('MCP must not use Slack profiles')
         }
+
         const client = await f.client()
         const work = await start(client)
         await until(() => Boolean(f.store.conversation(work.conversation_id).session_id))
@@ -609,6 +650,7 @@ try {
           request_id,
           prompt: 'Por semana',
         })
+
         assert.equal(continued.run_id, retry.run_id)
         await until(() => !f.core.active.size)
         assert.equal(f.starts[1].sessionId, session)
@@ -627,6 +669,7 @@ try {
     'cancel pauses its conversation and preserves queued follow-ups; service ignores CLI queues',
     async () => {
       const f = await fixture({ concurrency: 1 })
+
       try {
         f.state.scenario = 'hang'
         const client = await f.client()
@@ -649,6 +692,7 @@ try {
           f.repo,
           24,
         )
+
         await call(client, 'regent_cancel', { conversation_id: work.conversation_id })
         await until(() => !f.core.active.size)
         assert.equal(f.store.run(work.run_id).state, 'interrupted')
@@ -670,6 +714,7 @@ try {
   )
   await check('restart recovery is adapter-scoped and leaves CLI work untouched', async () => {
     const f = await fixture()
+
     try {
       const mcp = f.store.accept(
         {
@@ -695,6 +740,7 @@ try {
         f.repo,
         24,
       )
+
       f.store.start(mcp.runId)
       f.store.start(cli.runId)
       f.store.session('mcp:alice:persist', 'preserved-session')
@@ -724,6 +770,7 @@ try {
       f.repo,
       24,
     )
+
     f.store.start(work.runId)
     f.store.session('mcp:alice:file', 'saved-session')
     await f.close()
@@ -735,6 +782,7 @@ try {
       output: mcpOutput(store),
       adapter: 'mcp',
     })
+
     try {
       await core.recover()
       const gateway = new ExternalMcp(core, tokens)
@@ -752,6 +800,7 @@ try {
     'Slack and MCP share the concurrency limit and route replies only to their own adapter',
     async () => {
       const f = await fixture({ concurrency: 1 })
+
       try {
         f.state.scenario = 'hang'
         const client = await f.client()
@@ -767,6 +816,7 @@ try {
           thread: '1',
           team: 'T1',
         })
+
         assert.equal(f.store.run(slack.runId).state, 'queued')
         assert.equal(f.starts.length, 1)
         f.state.scenario = 'success'
@@ -798,18 +848,25 @@ try {
       )
       let isolated
       const runner = f.core.runner
+
       f.core.runner = (args) => {
         const active = f.core.byToken(args.token)
         isolated = isolationFor(args.cwd, active.run.conversation_key)
         if (!fs.existsSync(isolated.dir)) git('worktree', 'add', '-b', isolated.name, isolated.dir)
         const chart = path.join(isolated.dir, 'chart.tsx')
-        if (args.prompt.includes('fixture:create'))
+
+        if (args.prompt.includes('fixture:create')) {
           fs.writeFileSync(chart, 'export const title = "Ofertas"\n')
-        if (args.prompt.includes('fixture:edit'))
+        }
+
+        if (args.prompt.includes('fixture:edit')) {
           fs.writeFileSync(chart, 'export const title = "Ofertas semanales"\n')
+        }
+
         if (args.prompt.includes('fixture:delete')) fs.unlinkSync(chart)
         return runner(args)
       }
+
       try {
         const client = await f.client()
         const work = await start(client, { prompt: 'fixture:create' })
@@ -847,6 +904,7 @@ try {
       const saved = process.env.REGENT_MCP_TOKEN_ALICE
       process.env.REGENT_MCP_TOKEN_ALICE = tokens.REGENT_MCP_TOKEN_ALICE
       const f = await fixture()
+
       try {
         fs.writeFileSync(
           path.join(f.repo, '.env'),
@@ -855,8 +913,11 @@ try {
         const client = await f.client()
         await start(client)
         await until(() => !f.core.active.size)
-        for (const key of [...Object.keys(tokens), 'REGENT_MCP_TOKEN', 'REGENT_MCP_URL'])
+
+        for (const key of [...Object.keys(tokens), 'REGENT_MCP_TOKEN', 'REGENT_MCP_URL']) {
           assert.equal(f.starts[0].env[key], undefined)
+        }
+
         assert.equal(f.starts[0].env.PROJECT_VALUE, 'preserved')
       } finally {
         await f.close()
@@ -880,6 +941,7 @@ try {
       transport.stderr?.on('data', (chunk) => {
         stderr += chunk
       })
+
       try {
         await client.connect(transport)
         assert.deepEqual(client.getServerVersion(), {
@@ -934,6 +996,7 @@ try {
           encoding: 'utf8',
           timeout: 5000,
         })
+
         assert.equal(child.status, 1)
         assert.equal(child.stdout, '')
         assert.doesNotMatch(child.stderr, /fixture-secret|a{48}/)
@@ -943,4 +1006,5 @@ try {
 } finally {
   fs.rmSync(root, { recursive: true, force: true })
 }
+
 if (failed) process.exitCode = 1

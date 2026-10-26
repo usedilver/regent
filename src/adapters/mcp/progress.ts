@@ -4,6 +4,7 @@ import { registerAppResource, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/e
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 
 export const PROGRESS_URI = 'ui://regent/progress.html'
+
 let script: string | undefined
 
 export function progressHtml(title = 'Regent') {
