@@ -29,9 +29,13 @@ parent gitlink pins only when requested.
 
 When the user explicitly asks to delete this conversation's worktree, call
 regent_cleanup_worktree and end the turn. The runtime checks saved work, stops the
-owned preview and removes nested checkouts after the CLI exits. Pass known PR numbers
-and worktree-relative repository directories in pull_requests when source branches
-were deleted after a squash merge. Do not delete it from Bash, claim it is removed
+owned preview and removes nested checkouts after the CLI exits. Complete and verify
+other explicitly requested actions, such as closing a PR or removing its branch,
+before requesting cleanup. Preserve their outcomes in the final report; distinguish
+confirmed actions from cleanup merely requested. Pass known PR numbers and
+worktree-relative repository directories in pull_requests when their source branches
+were deleted, including cancellation without merge and squash merges. The remote
+pull ref can preserve the commits after branch deletion. Do not delete it from Bash, claim it is removed
 before the runtime result, or tell a nontechnical user to run Git commands. A merge
 or closed PR alone does not request cleanup. There is no PR watcher or age-based
 cleanup; reset/stop retain their existing meaning. Cleanup preserves conversation

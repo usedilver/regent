@@ -188,7 +188,9 @@ paths block cleanup. Only stale recognized native locks are released. The owned 
 is stopped after preflight; registered nested checkouts are removed before the parent.
 Success clears the CLI session pointer while preserving the conversation, history,
 branches and remote commits. MCP returns additive `run.cleanup`, and the runtime supplies
-the actual cleanup result as final text. Cancellation/shutdown abort cleanup. A partial
+the actual cleanup result alongside the executor report, preserving outcomes of other
+requested actions such as PR closure or branch removal. A blocked cleanup does not
+erase those outcomes. Cancellation/shutdown abort cleanup. A partial
 I/O failure stays pending and can be retried. Merge/PR closure, reset, idle time and run
 completion alone never trigger removal. No watcher or scheduled cleanup is installed.
 

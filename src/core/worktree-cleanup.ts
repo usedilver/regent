@@ -45,6 +45,15 @@ export interface CleanupResult {
   removed?: string[]
 }
 
+export function cleanupText(cleanup: CleanupResult, report: string): string {
+  return [
+    cleanup.message,
+    report.trim() ? `Informe del agente sobre las acciones solicitadas:\n${report.trim()}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
+
 function inventory(text: string): Array<{ directory: string; branch?: string; lock?: string }> {
   const rows: Array<{ directory: string; branch?: string; lock?: string }> = []
   for (const field of text.split('\0')) {

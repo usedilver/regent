@@ -17,6 +17,7 @@ import { resolveIdentity, type Identity } from './identity.ts'
 import { failedText, interruptedText } from './progress.ts'
 import { isolationFor } from './repository.ts'
 import { reviewDelivery, reviewText } from './review.ts'
+import { cleanupText } from './worktree-cleanup.ts'
 import type { Conversation, Run, RunState } from './types.ts'
 
 const HEARTBEAT_MS = 45000
@@ -451,7 +452,10 @@ export class Turn {
             this.active.worktreeRemoval,
           )
         : undefined
-    const reviewed = { ...result, text: cleanup?.message ?? reviewText(delivery, result.text) }
+    const reviewed = {
+      ...result,
+      text: cleanup ? cleanupText(cleanup, result.text) : reviewText(delivery, result.text),
+    }
     state = this.finalState(result.state)
     error = this.stopReason() ?? result.error
 

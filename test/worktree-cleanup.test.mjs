@@ -195,75 +195,91 @@ test('unchanged pinned submodule history is retained locally even if origin rewr
 })
 
 test('core defers removal until executor exit, reports actual result, detaches session and permits fresh queries', async (t) => {
-  const f = fixture(t)
-  const store = new Store(':memory:')
-  let finish
-  const replies = []
-  const core = new Core({
-    store,
-    cwd: f.root,
-    config: ConfigSchema.parse({
-      auth: { mode: 'indie' },
-      repos: { path: f.root, default_repo: 'repo' },
-      slack: { workspace_team_id: 'T', allowed_users: ['U'] },
-    }),
-    output: {
-      async notice() {},
-      async status() {},
-      async delta() {},
-      async finish(c, r, text) {
-        replies.push(text)
-      },
-    },
-    runner: () => ({
-      done: new Promise((resolve) => {
-        finish = () =>
-          resolve({
-            state: 'completed',
-            text: 'Agent claims it was removed.',
-            error: '',
-            cost: 0,
-            usage: {},
-          })
+  for (const blocked of [false, true]) {
+    const f = fixture(t)
+    const store = new Store(':memory:')
+    let finish
+    const replies = []
+    const core = new Core({
+      store,
+      cwd: f.root,
+      config: ConfigSchema.parse({
+        auth: { mode: 'indie' },
+        repos: { path: f.root, default_repo: 'repo' },
+        slack: { workspace_team_id: 'T', allowed_users: ['U'] },
       }),
-      cancel() {
-        finish()
+      output: {
+        async notice() {},
+        async status() {},
+        async delta() {},
+        async finish(c, r, text) {
+          replies.push(text)
+        },
       },
-    }),
-  })
-  t.after(async () => {
-    await core.close()
-    store.close()
-  })
-  const accepted = await core.submit({
-    adapter: 'slack',
-    author: 'U',
-    team: 'T',
-    channel: 'C',
-    key: f.key,
-    eventId: 'first',
-    intent: 'task',
-    text: 'Ya hice merge; elimina el worktree',
-  })
-  while (!finish) await new Promise((r) => setTimeout(r, 5))
-  const active = core.active.get(f.key)
-  store.session(f.key, 'fixture-session', f.isolated)
-  await core.tool(active.token, 'regent_cleanup_worktree', {})
-  assert.ok(fs.existsSync(f.isolated), 'must not remove while executor is running')
-  await assert.rejects(
-    core.tool(active.token, 'regent_git_read', { operation: 'status' }),
-    /limpieza/,
-  )
-  finish()
-  await active.done
-  assert.equal(store.lastEvent(accepted.runId, 'worktree_cleanup').state, 'removed')
-  assert.equal(store.conversation(f.key).session_id, null)
-  assert.ok(replies.at(-1).includes('eliminados'))
-  assert.ok(!replies.at(-1).includes('Agent claims'))
-  const next = executionContext(store.conversation(f.key), 'ask')
-  assert.equal(next.directory, f.repo)
-  assert.equal(next.sessionId, null)
-  assert.equal(store.run(accepted.runId).state, 'completed')
+      runner: () => ({
+        done: new Promise((resolve) => {
+          finish = () =>
+            resolve({
+              state: 'completed',
+              text: 'PR #11 cerrado sin merge y rama remota eliminada. Limpieza del worktree solicitada.',
+              error: '',
+              cost: 0,
+              usage: {},
+            })
+        }),
+        cancel() {
+          finish()
+        },
+      }),
+    })
+    t.after(async () => {
+      await core.close()
+      store.close()
+    })
+    const accepted = await core.submit({
+      adapter: 'slack',
+      author: 'U',
+      team: 'T',
+      channel: 'C',
+      key: f.key,
+      eventId: 'first',
+      intent: 'task',
+      text: 'Ya hice merge; elimina el worktree',
+    })
+    while (!finish) await new Promise((r) => setTimeout(r, 5))
+    const active = core.active.get(f.key)
+    store.session(f.key, 'fixture-session', f.isolated)
+    await core.tool(active.token, 'regent_cleanup_worktree', {})
+    assert.ok(fs.existsSync(f.isolated), 'must not remove while executor is running')
+    await assert.rejects(
+      core.tool(active.token, 'regent_git_read', { operation: 'status' }),
+      /limpieza/,
+    )
+    if (blocked) fs.writeFileSync(path.join(f.isolated, 'uncommitted.txt'), 'keep local work')
+    finish()
+    await active.done
+    assert.equal(
+      store.lastEvent(accepted.runId, 'worktree_cleanup').state,
+      blocked ? 'blocked' : 'removed',
+    )
+    assert.equal(store.conversation(f.key).session_id, blocked ? 'fixture-session' : null)
+    assert.ok(
+      replies
+        .at(-1)
+        .startsWith(
+          blocked
+            ? 'Limpieza del worktree pendiente:'
+            : 'Worktree y checkouts anidados eliminados;',
+        ),
+    )
+    assert.equal(fs.existsSync(f.isolated), blocked)
+    assert.ok(replies.at(-1).includes('PR #11 cerrado sin merge y rama remota eliminada.'))
+    assert.ok(store.run(accepted.runId).result.includes('PR #11 cerrado sin merge'))
+    const next = executionContext(store.conversation(f.key), 'ask')
+    assert.equal(next.directory, blocked ? f.isolated : f.repo)
+    assert.equal(next.sessionId, blocked ? 'fixture-session' : null)
+    assert.equal(store.run(accepted.runId).state, 'completed')
+  }
 })
 
 test('merge alone, query mode and cancellation never trigger removal', async (t) => {

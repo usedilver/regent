@@ -328,7 +328,7 @@ export class ExternalMcp {
   server(author: string): McpServer {
     const title = this.core.config.name
     const server = new McpServer(
-      { name: 'regent', title, version: '0.3.4' },
+      { name: 'regent', title, version: '0.3.5' },
       { instructions: this.instructions() },
     )
 
