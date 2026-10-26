@@ -12,8 +12,10 @@ import type { Config } from '../config.ts'
 import type { Store } from '../storage/store.ts'
 
 export const PreviewRequest = z.object({
-  action: z.enum(['reserve', 'publish', 'status', 'stop']),
+  action: z.enum(['reserve', 'start', 'publish', 'status', 'stop']),
   pid: z.number().int().positive().optional(),
+  directory: z.string().min(1).max(2000).default('.'),
+  command: z.array(z.string().min(1).max(2000)).min(1).max(80).optional(),
 })
 export type Preview = {
   id: string

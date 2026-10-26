@@ -15,6 +15,17 @@ export const ToolSchemas = {
     directory: z.string().min(1).default('.'),
   }),
   regent_preview: PreviewRequest,
+  regent_cleanup_worktree: z.object({
+    pull_requests: z
+      .array(
+        z.object({
+          directory: z.string().min(1).max(1000).default('.'),
+          number: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+        }),
+      )
+      .max(20)
+      .default([]),
+  }),
   regent_create_room: RoomRequest,
   regent_use_repo: z.object({
     repo: z.string().min(1),

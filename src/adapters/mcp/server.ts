@@ -18,6 +18,7 @@ import { bearerToken, BodyTooLarge, InvalidJson, readJsonBody } from '../body.ts
 import { mcpActivities } from './activities.ts'
 import { OAuthServer } from './oauth.ts'
 import { PROGRESS_URI, registerProgressResource } from './progress.ts'
+import type { ReviewDelivery } from '../../core/review.ts'
 
 const MAX_BODY_BYTES = 1024 * 1024
 const MAX_RESULT_CHARS = 60000
@@ -27,7 +28,12 @@ const ACTIVE_STATES = ['queued', 'running']
 const text = z.string().trim().min(1).max(20000)
 const requestId = z.string().uuid()
 const conversationId = z.string().min(1).max(200)
-const intent = z.enum(['ask', 'patch', 'task', 'project']).optional()
+const intent = z
+  .enum(['ask', 'patch', 'task', 'project'])
+  .describe(
+    'ask: consulta de solo lectura; patch: cambio de codigo; task: ejecucion operativa, como levantar un preview; project: proyecto nuevo. Conserva las restricciones explicitas del usuario.',
+  )
+  .optional()
 const digest = (value: string) => createHash('sha256').update(value).digest()
 
 const READ = {
@@ -114,7 +120,7 @@ export class ExternalMcp {
   instructions(): string {
     const defaultRepo = this.defaultRepo()
     const name = this.core.config.name
-    return `${name} ejecuta un agente de codigo con acceso a los repositorios del servidor, sus skills, instrucciones y fuentes configuradas. Para crear, modificar, eliminar o investigar codigo, webs, aplicaciones, vistas, dashboards o graficos de esos proyectos, usa ${name}. El repo predeterminado es ${JSON.stringify(defaultRepo)}. Llama regent_context cuando necesites descubrir el destino; si su resultado responde la pregunta, responde sin iniciar un trabajo. Para investigar o modificar el repo, delega el pedido a regent_start; repo es opcional y usa ese predeterminado. Cada conversación conserva su proyecto; para otro proyecto independiente inicia una nueva con regent_start y repo. Los servicios y submódulos del mismo proyecto comparten sesión. Conserva el proyecto o URL y el alcance del usuario: no conviertas preguntas breves en auditorias, checklists extensos ni informes de muchas secciones. No deduzcas que falta acceso al repo o a sus datos porque esas herramientas no aparezcan en el chat: el agente las usa en el servidor. Presenta el servicio como ${name}; regent_* son nombres internos. Consulta regent_get_run con su espera predeterminada y continua con regent_continue. Si el turno falla o se interrumpe, comunica failure.message o error; result puede ser parcial y no demuestra que el trabajo terminó. El seguimiento normal es texto, sin paneles: para una consulta breve entrega solo el resultado, sin narrar cada consulta de estado. Solo si el usuario pide un panel visual, llama regent_show_progress una vez y deja que se actualice. No crees tareas programadas ni recordatorios. No afirmes acceso a datos ni cambios sin el resultado del agente. Las skills de otros plugins del chat no sustituyen las instrucciones del repo seleccionado.`
+    return `${name} ejecuta un agente de codigo con acceso a los repositorios del servidor, sus skills, instrucciones y fuentes configuradas. Para crear, modificar, eliminar o investigar codigo, webs, aplicaciones, vistas, dashboards o graficos de esos proyectos, usa ${name}. El repo predeterminado es ${JSON.stringify(defaultRepo)}. Llama regent_context cuando necesites descubrir el destino; si su resultado responde la pregunta, responde sin iniciar un trabajo. Para investigar o modificar el repo, delega el pedido a regent_start; repo es opcional y usa ese predeterminado. Cada conversación conserva su proyecto; para otro proyecto independiente inicia una nueva con regent_start y repo. Los servicios y submódulos del mismo proyecto comparten sesión. Conserva el proyecto o URL y el alcance del usuario: no conviertas preguntas breves en auditorias, checklists extensos ni informes de muchas secciones. Al delegar cambios visibles o de interaccion en una web, incluye un preview navegable como parte del resultado sin esperar que el usuario lo pida; respeta si lo rechaza. El ejecutor evalua el impacto real: consultas y cambios sin efecto visual o interactivo no requieren preview. Una edicion de frontend conserva su intent: patch; no la conviertas en otra consulta para pedir el preview despues. Para levantar un preview temporal usa intent: task, conservando el pedido original y los limites explicitos; ask es solo lectura y no puede iniciar servidores. No sustituyas ese pedido por una captura, no impongas mocks ni apagar el servidor al terminar salvo que el usuario lo solicite. Entrega run.delivery.url cuando exista; delivery.state missing o blocked significa revision visual pendiente aunque run.state sea completed. Si no hay delivery, entrega preview.url cuando preview.ready sea true; ese campo indica el proceso actual de la conversacion, no certifica la revision ni que la ruta solicitada funcione. Si falta, comunica el bloqueo del ejecutor sin inventar un enlace. No deduzcas que falta acceso al repo o a sus datos porque esas herramientas no aparezcan en el chat: el agente las usa en el servidor. Presenta el servicio como ${name}; regent_* son nombres internos. Consulta regent_get_run con su espera predeterminada y continua con regent_continue. Si el turno falla o se interrumpe, comunica failure.message o error; result puede ser parcial y no demuestra que el trabajo terminó. El seguimiento normal es texto, sin paneles: para una consulta breve entrega solo el resultado, sin narrar cada consulta de estado. Solo si el usuario pide un panel visual, llama regent_show_progress una vez y deja que se actualice. No crees tareas programadas ni recordatorios. No afirmes acceso a datos ni cambios sin el resultado del agente. Las skills de otros plugins del chat no sustituyen las instrucciones del repo seleccionado.`
   }
 
   // Conversations
@@ -135,6 +141,8 @@ export class ExternalMcp {
     const conversation = this.conversation(author, run.conversation_key)
     const latest = this.core.store.latestRun(conversation.key)!
     const notice = this.core.store.lastEvent<{ text: string }>(latest.id, 'mcp_notice')
+    const current = this.core.previews?.get(conversation.key)
+    const preview = current ? this.core.previews!.result(current) : undefined
 
     return {
       conversation_id: conversation.key,
@@ -145,10 +153,20 @@ export class ExternalMcp {
       progress: notice?.text ?? null,
       activities: mcpActivities(this.core.store, latest),
       question: this.core.store.pendingQuestion(conversation.key) ?? null,
+      preview_available: Boolean(this.core.previews),
+      preview: preview
+        ? {
+            ready: preview.ready,
+            url: preview.ready ? preview.url : null,
+            expires_at: preview.expires_at,
+          }
+        : null,
     }
   }
 
   private runSummary(run: Run) {
+    const delivery = this.core.store.lastEvent<ReviewDelivery>(run.id, 'delivery_review')
+    const cleanup = this.core.store.lastEvent(run.id, 'worktree_cleanup')
     const failure = ['failed', 'interrupted'].includes(run.state)
       ? this.core.store.lastEvent<ExecutionFailure>(run.id, 'execution_failure')
       : undefined
@@ -160,6 +178,8 @@ export class ExternalMcp {
       result_truncated: (run.result?.length ?? 0) > MAX_RESULT_CHARS,
       error: run.error,
       cost_usd: run.cost,
+      ...(delivery ? { delivery } : {}),
+      ...(cleanup ? { cleanup } : {}),
       ...(failure ? { failure: publicFailure(failure) } : {}),
     }
   }
@@ -246,7 +266,7 @@ export class ExternalMcp {
         name: 'regent_get_run',
         title: 'Consultar resultado',
         description:
-          'Consulta el resultado sin crear un panel. Espera hasta 20 segundos por defecto si sigue activo; evita consultas repetidas sin espera y mensajes de progreso redundantes. latest_run incluye continuaciones automaticas. Cuando termine, responde una sola vez con el resultado proporcionado; no sigas consultando un trabajo terminado ni crees tareas programadas. Usa wait_ms: 0 solo para una consulta inmediata o desde el panel.',
+          'Consulta el resultado sin crear un panel. Espera hasta 20 segundos por defecto si sigue activo; evita consultas repetidas sin espera y mensajes de progreso redundantes. latest_run incluye continuaciones automaticas. Cuando termine, incluye delivery.url en la respuesta si existe y comunica delivery.state missing o blocked como revision visual pendiente, aunque state sea completed. Responde una sola vez con el resultado proporcionado; no sigas consultando un trabajo terminado ni crees tareas programadas. Usa wait_ms: 0 solo para una consulta inmediata o desde el panel.',
         input: {
           run_id: z.string().uuid(),
           wait_ms: z.number().int().min(0).max(20000).default(20000),
@@ -268,7 +288,7 @@ export class ExternalMcp {
         name: 'regent_continue',
         title: 'Continuar trabajo',
         description:
-          'Continua una conversacion MCP propia, conservando sesion, repo y worktree. Tambien responde preguntas pendientes o reanuda trabajo interrumpido. Usa request_id nuevo por mensaje y el mismo UUID para sus reintentos.',
+          'Continua una conversacion MCP propia, conservando sesion, repo y worktree. Tambien responde preguntas pendientes o reanuda trabajo interrumpido. Para levantar un preview usa intent: task y conserva el pedido del usuario; no lo reemplaces por capturas, mocks o apagar el servidor. Respeta limites explicitos de solo lectura. Usa request_id nuevo por mensaje y el mismo UUID para sus reintentos.',
         input: { conversation_id: conversationId, request_id: requestId, prompt: text, intent },
         annotations: WRITE,
         run: (args) => {
@@ -308,7 +328,7 @@ export class ExternalMcp {
   server(author: string): McpServer {
     const title = this.core.config.name
     const server = new McpServer(
-      { name: 'regent', title, version: '0.3.0' },
+      { name: 'regent', title, version: '0.3.5' },
       { instructions: this.instructions() },
     )
 

@@ -113,6 +113,8 @@ External services/database credentials must enforce their own data permissions.
 The selected project's environment and connections load in both modes, preserving shared
 root context for registered Git submodules. Query reads never prepare nested worktrees;
 editing preparation initializes the isolated checkouts at pinned commits.
+On resume, preparation also copies newly provisioned ignored setup files listed in each
+submodule's `.worktreeinclude`, while preserving files already present in the worktree.
 Independent repositories get their own context and connections. MCP availability inside the
 executor is independent of the host chat's connections. Tools and public session contracts
 remain compatible when source files move.
@@ -140,7 +142,57 @@ Previews preserve application-owned login and authorization. Publication and rou
 that the listening socket belongs to the authorized process group in the worktree. Linux uses
 `/proc`; macOS uses `lsof`/`ps`. Lookup failures deny routing. Expiry terminates only the owned
 process group. Closing the gateway preserves preview records/processes for restart recovery.
+In bypass mode, the internal preview `start` action launches an argv command from a real
+directory inside the reserved worktree, with the existing Bash credential/worktree checks
+and a filtered repository environment. The runtime owns the detached group rather than
+the CLI's temporary Bash task. Startup is bounded and cancellation/failure cleans up the
+owned group. Native mode rejects managed start and retains Bash permissions plus `publish`.
 The external reverse proxy publishes only MCP/OAuth routes; internal tool and health routes stay local.
+The core supplies `preview_policy` to the executor: `visual_changes` for editing with a
+configured gateway, `status_only` for queries with that gateway, otherwise `unavailable`.
+The executor includes a preview by default for user-visible or interactive changes unless
+the user opts out; project context determines relevance across frameworks. Internal-only
+changes do not require previews. The executor declares a typed visual assessment through
+`regent_status.review`. A native CLI Stop hook checks this contract over the authenticated
+loopback endpoint and allows at most two corrective continuations, within the existing deadline.
+It does not infer UI relevance from prose or filenames. Queries, cancellation, waiting and
+disabled previews do not enter this check. A claimed blocker requires a publication attempt
+or failed reservation; reserving a port alone is insufficient. Setup evidence contains only
+ignored environment file presence and key counts, never values.
+Core checks delivery again at settlement even if a hook fails. `run.delivery` records a ready,
+externally reported, not-applicable, blocked or missing review. Ready requires publication in
+this turn, owned listener/process and public HTTPS reachability; it does not prove authenticated
+UI correctness. External URLs remain explicitly agent-reported. Core inserts the known link
+into stored/final output or marks visual review pending, independently of the agent prose.
+The terminal run state still describes execution; clients must also report unresolved delivery.
+Blocked visual review remains explicit. This policy guides
+execution and does not relax query permissions or authorize production deployment.
+Explicit requests to run a preview use the operational `task` profile; questions about previews
+and explicit query limits remain read-only. MCP status includes an additive `preview` field for
+the current conversation, independently of the agent's final prose. It exposes only readiness,
+expiry and a URL while the published process/listener is still owned and live. It is not a
+snapshot of the requested run's revision or proof that a specific application route works;
+the executor verifies the public route and preserves application authentication before delivery.
+`preview_available` reports gateway configuration separately from preview readiness; internal
+status reports `not_reserved` and the next allowed action when no preview exists yet.
+
+An explicit worktree-removal request uses `regent_cleanup_worktree`, scoped to the
+active conversation. It defers execution until the official CLI exits; core performs
+cleanup from the shared checkout, not from the directory being deleted. It inventories
+registered nested checkouts, requires clean tracked/untracked state and verifies new work
+against freshly fetched remote refs. Unchanged pinned submodule baselines retain their
+existing local branches without requiring a current remote branch to contain old history. Explicitly supplied PR refs support squash merges
+whose source branches were removed; they are fetched once, without PR polling.
+Unknown locks, live CLI/processes, unique local commits, unavailable remotes and unsafe
+paths block cleanup. Only stale recognized native locks are released. The owned preview
+is stopped after preflight; registered nested checkouts are removed before the parent.
+Success clears the CLI session pointer while preserving the conversation, history,
+branches and remote commits. MCP returns additive `run.cleanup`, and the runtime supplies
+the actual cleanup result alongside the executor report, preserving outcomes of other
+requested actions such as PR closure or branch removal. A blocked cleanup does not
+erase those outcomes. Cancellation/shutdown abort cleanup. A partial
+I/O failure stays pending and can be retried. Merge/PR closure, reset, idle time and run
+completion alone never trigger removal. No watcher or scheduled cleanup is installed.
 
 ## Configuration and runtime resources
 

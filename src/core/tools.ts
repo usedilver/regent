@@ -1,5 +1,9 @@
 import { randomBytes } from 'node:crypto'
 import path from 'node:path'
+import fs from 'node:fs'
+import { quote } from 'shell-quote'
+import { launchPreview } from '../previews/launch.ts'
+import { agentEnvironment } from './agent-env.ts'
 import { redact } from '../storage/redact.ts'
 import type { Active, Core } from './core.ts'
 import { History } from './history.ts'
@@ -67,25 +71,85 @@ async function preview(call: ToolCall) {
 
   if (args.action === 'status') {
     const current = previews.get(key)
-    return current ? previews.result(current) : { ready: false }
+    if (current) return { available: true, ...previews.result(current), pid: current.pid }
+    return {
+      available: true,
+      ready: false,
+      state: 'not_reserved',
+      next_action: active.readOnly ? 'none' : 'reserve',
+    }
+  }
+
+  core.store.event(active.run.id, 'preview_attempt', { action: args.action })
+
+  if (args.action === 'start') {
+    if (core.config.permission_mode === 'native') {
+      throw new Error(
+        'Native mode requires starting the app through Bash with repository permissions, then publish. Managed start is available only in bypass mode.',
+      )
+    }
+    active.previewAttempted = true
+    if (!args.command)
+      throw new Error('Indica command como una lista de ejecutable y argumentos, sin shell.')
+    const root = isolationFor(conversation.cwd, key).dir
+    const directory = fs.realpathSync(path.resolve(root, args.directory))
+    if (!isInside(root, directory))
+      throw new Error('Inicia la app dentro del worktree de esta conversacion.')
+    const denial = core.permission(call.token, {
+      tool_name: 'Bash',
+      cwd: directory,
+      tool_input: { command: quote(args.command) },
+    })
+    if (denial) throw new Error(denial)
+    const env = agentEnvironment(core.config, core.secretKeys, conversation.cwd)
+    for (const name of Object.keys(env)) {
+      if (
+        name.startsWith('REGENT_') ||
+        name.startsWith('CLAUDE_') ||
+        name === 'ANTHROPIC_API_KEY' ||
+        name === 'WATCH_REPORT_DEPENDENCIES'
+      )
+        delete env[name]
+    }
+    const published = await launchPreview(
+      previews,
+      key,
+      directory,
+      args.command,
+      env,
+      active.abort.signal,
+    )
+    active.previewPublished = published.ready
+    return published
   }
 
   if (args.action === 'publish') {
+    active.previewAttempted = true
     if (!args.pid) {
       throw new Error('Indica el PID del proceso independiente que iniciaste en el worktree.')
     }
 
-    return previews.publish(key, args.pid)
+    const published = await previews.publish(key, args.pid)
+    active.previewPublished = published.ready
+    return published
   }
 
   const reason = await core.prepareWorkspace(call.token)
   if (reason) throw new Error(reason)
   const directory = isolationFor(conversation.cwd, key).dir
 
+  let reservation
+  try {
+    reservation = await previews.reserve(key, directory)
+  } catch (error) {
+    active.previewAttempted = true
+    throw error
+  }
   return {
-    ...(await previews.reserve(key, directory)),
+    ...reservation,
+    managed_start: core.config.permission_mode === 'bypass',
     instruction:
-      'Inicia la app en este worktree usando el puerto reservado y bind 127.0.0.1. Usa Bash y las instrucciones del repo, con un proceso independiente (setsid en Linux), conserva su PID y luego llama publish. Conserva el login y los permisos de la app; el proxy no agrega autenticacion. Configura cookies, redirecciones y origenes permitidos para el host de preview segun las instrucciones del proyecto. Comparte el URL solo cuando publish confirme ready.',
+      'Inicia la app en este worktree usando el puerto reservado y bind 127.0.0.1. Si managed_start=true usa action=start con directory relativo al worktree y command como lista de ejecutable y argumentos, por ejemplo ["pnpm","dev","--port","PUERTO","--hostname","127.0.0.1"]. Regent inicia, conserva el proceso y publica al estar listo; no depende de tareas temporales de Bash. Usa el comando real del proyecto. Si managed_start=false usa Bash con los permisos nativos del repo y luego publish con un PID independiente; no evadas denegaciones. Conserva el login y los permisos de la app; el proxy no agrega autenticacion. Configura cookies, redirecciones y origenes permitidos para el host de preview segun las instrucciones del proyecto. Comparte el URL solo cuando start o publish confirme ready.',
   }
 }
 
@@ -220,6 +284,11 @@ function switchProject(
 
 async function status({ core, active, conversation, input }: ToolCall) {
   const args = ToolSchemas.regent_status.parse(input)
+  if (args.review) {
+    if (active.readOnly) throw new Error('Query mode cannot declare an editing review.')
+    active.review = { ...args.review, reason: redact(args.review.reason) }
+    core.store.event(active.run.id, 'review_assessment', active.review)
+  }
   const text = redact(args.text ?? args.status!)
   const phaseChanged = args.phase !== undefined && args.phase !== active.lastPhase
 
@@ -270,6 +339,22 @@ async function cancel({ active, input }: ToolCall) {
   return { cancelled: true }
 }
 
+async function cleanupWorktree({ core, active, input }: ToolCall) {
+  if (active.readOnly) throw new Error('Query mode cannot remove a worktree.')
+  if (active.moving || active.contextChanged || active.waiting)
+    throw new Error('Termina el traslado o la espera antes de pedir limpieza.')
+  const args = ToolSchemas.regent_cleanup_worktree.parse(input)
+  active.worktreeRemoval = args.pull_requests
+  core.store.event(active.run.id, 'worktree_cleanup_requested', {
+    pull_requests: args.pull_requests,
+  })
+  return {
+    state: 'requested',
+    instruction:
+      'Termina el turno ahora. No ejecutes mas comandos, no borres desde Bash ni afirmes que ya se elimino: Regent comprueba y limpia despues de que salga el CLI, y entrega el resultado real. Conserva el historial, las ramas y commits remotos. No requiere preview.',
+  }
+}
+
 /** The tools the agent reaches through Regent's own MCP server, by their public names. */
 export const CORE_TOOLS: Record<ToolName, Handler> = {
   regent_read_history: readHistory,
@@ -280,6 +365,7 @@ export const CORE_TOOLS: Record<ToolName, Handler> = {
   regent_status: status,
   regent_ask_human: askHuman,
   regent_cancel: cancel,
+  regent_cleanup_worktree: cleanupWorktree,
 }
 
 export function isToolName(name: string): name is ToolName {

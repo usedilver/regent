@@ -16,6 +16,8 @@ import { prepareImages } from './images.ts'
 import { resolveIdentity, type Identity } from './identity.ts'
 import { failedText, interruptedText } from './progress.ts'
 import { isolationFor } from './repository.ts'
+import { reviewDelivery, reviewText } from './review.ts'
+import { cleanupText } from './worktree-cleanup.ts'
 import type { Conversation, Run, RunState } from './types.ts'
 
 const HEARTBEAT_MS = 45000
@@ -224,12 +226,19 @@ export class Turn {
       default_repo: this.core.defaultCwd,
       context_repo: this.conversation.cwd,
       execution_mode: execution.readOnly ? 'query' : 'edit',
+      preview_policy: this.previewPolicy(execution),
       cwd: execution.directory,
       wrap_up_at: new Date(this.active.wrapUpAt!).toISOString(),
       timeout_ms: this.timeoutMs,
     }
 
     return `Estado del core: ${JSON.stringify(state)}\n\nMensaje de ${this.run.author}:\n${this.run.prompt}`
+  }
+
+  private previewPolicy(execution: Execution): string {
+    if (!this.core.previews) return 'unavailable'
+    if (execution.readOnly) return 'status_only'
+    return 'visual_changes'
   }
 
   private fullPrompt(handoff: string, request: string): string {
@@ -423,16 +432,34 @@ export class Turn {
   // Outcome
 
   private async settle(result: RunnerResult): Promise<void> {
+    clearTimeout(this.runTimeout)
     this.stopTimers()
     this.active.abort.abort()
     await Promise.allSettled(this.active.operations)
-    const state = this.finalState(result.state)
+    let state = this.finalState(result.state)
     const deliveredSession = this.core.store.conversation(this.conversation.key)?.session_id
-    const error = this.stopReason() ?? result.error
+    let error = this.stopReason() ?? result.error
     const failure = this.terminalFailure(state, result, error)
     if (failure) this.core.store.event(this.run.id, 'execution_failure', failure)
+    const delivery =
+      state === 'completed' ? await reviewDelivery(this.core, this.active) : undefined
+    if (delivery) this.core.store.event(this.run.id, 'delivery_review', delivery)
+    const cleanup =
+      state === 'completed' && this.active.worktreeRemoval !== undefined
+        ? await this.core.cleanupWorktree(
+            this.conversation.key,
+            this.run.id,
+            this.active.worktreeRemoval,
+          )
+        : undefined
+    const reviewed = {
+      ...result,
+      text: cleanup ? cleanupText(cleanup, result.text) : reviewText(delivery, result.text),
+    }
+    state = this.finalState(result.state)
+    error = this.stopReason() ?? result.error
 
-    this.core.store.finish(this.run.id, state, result.text, error, () => {
+    this.core.store.finish(this.run.id, state, reviewed.text, error, () => {
       const delivered = state === 'completed' || state === 'waiting_human'
 
       if (deliveredSession && !this.active.contextChanged && delivered) {
@@ -440,7 +467,7 @@ export class Turn {
       }
     })
 
-    const text = this.replyText(state, result, failure, error)
+    const text = this.replyText(state, reviewed, failure, error)
     this.core.publish(this.active, () =>
       this.core.output.finish(this.conversation, this.run, redact(text)),
     )

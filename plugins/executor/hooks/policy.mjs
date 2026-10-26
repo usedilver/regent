@@ -8,9 +8,14 @@ const WORKSPACE_PREPARATION_TIMEOUT_MS = 240000
 const CREDENTIAL_FILES = /\.credentials\.json|\.claude\.json/
 const READERS = ['Read', 'Glob', 'Grep']
 const EDITORS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']
-const INTERNAL_TOOLS = ['use_repo', 'create_room', 'status', 'ask_human', 'cancel'].map(
-  (tool) => `mcp__regent__regent_${tool}`,
-)
+const INTERNAL_TOOLS = [
+  'use_repo',
+  'create_room',
+  'status',
+  'ask_human',
+  'cancel',
+  'cleanup_worktree',
+].map((tool) => `mcp__regent__regent_${tool}`)
 const DOWNLOAD_TO_INTERPRETER =
   /\b(?:curl|wget|fetch)\b[\s\S]*\|\s*(?:sudo\s+)?(?:sh|bash|zsh|ash|dash|python[0-9.]*|node|perl|ruby)\b/
 const RM_INVOCATION = /(?:^|[;&|]\s*|\s)rm\s+([^;&|]+)/

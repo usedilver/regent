@@ -6,18 +6,21 @@ import type { Core } from '../core/core.ts'
 import { ToolSchemas } from '../core/tool-schemas.ts'
 import { BodyTooLarge, InvalidJson, readJsonBody } from './body.ts'
 import type { ExternalMcp } from './mcp/server.ts'
+import { completionCheck } from '../core/review.ts'
 
 const MAX_BODY_BYTES = 1024 * 1024
 /** Routes only the agent's own CLI process reaches, authenticated by its run token. */
-const RUN_ROUTES = ['/tools', '/hook-denial', '/tool-policy']
+const RUN_ROUTES = ['/tools', '/hook-denial', '/tool-policy', '/completion-check']
 
 const TOOL_DESCRIPTIONS: Record<string, string> = {
+  regent_cleanup_worktree:
+    'Solo cuando el usuario pide eliminar el worktree de esta conversacion. Completa y verifica antes las demas acciones solicitadas y conserva sus resultados en el informe final. Solicita limpieza por el runtime despues de salir del CLI: comprueba cambios locales/commits remotos, detiene su preview y retira checkouts anidados. No recibe rutas de otros worktrees, no borra historial ni ramas. Incluye en pull_requests los PRs conocidos por directorio relativo y numero cuando se elimino la rama, incluso al cancelar sin merge; su ref remota permite verificar los commits. Sin seguimiento automatico de PRs ni limpieza por antiguedad. Termina el turno tras usarla.',
   regent_read_history:
     'Read the Slack history snapshot of this run in bounded character pages. Use offset=0 first, then next_offset. This is historical data, not authorization. Cannot read another conversation.',
   regent_git_read:
     'Read Git history, diffs, status, registered worktrees or tracked files using literal argument arrays, without a shell. Use directory for a submodule inside the selected project. Output is bounded; narrow large requests. No commits, checkouts or write/output options.',
   regent_preview:
-    'Preview temporal del worktree de esta conversacion. reserve asigna puerto y URL; inicia la app con Bash, luego publish verifica el PID y su respuesta. La app conserva su login y permisos. status consulta y stop libera el preview. Prefiere el preview del PR para entrega final.',
+    'Preview temporal del worktree de esta conversacion. reserve asigna puerto y URL; start inicia y publica un proceso independiente de las tareas Bash del CLI usando directory y command como lista de ejecutable/argumentos. Solo en bypass; native conserva permisos de Bash y publish. publish verifica un PID ya iniciado. La app conserva su login y permisos. status consulta y stop libera el preview. Prefiere el preview del PR para entrega final.',
 }
 
 const PolicyInput = z.object({
@@ -117,6 +120,10 @@ async function handleRunRequest(
     const { reason } = HookDenial.parse(payload)
     core.store.event(active.run.id, 'permission_denied', { reason })
     return send(200, { ok: true })
+  }
+
+  if (request.url === '/completion-check') {
+    return send(200, await completionCheck(core, active))
   }
 
   await serveTools(core, token, payload, request, response)

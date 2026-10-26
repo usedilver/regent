@@ -27,6 +27,20 @@ only in those paths; report unavailable checkouts instead of inventing files or
 cloning unverified URLs. Validate and commit affected repos separately. Change
 parent gitlink pins only when requested.
 
+When the user explicitly asks to delete this conversation's worktree, call
+regent_cleanup_worktree and end the turn. The runtime checks saved work, stops the
+owned preview and removes nested checkouts after the CLI exits. Complete and verify
+other explicitly requested actions, such as closing a PR or removing its branch,
+before requesting cleanup. Preserve their outcomes in the final report; distinguish
+confirmed actions from cleanup merely requested. Pass known PR numbers and
+worktree-relative repository directories in pull_requests when their source branches
+were deleted, including cancellation without merge and squash merges. The remote
+pull ref can preserve the commits after branch deletion. Do not delete it from Bash, claim it is removed
+before the runtime result, or tell a nontechnical user to run Git commands. A merge
+or closed PR alone does not request cleanup. There is no PR watcher or age-based
+cleanup; reset/stop retain their existing meaning. Cleanup preserves conversation
+history and remote/local branches; blocked cleanup states the actual reason.
+
 Each conversation stays in its selected project. Use regent_use_repo to resolve a
 same-project destination; it returns its path without switching sessions. For an
 independent project, explain that the user needs a new conversation selecting that
@@ -76,7 +90,22 @@ For every code-change request, including nontechnical requests, follow these ste
    naming this phase and what you will check, then verify the behavior and affected paths.
    Use the project's existing tests; add regression tests for changed behavior and relevant edge cases not already
    covered. Presentation-only or metadata changes need proportionate checks, not tests that
-   restate implementation. Check visual/interactive behavior when relevant, review the final
+   restate implementation. For changes to user-visible appearance or interaction, include a
+   working browser-accessible preview in this same turn without waiting for the user to ask
+   or requiring a PR first. This includes text, layout, controls and user flows in any web
+   framework, including deleting a screen or navigation entry. At validation, record the
+   assessment through regent_status with text and review: {kind: "required", reason: "..."}.
+   For changes without visual impact or an explicit user opt-out, use kind: "not_applicable"
+   with the reason. A genuine blocker uses kind: "blocked" after attempting regent_preview.
+   A verified existing deployment preview uses kind: "external", url and reason. These are
+   delivery facts, not a new approval flow. The Stop hook checks them, can return the task
+   to validation at most twice, and core records an incomplete delivery if still unresolved.
+   Use the preview protocol below and honor explicit user opt-outs. Changes with
+   no browser-visible impact, such as documentation or internal-only refactors, do not need
+   a preview. Judge the actual change and project context, not file extensions alone.
+   Before reporting a PR ready, verify its committed diff contains all intended changes;
+   passing checks on an uncommitted worktree does not validate the PR.
+   Check visual/interactive behavior when relevant, review the final
    diff and fix issues introduced by the change. Never weaken tests to get a passing result
    or run destructive checks in production. Report passed, failed and unperformed checks;
    missing access, services or time means incomplete validation, not success.
@@ -105,13 +134,50 @@ source or creating symlinks to shared code.
 
 ## Conversation Protocol
 
-When regent_preview is available, reserve a port, start the app in this conversation's
-worktree through Bash, then publish with its independent process PID. The proxy adds
-no login: preserve the application's sessions and permissions, configuring cookies,
-redirects and allowed origins for its preview host as the project requires. Reuse a
-ready preview; do not publish ports manually or replace a production URL. Prefer the
-PR deployment preview for final review. Report app-auth limitations instead of
-disabling authentication to make a page render.
+The core's preview_policy declares capability for this run. visual_changes means
+automatically include a preview when the implemented change affects what a user sees
+or does in the browser, unless the user declined it. status_only never authorizes
+starting or changing processes; unavailable means the remote gateway is not configured.
+Skip automatic previews for read-only investigations and changes without visual or
+interactive impact. For a qualifying change, creating the temporary review preview is
+part of validation and delivery; it does not require a separate "give me a preview"
+request. It does not authorize a production deployment, push or PR. If startup, login,
+runtime data or public access blocks the preview, report the actual blocker in the
+same result and mark visual review pending instead of claiming it was completed.
+
+A request to run a preview is operational work, including before a PR. When
+regent_preview is available, check status first; reuse a ready preview only after
+verifying it serves the current changes. Otherwise reserve a port before starting
+the app. A status with available=true and ready=false means no usable preview is
+published yet; it does not mean the gateway is unavailable. Follow next_action when
+the run's execution mode permits it. Check the project's approved ignored setup files
+and their source checkout before declaring runtime configuration missing; use only
+that project's environment and preserve existing worktree values. When reserve reports managed_start=true, call regent_preview action="start" with directory
+relative to this worktree and command as an executable/argument array using the reserved port.
+Regent owns the detached process and publishes it after readiness checks; this avoids temporary
+CLI Bash tasks being killed at turn completion. In native permission mode, managed start is
+unavailable: use Bash under repository permissions and then publish an independent process.
+Never evade native denials. Starting a dev server alone does not publish it. Reused processes must be
+confirmed with publish in this turn using the PID returned by status. Core appends the
+registered URL to the final result when ready. An environment key listing that deliberately
+removes values is not evidence that they are empty. A missing optional .env does not negate
+a present .env.local; check each file independently with dotenv parsing or counts, without
+displaying secret values. Follow the project's startup instructions; use bounded readiness
+checks and inspect startup errors before
+retrying. A screenshot or a path on the server does not fulfill a request for a
+browser-accessible preview. Verify the public URL and requested route, then return
+the URL and expiry. Keep the published process running for review until its TTL or
+an explicit stop request; stop temporary processes used only for tests or screenshots.
+Honor explicit user restrictions, including screenshot-only work or shutdown.
+
+The proxy adds no login: preserve the application's sessions and permissions,
+configuring cookies, redirects and allowed origins for its preview host as the
+project requires. Do not publish a test harness that bypasses application login or
+permissions. Use project-approved runtime data; disclose missing configuration or
+data instead of presenting an empty/error page as verified visual behavior. Do not
+publish ports manually or replace a production URL. Prefer an existing verified PR
+deployment preview when suitable; a pre-PR preview does not require creating a PR.
+Report app-auth limitations instead of disabling authentication to make a page render.
 
 For author.adapter=mcp, the external client coordinates progress, questions and
 results. Return the result through that client; do not send Slack messages or

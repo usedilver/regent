@@ -23,6 +23,11 @@ import {
 import { progressText, type DevelopmentPhase } from './progress.ts'
 import { prepareProjectWorkspace, type ProjectWorkspace } from './project-workspace.ts'
 import {
+  removeConversationWorktree,
+  type CleanupResult,
+  type CleanupPullRequest,
+} from './worktree-cleanup.ts'
+import {
   isolationFor,
   projectRoot,
   repositoryRequest,
@@ -32,6 +37,7 @@ import {
 import { RoomTransfers } from './rooms.ts'
 import { CORE_TOOLS, isToolName } from './tools.ts'
 import { Turn } from './turn.ts'
+import type { ReviewAssessment } from './review.ts'
 import type { Conversation, Inbound, Output, Rooms, Run } from './types.ts'
 
 /** Tools the agent may still call once the turn is in its wrap-up margin. */
@@ -74,6 +80,12 @@ export interface Active {
   executionDir?: string
   workspace?: ProjectWorkspace
   workspacePreparation?: Promise<ProjectWorkspace>
+  review?: ReviewAssessment
+  reviewRetries?: number
+  previewAttempted?: boolean
+  previewPublished?: boolean
+  worktreeRemoval?: CleanupPullRequest[]
+  cleanupAbort?: AbortController
 }
 
 export interface CoreOptions {
@@ -223,6 +235,7 @@ export class Core {
       active.cancelled = true
       active.cancelReason = 'Detenido por el usuario.'
       active.abort.abort()
+      active.cleanupAbort?.abort()
       active.controller?.cancel()
     }
 
@@ -429,6 +442,49 @@ export class Core {
 
   // Tools
 
+  /** Only called after the CLI has exited, outside the checkout being removed. */
+  async cleanupWorktree(
+    key: string,
+    runId: string,
+    pullRequests: CleanupPullRequest[] = [],
+  ): Promise<CleanupResult> {
+    const active = this.active.get(key)
+    if (active && active.run.id !== runId)
+      return {
+        state: 'blocked',
+        message: 'La conversacion tiene otra ejecucion activa; no se eliminara su worktree.',
+      }
+    const conversation = this.store.conversation(key)
+    if (!conversation) throw new Error('Conversacion inexistente.')
+    const controller = new AbortController()
+    if (active) active.cleanupAbort = controller
+    const deadline = setTimeout(() => controller.abort(), 120000)
+    deadline.unref()
+    let result: CleanupResult
+    try {
+      result = await removeConversationWorktree(
+        conversation.cwd,
+        key,
+        () => {
+          this.previews?.stop(key)
+        },
+        pullRequests,
+        controller.signal,
+      )
+      if (result.state !== 'blocked') this.store.forgetSession(key)
+    } catch (error) {
+      result = {
+        state: 'blocked',
+        message: `Limpieza del worktree pendiente: ${redact(errorMessage(error))}`,
+      }
+    } finally {
+      clearTimeout(deadline)
+      if (active) active.cleanupAbort = undefined
+    }
+    this.store.event(runId, 'worktree_cleanup', result)
+    return result
+  }
+
   /** Runs a tool on behalf of the run and tracks it until it settles. */
   tool(token: string, name: string, args: unknown): Promise<unknown> {
     const active = this.byToken(token)
@@ -456,6 +512,12 @@ export class Core {
     }
 
     if (!isToolName(name)) throw new Error(`Tool desconocida: ${name}`)
+    if (
+      active.worktreeRemoval !== undefined &&
+      !['regent_status', 'regent_cleanup_worktree', 'regent_cancel'].includes(name)
+    ) {
+      throw new Error('La limpieza ya fue solicitada; termina el turno para que Regent la ejecute.')
+    }
     const conversation = {
       ...this.store.conversation(active.run.conversation_key)!,
       thread: active.run.reply_thread,
@@ -516,6 +578,17 @@ export class Core {
 
     if (!active || active.waiting || active.cancelled || active.abort.signal.aborted) {
       return 'El run no admite mas herramientas.'
+    }
+
+    if (
+      active.worktreeRemoval !== undefined &&
+      ![
+        'mcp__regent__regent_status',
+        'mcp__regent__regent_cleanup_worktree',
+        'mcp__regent__regent_cancel',
+      ].includes(input.tool_name)
+    ) {
+      return 'La limpieza ya fue solicitada; termina el turno sin ejecutar mas herramientas.'
     }
 
     return this.deadlineReason(active, input.tool_name) ?? permissionDenial(this, active, input)
@@ -589,6 +662,7 @@ export class Core {
 
     for (const a of active) {
       a.abort.abort()
+      a.cleanupAbort?.abort()
       a.controller?.cancel('Servidor detenido.')
     }
 

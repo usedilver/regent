@@ -349,8 +349,16 @@ El puerto de la app permanece interno. HTTP y WebSocket llegan a la aplicación,
 que decide qué acceso permite. No es un sandbox: aloja solo proyectos confiables,
 especialmente si comparten el dominio de cookies de una aplicación corporativa.
 
-Los previews son temporales y no reemplazan el despliegue del PR. Los procesos
-publicados deben tener su propio grupo (por ejemplo, `setsid` en Linux). La limpieza
+Los previews son temporales y no reemplazan el despliegue del PR. En modo `bypass`,
+después de `reserve`, `start` recibe `directory` relativo al worktree y `command`
+como lista de ejecutable/argumentos, sin shell. Regent crea un grupo independiente,
+espera hasta 60 segundos y publica cuando la app responde. El proceso sobrevive al
+cierre del CLI; los logs privados quedan en el directorio temporal del operador.
+Conserva los controles de directorio y credenciales de Bash y excluye secretos de
+transporte y del proveedor del entorno de la app. No modifica el entorno del repo.
+En modo `native`, `start` se rechaza para conservar los permisos nativos: se mantiene
+el protocolo Bash y `publish`. Los procesos publicados deben tener su propio grupo.
+La limpieza
 solo termina grupos con PID, fecha de inicio y worktree verificados; no mata un PID
 reutilizado. El supervisor debe permitir que esos procesos sobrevivan al reinicio
 del runtime y Regent debe volver a arrancar para efectuar su limpieza pendiente.
