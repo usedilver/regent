@@ -179,8 +179,9 @@ status reports `not_reserved` and the next allowed action when no preview exists
 An explicit worktree-removal request uses `regent_cleanup_worktree`, scoped to the
 active conversation. It defers execution until the official CLI exits; core performs
 cleanup from the shared checkout, not from the directory being deleted. It inventories
-registered nested checkouts, requires clean tracked/untracked state and verifies HEAD
-against freshly fetched remote refs. Explicitly supplied PR refs support squash merges
+registered nested checkouts, requires clean tracked/untracked state and verifies new work
+against freshly fetched remote refs. Unchanged pinned submodule baselines retain their
+existing local branches without requiring a current remote branch to contain old history. Explicitly supplied PR refs support squash merges
 whose source branches were removed; they are fetched once, without PR polling.
 Unknown locks, live CLI/processes, unique local commits, unavailable remotes and unsafe
 paths block cleanup. Only stale recognized native locks are released. The owned preview

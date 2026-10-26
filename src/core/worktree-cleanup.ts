@@ -31,6 +31,7 @@ export async function workspaceGit(cwd: string, args: string[], signal?: AbortSi
 interface Checkout {
   directory: string
   source: string
+  baseline?: string
   branch?: string
   lock?: string
 }
@@ -65,6 +66,7 @@ export async function cleanupPlan(
   if (fs.realpathSync(root) !== root)
     throw new Error('El worktree es un enlace simbolico; no se eliminara.')
   const found = new Map<string, Checkout>()
+  const baselines = new Map<string, string>()
   const seen = new Set<string>()
   const visit = async (source: string) => {
     const common = fs.realpathSync(
@@ -84,7 +86,7 @@ export async function cleanupPlan(
       ) {
         throw new Error('Hay un checkout enlazado o inconsistente; no se eliminara.')
       }
-      found.set(row.directory, { ...row, source })
+      found.set(row.directory, { ...row, source, baseline: baselines.get(row.directory) })
       const entries = (
         await workspaceGit(row.directory, ['ls-files', '--stage', '-z'], signal)
       ).split('\0')
@@ -111,6 +113,7 @@ export async function cleanupPlan(
         )
         if (childCommon !== originalCommon)
           throw new Error('El submodulo no corresponde a su repositorio de origen.')
+        baselines.set(child, entry.split(' ')[1])
         await visit(original)
       }
     }
@@ -133,46 +136,60 @@ async function assertSaved(
   )
   if (status)
     throw new Error(`Hay cambios sin commit en ${checkout.directory}. Se conserva el worktree.`)
-  await workspaceGit(
-    checkout.source,
-    ['fetch', '--prune', '--no-recurse-submodules', 'origin'],
-    signal,
-  )
-  for (const pr of pullRequests) {
-    if (path.resolve(root, pr.directory) !== checkout.directory) continue
-    if (!Number.isSafeInteger(pr.number) || pr.number < 1) throw new Error('Numero de PR invalido.')
-    // Fetch the remote PR ref only for an explicitly identified repository/PR.
-    // This preserves squash-merged commits even when the source branch was deleted.
+  const head = await workspaceGit(checkout.directory, ['rev-parse', 'HEAD'], signal)
+  // The clean pinned baseline is already retained by the parent project and its
+  // local submodule branch, which cleanup never deletes. Only new work needs a
+  // fresh remote backup; unrelated source checkouts may contain older history.
+  if (head === checkout.baseline) {
+    const retained = await workspaceGit(
+      checkout.source,
+      ['for-each-ref', '--format=%(refname)', '--contains', head, 'refs/heads'],
+      signal,
+    )
+    if (!retained)
+      throw new Error('El commit inicial del submodulo no tiene una rama local que lo conserve.')
+  } else {
     await workspaceGit(
       checkout.source,
+      ['fetch', '--prune', '--no-recurse-submodules', 'origin'],
+      signal,
+    )
+    for (const pr of pullRequests) {
+      if (path.resolve(root, pr.directory) !== checkout.directory) continue
+      if (!Number.isSafeInteger(pr.number) || pr.number < 1)
+        throw new Error('Numero de PR invalido.')
+      // Fetch the remote PR ref only for an explicitly identified repository/PR.
+      // This preserves squash-merged commits even when the source branch was deleted.
+      await workspaceGit(
+        checkout.source,
+        [
+          'fetch',
+          '--no-recurse-submodules',
+          'origin',
+          `refs/pull/${pr.number}/head:refs/regent/cleanup/pr-${pr.number}`,
+        ],
+        signal,
+      )
+    }
+    const remote = await workspaceGit(
+      checkout.source,
       [
-        'fetch',
-        '--no-recurse-submodules',
-        'origin',
-        `refs/pull/${pr.number}/head:refs/regent/cleanup/pr-${pr.number}`,
+        'for-each-ref',
+        '--format=%(refname)',
+        '--contains',
+        head,
+        'refs/remotes/origin',
+        ...pullRequests
+          .filter((pr) => path.resolve(root, pr.directory) === checkout.directory)
+          .map((pr) => `refs/regent/cleanup/pr-${pr.number}`),
       ],
       signal,
     )
+    if (!remote)
+      throw new Error(
+        `Hay commits sin respaldo verificable en remoto en ${checkout.directory}. Se conserva el worktree.`,
+      )
   }
-  const head = await workspaceGit(checkout.directory, ['rev-parse', 'HEAD'], signal)
-  const remote = await workspaceGit(
-    checkout.source,
-    [
-      'for-each-ref',
-      '--format=%(refname)',
-      '--contains',
-      head,
-      'refs/remotes/origin',
-      ...pullRequests
-        .filter((pr) => path.resolve(root, pr.directory) === checkout.directory)
-        .map((pr) => `refs/regent/cleanup/pr-${pr.number}`),
-    ],
-    signal,
-  )
-  if (!remote)
-    throw new Error(
-      `Hay commits sin respaldo verificable en remoto en ${checkout.directory}. Se conserva el worktree.`,
-    )
   if (checkout.lock !== undefined) {
     // This is native CLI lock metadata, never a classifier over user requests.
     const lock = /^claude session regent-[a-f0-9]+ \(pid (\d+) start (\d+)\)$/.exec(checkout.lock)

@@ -147,6 +147,53 @@ test('registered submodule and nested preview checkouts are removed before their
   )
 })
 
+test('unchanged pinned submodule history is retained locally even if origin rewrote it; new local work still blocks', async (t) => {
+  const f = fixture(t)
+  const child = path.join(f.root, 'child')
+  fs.mkdirSync(child)
+  git(child, 'init', '-b', 'main')
+  fs.writeFileSync(path.join(child, 'child.txt'), 'baseline')
+  git(child, 'add', '.')
+  git(child, 'commit', '-m', 'Baseline')
+  git(f.repo, 'submodule', 'add', child, 'child')
+  git(f.repo, 'commit', '-am', 'Register child')
+  git(f.repo, 'push')
+  git(f.isolated, 'merge', '--ff-only', 'main')
+  await prepareProjectWorkspace(f.root, f.repo, f.isolated, f.key)
+  const isolatedChild = path.join(f.isolated, 'child')
+  const baseline = git(isolatedChild, 'rev-parse', 'HEAD')
+  fs.writeFileSync(path.join(isolatedChild, 'child.txt'), 'new local work')
+  git(isolatedChild, 'commit', '-am', 'Unpublished work')
+  await assert.rejects(
+    removeConversationWorktree(f.repo, f.key, () => {}),
+    /sin respaldo/,
+  )
+  git(isolatedChild, 'reset', '--hard', baseline)
+  git(child, 'checkout', '--orphan', 'replacement')
+  git(child, 'commit', '-m', 'Replacement history')
+  git(child, 'branch', '-D', 'main')
+  git(child, 'branch', '-m', 'main')
+  const sourceChild = path.join(f.repo, 'child')
+  git(sourceChild, 'fetch', '--prune', 'origin')
+  assert.equal(
+    git(
+      sourceChild,
+      'for-each-ref',
+      '--format=%(refname)',
+      '--contains',
+      baseline,
+      'refs/remotes/origin',
+    ),
+    '',
+  )
+  const result = await removeConversationWorktree(f.repo, f.key, () => {})
+  assert.equal(result.state, 'removed')
+  assert.ok(
+    git(sourceChild, 'for-each-ref', '--format=%(refname)', '--contains', baseline, 'refs/heads'),
+  )
+  assert.equal(git(sourceChild, 'show', baseline + ':child.txt'), 'baseline')
+})
+
 test('core defers removal until executor exit, reports actual result, detaches session and permits fresh queries', async (t) => {
   const f = fixture(t)
   const store = new Store(':memory:')
