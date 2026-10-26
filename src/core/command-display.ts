@@ -8,6 +8,7 @@ const commands = new Map<string, string>([
   ['git diff --cached', 'Revisando cambios'],
   ['git diff --cached --stat', 'Revisando cambios'],
 ])
+
 for (const manager of ['npm', 'pnpm', 'yarn']) {
   for (const [script, title] of [
     ['test', 'Ejecutando pruebas'],
@@ -49,10 +50,13 @@ export function commandDisplay(value: unknown): { command: string; title: string
   if (title) return { command, title }
   // Reject substitutions, multiline scripts and controls instead of guessing their meaning.
   if (/[\x00-\x1f\x7f$`]/.test(value)) return
+
   try {
     const tokens = parse(value, () => '')
+
     for (const [operation, title] of operations) {
       const prefix = operation.split(' ')
+
       if (prefix.every((word, i) => tokens[i] === word)) {
         return { command: `${operation} [argumentos y resto ocultos]`, title }
       }
@@ -61,4 +65,5 @@ export function commandDisplay(value: unknown): { command: string; title: string
     /* Unparseable shell stays opaque. */
   }
 }
+
 import { parse } from 'shell-quote'

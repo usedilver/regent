@@ -9,8 +9,11 @@ export function executionContext(conversation: Conversation, intent: Intent) {
     ? isolationFor(conversation.cwd, conversation.key)
     : undefined
   const existing = isolation && fs.existsSync(isolation.dir + '/.git')
-  if (existing && fs.realpathSync(isolation.dir) !== isolation.dir)
+
+  if (existing && fs.realpathSync(isolation.dir) !== isolation.dir) {
     throw new Error('The conversation worktree must not be a symbolic link.')
+  }
+
   const isolated = Boolean(isolation && (!readOnly || existing))
   const directory = isolated ? isolation!.dir : conversation.cwd
   // Older sessions always used a native worktree. Resume only when it still exists.

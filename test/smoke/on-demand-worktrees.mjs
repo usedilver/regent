@@ -20,23 +20,25 @@ if (process.env.REGENT_SMOKE !== '1') {
   )
   process.exit(1)
 }
-const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-demand-smoke-'))),
-  repo = path.join(root, 'repo')
-const token = randomBytes(32).toString('hex'),
-  marker = 'probe-' + randomBytes(5).toString('hex')
+
+const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-demand-smoke-')))
+const repo = path.join(root, 'repo')
+const token = randomBytes(32).toString('hex')
+const marker = 'probe-' + randomBytes(5).toString('hex')
 const listen = (server) =>
   new Promise((resolve) =>
     server.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${server.address().port}`)),
   )
 const close = (server) => new Promise((resolve) => server.close(resolve))
-let calls = 0,
-  sqlCalls = 0
+let calls = 0
+let sqlCalls = 0
 const fixture = http.createServer(async (request, response) => {
   if (request.headers.authorization !== 'Bearer ' + token) {
     response.writeHead(401)
     response.end()
     return
   }
+
   const server = new McpServer({ name: 'demand-fixture', version: '1.0.0' })
   server.registerTool(
     'get_probe',
@@ -63,13 +65,17 @@ const fixture = http.createServer(async (request, response) => {
     sessionIdGenerator: undefined,
     enableJsonResponse: true,
   })
+
   response.on('close', () => {
     void server.close()
   })
   await server.connect(transport)
   await transport.handleRequest(request, response)
 })
-let core, internal, store
+let core
+let internal
+let store
+
 try {
   const address = await listen(fixture)
   fs.mkdirSync(repo)
@@ -103,6 +109,7 @@ try {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
     }).trim()
+
   git('init', '-b', 'main')
   git('add', '.')
   git(
@@ -126,6 +133,7 @@ try {
       cancel_grace_sec: 2,
     },
   })
+
   core = new Core({
     store,
     config,
@@ -138,6 +146,7 @@ try {
   // the operator's normal authentication and settings.
   internal = createHttp(core, () => ({}))
   core.toolsUrl = (await listen(internal)) + '/tools'
+
   const run = async (text) => {
     const accepted = await core.submit({
       adapter: 'slack',
@@ -148,16 +157,22 @@ try {
       eventId: randomUUID(),
       text,
     })
-    while (core.active.size)
+
+    while (core.active.size) {
       await Promise.all([...core.active.values()].map((active) => active.done))
+    }
+
     const result = store.run(accepted.runId)
     assert.equal(result.state, 'completed', result.error || result.result)
     return result
   }
+
   const first = await run(
     'Investiga answer.txt con la skill probe y el lector MCP get_probe. No cambies nada ni ejecutes comandos. Responde solo el contenido y el marcador.',
   )
+
   assert.match(first.result, /original/)
+
   if (!first.result.includes(marker)) {
     const init = store.db
       .prepare("SELECT data FROM events WHERE run_id=? AND kind='init'")
@@ -168,6 +183,7 @@ try {
       JSON.stringify(data.mcpServers?.filter((server) => /regent|demand/.test(server.name))),
     )
   }
+
   assert.ok(first.result.includes(marker), first.result)
   assert.ok(sqlCalls > 0, 'The query must use the read-only execute_sql wrapper')
   assert.ok(!fs.existsSync(path.join(repo, '.claude/worktrees')))
@@ -185,6 +201,7 @@ try {
   const third = await run(
     'Explica el contenido actual de answer.txt y consulta get_probe. No hagas cambios. Responde solo el contenido y el marcador.',
   )
+
   assert.match(third.result, /edited/)
   assert.ok(third.result.includes(marker))
   assert.equal(store.conversation('smoke').session_id, editingSession)

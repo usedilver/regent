@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+
 const { createRuntime } = await import(process.env.ACCESS_RUNTIME_MODULE)
 const { ConfigSchema } = await import(process.env.ACCESS_CONFIG_MODULE)
 const { Store } = await import(process.env.ACCESS_STORE_MODULE)
@@ -16,6 +17,7 @@ const runtime = createRuntime(config, {
   store: new Store(':memory:'),
   slack: { output, connected: () => true, async start() {}, async stop() {} },
 })
+
 await runtime.start()
 const report = setInterval(
   () =>
@@ -25,6 +27,7 @@ const report = setInterval(
     ),
   50,
 )
+
 process.on('SIGTERM', async () => {
   clearInterval(report)
   await runtime.close()

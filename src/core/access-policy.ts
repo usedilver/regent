@@ -42,21 +42,27 @@ export class AccessPolicy {
   constructor(document: AccessDocument) {
     this.replace(document)
   }
+
   get snapshot(): AccessSnapshot {
     return this.current
   }
+
   get version(): string {
     return this.digest.slice(0, 12)
   }
+
   get openSlack(): boolean {
     return this.current.slack.allowed_users.length === 0
   }
+
   allowsSlack(author: string): boolean {
     return this.openSlack || this.current.slack.allowed_users.includes(author)
   }
+
   allowsOAuth(email: string): boolean {
     return this.current.oauth?.allowed_emails.includes(email.toLowerCase()) ?? false
   }
+
   replace(document: AccessDocument): boolean {
     const parsed = AccessSchema.parse(document)
     const snapshot = Object.freeze({

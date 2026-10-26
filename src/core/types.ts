@@ -1,4 +1,9 @@
+import type { RunnerEvent } from '../execution/runner.ts'
+import type { HistorySource } from './history.ts'
+import type { Intent } from './intent.ts'
+
 export type ConversationState = 'idle' | 'queued' | 'running' | 'waiting_human' | 'interrupted'
+
 export type RunState =
   | 'queued'
   | 'running'
@@ -18,8 +23,8 @@ export interface Inbound {
   replyThread?: string
   team?: string
   transcript?: string
-  history?: import('./history.ts').HistorySource
-  intent?: import('./intent.ts').Intent
+  history?: HistorySource
+  intent?: Intent
   repo?: string
 }
 
@@ -46,7 +51,7 @@ export interface Run {
   transcript: string | null
   reply_thread: string | null
   reply_channel: string | null
-  intent: import('./intent.ts').Intent
+  intent: Intent
   state: RunState
   created_at: number
   result: string | null
@@ -55,14 +60,10 @@ export interface Run {
 }
 
 export interface Output {
-  activity?(
-    conversation: Conversation,
-    run: Run,
-    event: import('../execution/runner.ts').RunnerEvent,
-  ): void
-  /** True when THIS conversation shows a native "working…" indicator (needs a thread anchor):
-   * skip the periodic heartbeat there. Rooms converse at channel root with no anchor, so they
-   * return false and rely on the updating progress message below. */
+  activity?(conversation: Conversation, run: Run, event: RunnerEvent): void
+  /** True when the conversation shows a native "working…" indicator, which needs a thread
+   * anchor; the core skips the periodic heartbeat there. Rooms converse at channel root without
+   * an anchor, so they return false and rely on the progress message below. */
   animates?(conversation: Conversation): boolean
   question?(
     conversation: Conversation,

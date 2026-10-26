@@ -9,7 +9,9 @@ if (process.env.REGENT_SMOKE !== '1') {
   )
   process.exit(1)
 }
+
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'regent-smoke-'))
+
 try {
   const child = spawn(
     process.execPath,
@@ -27,6 +29,7 @@ try {
     child.on('error', reject)
     child.on('close', resolve)
   })
+
   process.exitCode = result ?? 1
 } finally {
   fs.rmSync(directory, { recursive: true, force: true })

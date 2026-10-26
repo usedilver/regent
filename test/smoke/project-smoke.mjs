@@ -21,10 +21,11 @@ if (process.env.REGENT_SMOKE !== '1') {
 }
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-project-smoke-')))
-const project = path.join(root, 'project'),
-  seed = path.join(root, 'seed')
+const project = path.join(root, 'project')
+const seed = path.join(root, 'seed')
 const git = (cwd, ...args) =>
   execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+
 const commit = (cwd) => {
   git(cwd, 'add', '.')
   git(
@@ -40,21 +41,23 @@ const commit = (cwd) => {
     'Fixture',
   )
 }
+
 const listen = (server) =>
   new Promise((resolve) =>
     server.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${server.address().port}`)),
   )
 const close = (server) => new Promise((resolve) => server.close(resolve))
 const token = randomBytes(32).toString('hex')
-let verifiedCalls = 0,
-  core,
-  internal
+let verifiedCalls = 0
+let core
+let internal
 const fixture = http.createServer(async (request, response) => {
   if (request.headers.authorization !== `Bearer ${token}`) {
     response.writeHead(401)
     response.end()
     return
   }
+
   const server = new McpServer({ name: 'project-fixture', version: '1.0.0' })
   server.registerTool(
     'get_project_marker',
@@ -71,9 +74,11 @@ const fixture = http.createServer(async (request, response) => {
     sessionIdGenerator: undefined,
     enableJsonResponse: true,
   })
+
   response.on('close', () => {
     void server.close()
   })
+
   try {
     await server.connect(transport)
     await transport.handleRequest(request, response)
@@ -89,10 +94,12 @@ try {
   fs.writeFileSync(path.join(seed, 'answer.txt'), 'before\n')
   commit(seed)
   git(root, 'init', '-b', 'main', project)
+
   for (const service of ['backend', 'frontend']) {
     git(project, '-c', 'protocol.file.allow=always', 'submodule', 'add', seed, service)
     git(project, 'config', '-f', '.gitmodules', `submodule.${service}.ignore`, 'all')
   }
+
   fs.writeFileSync(path.join(project, '.gitignore'), '.env\n.claude/worktrees/\n')
   fs.writeFileSync(path.join(project, '.env'), `PROJECT_SMOKE_TOKEN=${token}\n`)
   fs.writeFileSync(
@@ -131,6 +138,7 @@ Then follow the user's requested edits inside the current project's isolated ser
     slack: { workspace_team_id: 'SMOKE', allowed_users: ['SMOKE'] },
     limits: { max_run_sec: { task: 300 }, stall_sec: 120, cancel_grace_sec: 5 },
   })
+
   core = new Core({
     store,
     config,
@@ -148,6 +156,7 @@ Then follow the user's requested edits inside the current project's isolated ser
     intent: 'task',
     text: 'Invoke the shared-check skill from the project root and call its project-fixture get_project_marker MCP tool. After confirming the marker, write exactly "updated\\n" to backend/answer.txt and frontend/answer.txt inside this conversation worktree. Use the same session for both services. Do not call regent_use_repo, commit, push, create a PR, edit source checkouts or print environment values. Report the two file paths and marker briefly.',
   })
+
   while (core.active.size) await new Promise((resolve) => setTimeout(resolve, 100))
   const run = store.run(accepted.runId)
   assert.equal(run.state, 'completed', run.error)
@@ -155,6 +164,7 @@ Then follow the user's requested edits inside the current project's isolated ser
   const tools = events
     .filter((event) => event.kind === 'tool_use')
     .map((event) => JSON.parse(event.data))
+
   assert.ok(
     tools.some((tool) => tool.name === 'Skill' && tool.input?.skill?.includes('shared-check')),
     'Shared root skill was not invoked',
@@ -170,6 +180,7 @@ Then follow the user's requested edits inside the current project's isolated ser
     'Unexpected project handoff',
   )
   const isolated = isolationFor(project, 'project-smoke')
+
   for (const service of ['backend', 'frontend']) {
     assert.equal(
       fs.readFileSync(path.join(isolated.dir, service, 'answer.txt'), 'utf8'),
@@ -177,6 +188,7 @@ Then follow the user's requested edits inside the current project's isolated ser
     )
     assert.equal(fs.readFileSync(path.join(project, service, 'answer.txt'), 'utf8'), 'before\n')
   }
+
   console.log(
     'OK real Claude Code: root skill + authenticated root MCP + two isolated submodule edits in one session; source checkouts unchanged.',
   )
@@ -185,6 +197,7 @@ Then follow the user's requested edits inside the current project's isolated ser
     await core.close()
     core.store.close()
   }
+
   if (internal?.listening) await close(internal)
   if (fixture.listening) await close(fixture)
   if (process.env.REGENT_SMOKE_KEEP === '1') console.log(`Fixture retained: ${root}`)

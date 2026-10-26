@@ -9,6 +9,7 @@ export type ActivityState = {
   >
   terminal?: string
 }
+
 const titles: Record<string, string> = {
   read: 'Consultando archivos',
   edit: 'Modificando archivos',
@@ -18,6 +19,13 @@ const titles: Record<string, string> = {
   external: 'Consultando herramientas externas',
   other: 'Procesando la solicitud',
 }
+
+const terminalTitles: Record<string, string> = {
+  completed: 'Turno finalizado',
+  waiting_human: 'Esperando tu respuesta',
+  moved: 'Continuamos en la sala',
+}
+
 function group(name: string) {
   if (['Read', 'Glob', 'Grep'].includes(name)) return 'read'
   if (['Edit', 'Write', 'MultiEdit', 'NotebookEdit'].includes(name)) return 'edit'
@@ -26,43 +34,53 @@ function group(name: string) {
   if (name === 'Skill') return 'skill'
   return name.startsWith('mcp__') ? 'external' : 'other'
 }
-export function activityEvent(state: ActivityState, event: any): boolean {
-  if (state.terminal || !event.id || !['tool_use', 'tool_result'].includes(event.kind)) return false
-  const id = createHash('sha256')
+
+const MAX_CALLS = 2000
+const TOOL_NAME = /^[A-Za-z0-9_:-]{1,120}$/
+
+/** Stable id for a tool call: subagent calls carry their parent, so ids never collide. */
+function callId(event: any): string {
+  return createHash('sha256')
     .update(JSON.stringify([event.parentId ?? '', event.id]))
     .digest('hex')
-  if (event.kind === 'tool_use') {
-    if (state.calls[id] || Object.keys(state.calls).length >= 2000) return false
-    const name = typeof event.name === 'string' ? event.name : ''
-    const tool = /^[A-Za-z0-9_:-]{1,120}$/.test(name) && redact(name) === name ? name : undefined
-    const command = name === 'Bash' ? commandDisplay(event.input?.command)?.command : undefined
-    state.calls[id] = { group: group(name), tool, command, status: 'running' }
-  } else {
-    const call = state.calls[id]
-    if (!call || call.status !== 'running') return false
-    // A background launch is not completion of the underlying operation.
-    if (event.background) return false
-    call.status = event.error ? 'error' : 'complete'
-  }
+}
+
+function openCall(state: ActivityState, id: string, event: any): boolean {
+  if (state.calls[id] || Object.keys(state.calls).length >= MAX_CALLS) return false
+  const name = typeof event.name === 'string' ? event.name : ''
+  const tool = TOOL_NAME.test(name) && redact(name) === name ? name : undefined
+  const command = name === 'Bash' ? commandDisplay(event.input?.command)?.command : undefined
+  state.calls[id] = { group: group(name), tool, command, status: 'running' }
   return true
 }
+
+function closeCall(state: ActivityState, id: string, event: any): boolean {
+  const call = state.calls[id]
+  if (!call || call.status !== 'running') return false
+  // A background launch is not completion of the underlying operation.
+  if (event.background) return false
+  call.status = event.error ? 'error' : 'complete'
+  return true
+}
+
+/** Folds a runner event into the state; true when the view changed. */
+export function activityEvent(state: ActivityState, event: any): boolean {
+  if (state.terminal || !event.id) return false
+  if (event.kind === 'tool_use') return openCall(state, callId(event), event)
+  if (event.kind === 'tool_result') return closeCall(state, callId(event), event)
+  return false
+}
+
 export function activityView(state: ActivityState) {
   const groups = new Map<string, { running: number; complete: number; error: number }>()
+
   for (const call of Object.values(state.calls)) {
     const counts = groups.get(call.group) ?? { running: 0, complete: 0, error: 0 }
     counts[call.status]++
     groups.set(call.group, counts)
   }
-  const title =
-    state.terminal === 'completed'
-      ? 'Turno finalizado'
-      : state.terminal === 'waiting_human'
-        ? 'Esperando tu respuesta'
-        : state.terminal === 'moved'
-          ? 'Continuamos en la sala'
-          : state.terminal
-            ? 'Turno detenido'
-            : 'Progreso'
+
+  const title = state.terminal ? (terminalTitles[state.terminal] ?? 'Turno detenido') : 'Progreso'
   const tasks = [...groups].map(([id, n]) => {
     const calls = Object.values(state.calls).filter((call) => call.group === id)
     const display = (call: (typeof calls)[number]) =>
@@ -71,12 +89,15 @@ export function activityView(state: ActivityState) {
     const active = calls.findLast((call) => call.status === 'running' && call.tool) ?? calls.at(-1)
     const current = active ? display(active) : undefined
     const heading = commandDisplay(active?.command)?.title ?? titles[id]
+    let status: 'in_progress' | 'error' | 'complete' = 'complete'
+    if (n.running && !state.terminal) status = 'in_progress'
+    else if (n.error || n.running) status = 'error'
+
     return {
       id,
       title: `${heading}${current ? `: ${current}` : ''}`,
       details: tools.join('\n'),
-      status:
-        n.running && !state.terminal ? 'in_progress' : n.error || n.running ? 'error' : 'complete',
+      status,
       output: [
         `${n.complete} ${n.complete === 1 ? 'ejecucion terminada' : 'ejecuciones terminadas'}`,
         ...(n.error ? [`${n.error} con error`] : []),
@@ -84,5 +105,6 @@ export function activityView(state: ActivityState) {
       ].join('\n'),
     }
   })
+
   return { title, tasks, text: [title, ...tasks.map((t) => `${t.title}: ${t.output}`)].join('\n') }
 }

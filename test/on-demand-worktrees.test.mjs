@@ -20,13 +20,16 @@ const git = (cwd, ...args) =>
   execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 const output = { async notice() {}, async status() {}, async delta() {}, async finish() {} }
 const done = (text) => ({ state: 'completed', text, cost: 0, usage: {}, error: '' })
+
 const until = async (predicate) => {
   const limit = Date.now() + 5000
+
   while (!predicate()) {
     if (Date.now() > limit) throw new Error('Timed out')
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
 }
+
 function init(repo) {
   fs.mkdirSync(repo, { recursive: true })
   git(repo, 'init', '-b', 'main')
@@ -38,13 +41,15 @@ function init(repo) {
   git(repo, 'add', '.')
   git(repo, 'commit', '-m', 'Initial')
 }
+
 function fixture(t, adapter = 'slack') {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-demand-'))),
-    repo = path.join(root, 'repo')
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-demand-')))
+  const repo = path.join(root, 'repo')
+
   init(repo)
   fs.writeFileSync(path.join(repo, '.env'), 'DEMAND_ROOT_VALUE=source-context\n')
-  const store = new Store(path.join(root, 'state.sqlite')),
-    starts = []
+  const store = new Store(path.join(root, 'state.sqlite'))
+  const starts = []
   const config = ConfigSchema.parse({
     auth: { mode: 'indie' },
     repos: { path: root, default_repo: 'repo' },
@@ -59,9 +64,12 @@ function fixture(t, adapter = 'slack') {
     runner: (opts) => {
       if (opts.worktreeName) {
         const dir = path.join(opts.cwd, '.claude/worktrees', opts.worktreeName)
-        if (!fs.existsSync(path.join(dir, '.git')))
+
+        if (!fs.existsSync(path.join(dir, '.git'))) {
           git(opts.cwd, 'worktree', 'add', '-b', opts.worktreeName, dir, 'HEAD')
+        }
       }
+
       let finish
       const controller = {
         opts,
@@ -71,11 +79,13 @@ function fixture(t, adapter = 'slack') {
         finish: (text = 'result') => finish(done(text)),
         cancel: () => finish(done('cancelled')),
       }
+
       starts.push(controller)
       opts.onEvent({ kind: 'init', sessionId: opts.sessionId ?? randomUUID() })
       return controller
     },
   })
+
   t.after(async () => {
     await core.close()
     store.close()
@@ -90,19 +100,22 @@ function fixture(t, adapter = 'slack') {
     channel: 'C1',
     text,
   })
+
   const submit = async (text, key) => {
     await core.submit(input(text, key))
     await until(() => starts.length && core.active.size)
     return starts.at(-1)
   }
+
   const finish = async (text) => {
     starts.at(-1).finish(text)
     await until(() => !core.active.size)
   }
+
   return { root, repo, config, core, store, starts, input, submit, finish }
 }
 
-for (const adapter of ['slack', 'mcp'])
+for (const adapter of ['slack', 'mcp']) {
   test(`${adapter}: query, edit and later query share the conversation without unnecessary worktrees`, async (t) => {
     const f = fixture(t, adapter)
     const first = await f.submit('Explica cómo funciona este código')
@@ -120,6 +133,7 @@ for (const adapter of ['slack', 'mcp'])
       operation: 'worktrees',
       args: ['--porcelain'],
     })
+
     assert.equal((inventory.output.match(/^worktree /gm) ?? []).length, 1)
     const session = f.store.conversation('conversation').session_id
     await f.finish('Investigated evidence: answer.txt contains original.')
@@ -168,6 +182,7 @@ for (const adapter of ['slack', 'mcp'])
       operation: 'diff',
       args: ['--', 'answer.txt'],
     })
+
     assert.match(diff.output, /edited/)
     assert.ok(
       f.core.permission(token, {
@@ -178,6 +193,7 @@ for (const adapter of ['slack', 'mcp'])
     assert.equal(fs.readFileSync(path.join(f.repo, 'answer.txt'), 'utf8'), 'original\n')
     await f.finish()
   })
+}
 
 test('editing first creates isolation immediately, while another query conversation stays on source', async (t) => {
   const f = fixture(t)
@@ -202,6 +218,7 @@ test('query permission hooks reject writers, interpreters, delegation, preview a
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise((resolve) => server.close(resolve)))
   const url = `http://127.0.0.1:${server.address().port}/tool-policy`
+
   for (const tool_name of [
     'Write',
     'Edit',
@@ -229,15 +246,19 @@ test('query permission hooks reject writers, interpreters, delegation, preview a
         cwd: f.repo,
       }),
     })
+
     assert.equal(response.status, 200)
     assert.ok((await response.json()).reason, tool_name)
   }
+
   for (const input of [
     { tool_name: 'Read', tool_input: { file_path: 'answer.txt' } },
     { tool_name: 'mcp__data__query_db', tool_input: { sql: 'SELECT id FROM users LIMIT 1' } },
     { tool_name: 'mcp__notion__search', tool_input: { query: 'Create project guide' } },
-  ])
+  ]) {
     assert.equal(f.core.permission(active.token, input), null)
+  }
+
   assert.ok(
     f.core.permission(active.token, {
       tool_name: 'Read',
@@ -278,9 +299,10 @@ test('query permission hooks reject writers, interpreters, delegation, preview a
 })
 
 test('Git reader rejects writes and shell expansion and disables repository executable filters', async (t) => {
-  const f = fixture(t),
-    marker = path.join(f.root, 'marker'),
-    outside = path.join(f.root, 'outside')
+  const f = fixture(t)
+  const marker = path.join(f.root, 'marker')
+  const outside = path.join(f.root, 'outside')
+
   fs.mkdirSync(outside)
   fs.symlinkSync(outside, path.join(f.repo, 'escape'))
   fs.writeFileSync(path.join(f.repo, '.gitattributes'), 'answer.txt filter=probe\n')
@@ -296,8 +318,16 @@ test('Git reader rejects writes and shell expansion and disables repository exec
   await queryGit(f.repo, 'status', ['--porcelain'])
   assert.equal(fs.existsSync(marker), false)
   assert.equal(fs.readFileSync(path.join(f.repo, '.git/config'), 'utf8'), before)
-  for (const args of [['--output=' + marker], ['--out=' + marker], ['--ext-diff'], ['--textconv']])
+
+  for (const args of [
+    ['--output=' + marker],
+    ['--out=' + marker],
+    ['--ext-diff'],
+    ['--textconv'],
+  ]) {
     await assert.rejects(() => queryGit(f.repo, 'diff', args), /option/)
+  }
+
   await assert.rejects(() => queryGit(f.repo, 'checkout', ['main']), /not a reader/)
   await assert.rejects(() => queryGit(f.repo, 'status', [], 'escape'), /selected project/)
   await assert.rejects(() => queryGit(f.repo, 'show', ['HEAD; touch ' + marker]))
@@ -305,8 +335,9 @@ test('Git reader rejects writes and shell expansion and disables repository exec
 })
 
 test('independent queries use a new conversation and load only their own environment', async (t) => {
-  const f = fixture(t),
-    other = path.join(f.root, 'other')
+  const f = fixture(t)
+  const other = path.join(f.root, 'other')
+
   init(other)
   fs.writeFileSync(path.join(other, '.env'), 'OTHER_ROOT_VALUE=independent\n')
   await f.submit('Investiga el proyecto')
@@ -336,8 +367,9 @@ test('independent queries use a new conversation and load only their own environ
 })
 
 test('submodule investigation uses source; preparing an edit creates only then the nested checkouts', async (t) => {
-  const f = fixture(t),
-    child = path.join(f.root, 'child')
+  const f = fixture(t)
+  const child = path.join(f.root, 'child')
+
   init(child)
   git(f.repo, '-c', 'protocol.file.allow=always', 'submodule', 'add', child, 'backend/api')
   git(f.repo, 'commit', '-am', 'Submodule')
@@ -349,6 +381,7 @@ test('submodule investigation uses source; preparing an edit creates only then t
     args: ['HEAD:answer.txt'],
     directory: 'backend/api',
   })
+
   assert.match(read.output, /original/)
   assert.ok(!fs.existsSync(path.join(f.repo, '.claude/worktrees')))
   await f.finish('Investigated the pinned backend.')
@@ -383,8 +416,10 @@ test('legacy sessions reuse their existing worktree, and removed worktrees do no
 })
 
 test('explicit implementation after research promotes, acknowledgements and continued research remain query', () => {
-  for (const text of ['implementalo', 'dale implementalo', 'ok procede', 'aplícalo', 'hazlo'])
+  for (const text of ['implementalo', 'dale implementalo', 'ok procede', 'aplícalo', 'hazlo']) {
     assert.notEqual(routeIntent(text, 'ask').intent, 'ask', text)
+  }
+
   for (const text of [
     'continua',
     'dale',
@@ -401,18 +436,21 @@ test('explicit implementation after research promotes, acknowledgements and cont
     'Please review how create and delete are handled',
     'Explica cómo el código crea y borra usuarios',
     'Investiga cómo crea y cambia registros',
-  ])
+  ]) {
     assert.equal(routeIntent(text, 'ask').intent, 'ask', text)
+  }
+
   assert.equal(routeIntent('Cambia answer.txt y no hagas otros cambios').intent, 'patch')
   assert.equal(routeIntent('Investiga y corrige el error').intent, 'patch')
   assert.equal(routeIntent('Haz los cambios investigados').intent, 'patch')
+
   for (const [name, tool_input] of [
     ['execute_sql', { query: 'SELECT id FROM candidates LIMIT 1' }],
     ['mixpanel_query', { project: 'match', type: 'segmentation' }],
     ['ga4_report', { dimensions: ['date'], metrics: ['activeUsers'] }],
     ['audit_dictionary', {}],
-  ])
-    for (const REGENT_READ_ONLY of ['0', '1'])
+  ]) {
+    for (const REGENT_READ_ONLY of ['0', '1']) {
       assert.equal(
         denial(
           { tool_name: `mcp__fixture__${name}`, tool_input },
@@ -424,12 +462,17 @@ test('explicit implementation after research promotes, acknowledgements and cont
         null,
         name,
       )
+    }
+  }
+
   for (const query of [
     'DELETE FROM candidates',
     'SELECT id FROM candidates; DELETE FROM candidates',
     'node -e writeFile()',
-  ])
+  ]) {
     assert.ok(queryDenial({ tool_name: 'mcp__fixture__execute_sql', tool_input: { query } }))
+  }
+
   assert.ok(queryDenial({ tool_name: 'mcp__fixture__execute_sql', tool_input: {} }))
   assert.ok(queryDenial({ tool_name: 'mcp__fixture__delete_and_query', tool_input: {} }))
   assert.equal(
