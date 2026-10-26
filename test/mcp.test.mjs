@@ -947,7 +947,7 @@ try {
         assert.deepEqual(client.getServerVersion(), {
           name: 'regent',
           title: 'Example Code',
-          version: '0.3.0',
+          version: '0.3.1',
         })
         assert.equal((await client.listTools()).tools.length, 6)
         assert.equal(

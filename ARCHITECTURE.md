@@ -141,6 +141,18 @@ that the listening socket belongs to the authorized process group in the worktre
 `/proc`; macOS uses `lsof`/`ps`. Lookup failures deny routing. Expiry terminates only the owned
 process group. Closing the gateway preserves preview records/processes for restart recovery.
 The external reverse proxy publishes only MCP/OAuth routes; internal tool and health routes stay local.
+The core supplies `preview_policy` to the executor: `visual_changes` for editing with a
+configured gateway, `status_only` for queries with that gateway, otherwise `unavailable`.
+The executor includes a preview by default for user-visible or interactive changes unless
+the user opts out; project context determines relevance across frameworks. Internal-only
+changes do not require previews. Blocked visual review remains explicit. This policy guides
+execution and does not relax query permissions or authorize production deployment.
+Explicit requests to run a preview use the operational `task` profile; questions about previews
+and explicit query limits remain read-only. MCP status includes an additive `preview` field for
+the current conversation, independently of the agent's final prose. It exposes only readiness,
+expiry and a URL while the published process/listener is still owned and live. It is not a
+snapshot of the requested run's revision or proof that a specific application route works;
+the executor verifies the public route and preserves application authentication before delivery.
 
 ## Configuration and runtime resources
 

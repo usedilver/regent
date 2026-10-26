@@ -19,14 +19,13 @@ const runtime = createRuntime(config, {
 })
 
 await runtime.start()
-const report = setInterval(
-  () =>
-    fs.writeFileSync(
-      'status.json',
-      JSON.stringify({ pid: process.pid, users: runtime.core.access.snapshot.slack.allowed_users }),
-    ),
-  50,
-)
+const report = setInterval(() => {
+  fs.writeFileSync(
+    'status.json.tmp',
+    JSON.stringify({ pid: process.pid, users: runtime.core.access.snapshot.slack.allowed_users }),
+  )
+  fs.renameSync('status.json.tmp', 'status.json')
+}, 50)
 
 process.on('SIGTERM', async () => {
   clearInterval(report)

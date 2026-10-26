@@ -224,12 +224,19 @@ export class Turn {
       default_repo: this.core.defaultCwd,
       context_repo: this.conversation.cwd,
       execution_mode: execution.readOnly ? 'query' : 'edit',
+      preview_policy: this.previewPolicy(execution),
       cwd: execution.directory,
       wrap_up_at: new Date(this.active.wrapUpAt!).toISOString(),
       timeout_ms: this.timeoutMs,
     }
 
     return `Estado del core: ${JSON.stringify(state)}\n\nMensaje de ${this.run.author}:\n${this.run.prompt}`
+  }
+
+  private previewPolicy(execution: Execution): string {
+    if (!this.core.previews) return 'unavailable'
+    if (execution.readOnly) return 'status_only'
+    return 'visual_changes'
   }
 
   private fullPrompt(handoff: string, request: string): string {

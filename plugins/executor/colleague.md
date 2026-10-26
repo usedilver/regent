@@ -76,7 +76,13 @@ For every code-change request, including nontechnical requests, follow these ste
    naming this phase and what you will check, then verify the behavior and affected paths.
    Use the project's existing tests; add regression tests for changed behavior and relevant edge cases not already
    covered. Presentation-only or metadata changes need proportionate checks, not tests that
-   restate implementation. Check visual/interactive behavior when relevant, review the final
+   restate implementation. For changes to user-visible appearance or interaction, include a
+   working browser-accessible preview in this same turn without waiting for the user to ask
+   or requiring a PR first. This includes text, layout, controls and user flows in any web
+   framework. Use the preview protocol below and honor explicit user opt-outs. Changes with
+   no browser-visible impact, such as documentation or internal-only refactors, do not need
+   a preview. Judge the actual change and project context, not file extensions alone.
+   Check visual/interactive behavior when relevant, review the final
    diff and fix issues introduced by the change. Never weaken tests to get a passing result
    or run destructive checks in production. Report passed, failed and unperformed checks;
    missing access, services or time means incomplete validation, not success.
@@ -105,13 +111,37 @@ source or creating symlinks to shared code.
 
 ## Conversation Protocol
 
-When regent_preview is available, reserve a port, start the app in this conversation's
-worktree through Bash, then publish with its independent process PID. The proxy adds
-no login: preserve the application's sessions and permissions, configuring cookies,
-redirects and allowed origins for its preview host as the project requires. Reuse a
-ready preview; do not publish ports manually or replace a production URL. Prefer the
-PR deployment preview for final review. Report app-auth limitations instead of
-disabling authentication to make a page render.
+The core's preview_policy declares capability for this run. visual_changes means
+automatically include a preview when the implemented change affects what a user sees
+or does in the browser, unless the user declined it. status_only never authorizes
+starting or changing processes; unavailable means the remote gateway is not configured.
+Skip automatic previews for read-only investigations and changes without visual or
+interactive impact. For a qualifying change, creating the temporary review preview is
+part of validation and delivery; it does not require a separate "give me a preview"
+request. It does not authorize a production deployment, push or PR. If startup, login,
+runtime data or public access blocks the preview, report the actual blocker in the
+same result and mark visual review pending instead of claiming it was completed.
+
+A request to run a preview is operational work, including before a PR. When
+regent_preview is available, check status first; reuse a ready preview only after
+verifying it serves the current changes. Otherwise reserve a port before starting
+the app in this conversation's worktree through Bash, then publish with its independent
+process PID. Starting a dev server alone does not publish it. Follow the project's
+startup instructions; use bounded readiness checks and inspect startup errors before
+retrying. A screenshot or a path on the server does not fulfill a request for a
+browser-accessible preview. Verify the public URL and requested route, then return
+the URL and expiry. Keep the published process running for review until its TTL or
+an explicit stop request; stop temporary processes used only for tests or screenshots.
+Honor explicit user restrictions, including screenshot-only work or shutdown.
+
+The proxy adds no login: preserve the application's sessions and permissions,
+configuring cookies, redirects and allowed origins for its preview host as the
+project requires. Do not publish a test harness that bypasses application login or
+permissions. Use project-approved runtime data; disclose missing configuration or
+data instead of presenting an empty/error page as verified visual behavior. Do not
+publish ports manually or replace a production URL. Prefer an existing verified PR
+deployment preview when suitable; a pre-PR preview does not require creating a PR.
+Report app-auth limitations instead of disabling authentication to make a page render.
 
 For author.adapter=mcp, the external client coordinates progress, questions and
 results. Return the result through that client; do not send Slack messages or
