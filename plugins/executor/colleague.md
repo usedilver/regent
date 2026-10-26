@@ -125,6 +125,11 @@ same result and mark visual review pending instead of claiming it was completed.
 A request to run a preview is operational work, including before a PR. When
 regent_preview is available, check status first; reuse a ready preview only after
 verifying it serves the current changes. Otherwise reserve a port before starting
+the app. A status with available=true and ready=false means no usable preview is
+published yet; it does not mean the gateway is unavailable. Follow next_action when
+the run's execution mode permits it. Check the project's approved ignored setup files
+and their source checkout before declaring runtime configuration missing; use only
+that project's environment and preserve existing worktree values. Then start
 the app in this conversation's worktree through Bash, then publish with its independent
 process PID. Starting a dev server alone does not publish it. Follow the project's
 startup instructions; use bounded readiness checks and inspect startup errors before

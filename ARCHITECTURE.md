@@ -113,6 +113,8 @@ External services/database credentials must enforce their own data permissions.
 The selected project's environment and connections load in both modes, preserving shared
 root context for registered Git submodules. Query reads never prepare nested worktrees;
 editing preparation initializes the isolated checkouts at pinned commits.
+On resume, preparation also copies newly provisioned ignored setup files listed in each
+submodule's `.worktreeinclude`, while preserving files already present in the worktree.
 Independent repositories get their own context and connections. MCP availability inside the
 executor is independent of the host chat's connections. Tools and public session contracts
 remain compatible when source files move.
@@ -153,6 +155,8 @@ the current conversation, independently of the agent's final prose. It exposes o
 expiry and a URL while the published process/listener is still owned and live. It is not a
 snapshot of the requested run's revision or proof that a specific application route works;
 the executor verifies the public route and preserves application authentication before delivery.
+`preview_available` reports gateway configuration separately from preview readiness; internal
+status reports `not_reserved` and the next allowed action when no preview exists yet.
 
 ## Configuration and runtime resources
 

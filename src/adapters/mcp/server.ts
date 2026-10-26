@@ -152,6 +152,7 @@ export class ExternalMcp {
       progress: notice?.text ?? null,
       activities: mcpActivities(this.core.store, latest),
       question: this.core.store.pendingQuestion(conversation.key) ?? null,
+      preview_available: Boolean(this.core.previews),
       preview: preview
         ? {
             ready: preview.ready,
@@ -322,7 +323,7 @@ export class ExternalMcp {
   server(author: string): McpServer {
     const title = this.core.config.name
     const server = new McpServer(
-      { name: 'regent', title, version: '0.3.1' },
+      { name: 'regent', title, version: '0.3.2' },
       { instructions: this.instructions() },
     )
 

@@ -146,11 +146,10 @@ async function materialize(
         `No se pudo preparar el submodulo ${JSON.stringify(label)}. Verifica el commit fijado y sus worktrees; no se modifico el checkout compartido.`,
       )
     }
-
-    await copySetupFiles(original, isolated, signal)
   }
 
   await assertWorktree(original, isolated, signal)
+  await copySetupFiles(original, isolated, signal)
 }
 
 /**

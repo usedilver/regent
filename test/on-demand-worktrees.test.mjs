@@ -333,7 +333,10 @@ test('query permission hooks reject writers, interpreters, delegation, preview a
     },
   }
   assert.deepEqual(await f.core.tool(active.token, 'regent_preview', { action: 'status' }), {
+    available: true,
     ready: false,
+    state: 'not_reserved',
+    next_action: 'none',
   })
   assert.equal(
     f.core.permission(active.token, {
@@ -445,6 +448,48 @@ test('submodule investigation uses source; preparing an edit creates only then t
   assert.ok(fs.existsSync(path.join(dir, 'backend/api/.git')))
   assert.equal(fs.readFileSync(path.join(dir, 'backend/api/answer.txt'), 'utf8'), 'original\n')
   assert.equal(f.starts.at(-1).opts.env.DEMAND_ROOT_VALUE, 'source-context')
+  await f.finish()
+})
+
+test('resumed submodules receive newly provisioned ignored setup files without overwriting their environment', async (t) => {
+  const f = fixture(t)
+  const child = path.join(f.root, 'child')
+  init(child)
+  fs.writeFileSync(path.join(child, '.worktreeinclude'), '.env\n')
+  git(child, 'add', '.worktreeinclude')
+  git(child, 'commit', '-m', 'Include runtime setup')
+  git(f.repo, '-c', 'protocol.file.allow=always', 'submodule', 'add', child, 'web')
+  git(f.repo, 'commit', '-am', 'Submodule')
+  const isolated = isolationFor(f.repo, 'conversation').dir
+  const prepare = async () => {
+    await f.submit('Cambia el texto del boton')
+    const active = [...f.core.active.values()][0]
+    assert.equal(await f.core.prepareWorkspace(active.token, 'Edit'), null)
+    return active
+  }
+  await prepare()
+  assert.equal(fs.existsSync(path.join(isolated, 'web/.env')), false)
+  await f.finish()
+  fs.writeFileSync(path.join(f.repo, 'web/.env'), 'RUNTIME=provisioned\n', { mode: 0o600 })
+  const active = await prepare()
+  assert.equal(fs.readFileSync(path.join(isolated, 'web/.env'), 'utf8'), 'RUNTIME=provisioned\n')
+  assert.equal(fs.statSync(path.join(isolated, 'web/.env')).mode & 0o777, 0o600)
+  f.core.previews = { get: () => undefined }
+  assert.deepEqual(await f.core.tool(active.token, 'regent_preview', { action: 'status' }), {
+    available: true,
+    ready: false,
+    state: 'not_reserved',
+    next_action: 'reserve',
+  })
+  f.core.previews = undefined
+  fs.writeFileSync(path.join(isolated, 'web/.env'), 'RUNTIME=conversation-specific\n')
+  await f.finish()
+  fs.writeFileSync(path.join(f.repo, 'web/.env'), 'RUNTIME=source-updated\n')
+  await prepare()
+  assert.equal(
+    fs.readFileSync(path.join(isolated, 'web/.env'), 'utf8'),
+    'RUNTIME=conversation-specific\n',
+  )
   await f.finish()
 })
 

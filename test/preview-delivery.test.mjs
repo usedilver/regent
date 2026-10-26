@@ -96,8 +96,10 @@ test('MCP returns the current published preview independently of agent prose and
     }
 
     assert.equal((await status()).preview, null)
+    assert.equal((await status()).preview_available, false)
     core.previews = previews = manager()
     assert.equal((await status()).preview, null)
+    assert.equal((await status()).preview_available, true)
     const reserved = await previews.reserve('mcp:alice:preview', root)
     assert.deepEqual((await status()).preview, {
       ready: false,

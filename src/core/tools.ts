@@ -67,7 +67,13 @@ async function preview(call: ToolCall) {
 
   if (args.action === 'status') {
     const current = previews.get(key)
-    return current ? previews.result(current) : { ready: false }
+    if (current) return { available: true, ...previews.result(current) }
+    return {
+      available: true,
+      ready: false,
+      state: 'not_reserved',
+      next_action: active.readOnly ? 'none' : 'reserve',
+    }
   }
 
   if (args.action === 'publish') {
