@@ -3,202 +3,70 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { randomUUID } from 'node:crypto'
 import type { Conversation, ConversationState, Inbound, Run, RunState } from '../core/types.ts'
+import type { Intent } from '../core/intent.ts'
+import { controlCommand, type ControlCommand } from '../core/commands.ts'
 import { commandDisplay } from '../core/command-display.ts'
-
+import { migrate } from './schema.ts'
 import { redact, redactDeep } from './redact.ts'
+
+export interface Accepted {
+  duplicate: boolean
+  runId: string | null
+  command: ControlCommand | null
+}
+
+export interface GateQuestion {
+  id: string
+  text: string
+  options: string[]
+}
+
+type FinalRunState = Exclude<RunState, 'queued' | 'running'>
+type AdapterFilter = string | string[] | undefined
+
+const today = () => new Date().toISOString().slice(0, 10)
+
+/** JSON list for the `IN (SELECT value FROM json_each(?))` clauses, or null to accept every adapter. */
+function adapterList(adapter: AdapterFilter): string | null {
+  if (adapter === undefined) return null
+  return JSON.stringify(Array.isArray(adapter) ? adapter : [adapter])
+}
 
 export class Store {
   db: DatabaseSync
   owner = randomUUID()
   ownsRuntime = false
+
   constructor(file: string) {
     if (file !== ':memory:') {
       fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
       fs.closeSync(fs.openSync(file, 'a', 0o600))
       fs.chmodSync(file, 0o600)
     }
+
     this.db = new DatabaseSync(file)
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;')
-    const version = this.db.prepare('PRAGMA user_version').get()!.user_version as number
-    if (version > 12) throw new Error(`Esquema SQLite ${version} mas nuevo que este servidor.`)
-    this.transaction(() => {
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS conversations (
-          key TEXT PRIMARY KEY, adapter TEXT NOT NULL, channel TEXT NOT NULL, thread TEXT,
-          team TEXT, author TEXT NOT NULL, cwd TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'idle',
-          session_id TEXT, updated_at INTEGER NOT NULL, task_id TEXT
-        );
-        CREATE TABLE IF NOT EXISTS inbound (
-          adapter TEXT NOT NULL, event_id TEXT NOT NULL, run_id TEXT, PRIMARY KEY(adapter,event_id)
-        );
-        CREATE TABLE IF NOT EXISTS runs (
-          id TEXT PRIMARY KEY, conversation_key TEXT NOT NULL REFERENCES conversations(key),
-          author TEXT NOT NULL, prompt TEXT NOT NULL, transcript TEXT, reply_thread TEXT, state TEXT NOT NULL,
-          created_at INTEGER NOT NULL, started_at INTEGER, ended_at INTEGER,
-          result TEXT, error TEXT, cost REAL NOT NULL DEFAULT 0
-        );
-        CREATE INDEX IF NOT EXISTS runs_queue ON runs(state,created_at);
-        CREATE TABLE IF NOT EXISTS events (
-          id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL REFERENCES runs(id),
-          kind TEXT NOT NULL, data TEXT NOT NULL, created_at INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS usage (
-          run_id TEXT PRIMARY KEY REFERENCES runs(id), author TEXT NOT NULL, day TEXT NOT NULL,
-          cost REAL NOT NULL, tokens TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS gates (
-          conversation_key TEXT PRIMARY KEY REFERENCES conversations(key), question TEXT NOT NULL,
-          state TEXT NOT NULL, answer TEXT
-        );
-        CREATE TABLE IF NOT EXISTS legacy (source TEXT PRIMARY KEY, data TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS runtime (id INTEGER PRIMARY KEY CHECK(id=1), pid INTEGER NOT NULL, owner TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS deliveries (
-          id INTEGER PRIMARY KEY AUTOINCREMENT, conversation_key TEXT NOT NULL,
-          kind TEXT NOT NULL, args TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending',
-          attempts INTEGER NOT NULL DEFAULT 0, error TEXT
-        );
-      `)
-      if (version < 2) {
-        this.db.exec(`
-          ALTER TABLE runs ADD COLUMN reply_channel TEXT;
-          ALTER TABLE runs ADD COLUMN intent TEXT NOT NULL DEFAULT 'ask';
-          CREATE TABLE tasks (
-            id TEXT PRIMARY KEY, conversation_key TEXT NOT NULL REFERENCES conversations(key), title TEXT NOT NULL,
-            size TEXT NOT NULL, impact TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'planning',
-            notion_id TEXT, url TEXT, room TEXT, room_thread TEXT, created_at INTEGER NOT NULL
-          );
-          CREATE TABLE task_gates (
-            id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), kind TEXT NOT NULL,
-            revision TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending', actor TEXT, decided_at INTEGER,
-            conversation TEXT NOT NULL, questions TEXT NOT NULL DEFAULT '[]', dispatched INTEGER NOT NULL DEFAULT 0
-          );
-          CREATE TABLE worktrees (
-            id TEXT PRIMARY KEY, conversation_key TEXT NOT NULL REFERENCES conversations(key), repo TEXT NOT NULL,
-            dir TEXT NOT NULL UNIQUE, branch TEXT NOT NULL, base TEXT NOT NULL, base_sha TEXT NOT NULL,
-            origin TEXT NOT NULL, test_command TEXT, test_tree TEXT, test_passed INTEGER NOT NULL DEFAULT 0,
-            state TEXT NOT NULL DEFAULT 'active', UNIQUE(conversation_key,repo)
-          );
-          CREATE TABLE prs (
-            worktree_id TEXT PRIMARY KEY REFERENCES worktrees(id), url TEXT NOT NULL, head TEXT NOT NULL,
-            state TEXT NOT NULL DEFAULT 'OPEN'
-          );
-          CREATE TABLE effects (
-            key TEXT PRIMARY KEY, state TEXT NOT NULL, result TEXT, error TEXT
-          );
-          CREATE TABLE sections (
-            task_id TEXT NOT NULL REFERENCES tasks(id), section TEXT NOT NULL, md TEXT NOT NULL,
-            revision TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending', PRIMARY KEY(task_id,section)
-          );
-          PRAGMA user_version=2;
-        `)
-      }
-      if (version < 3)
-        this.db.exec(`
-        ALTER TABLE gates ADD COLUMN question_id TEXT;
-        ALTER TABLE gates ADD COLUMN options TEXT NOT NULL DEFAULT '[]';
-        ALTER TABLE gates ADD COLUMN destination TEXT;
-        CREATE UNIQUE INDEX gates_question_id ON gates(question_id);
-        PRAGMA user_version=3;
-      `)
-      if (version < 4)
-        this.db.exec(`
-        CREATE TABLE IF NOT EXISTS approvals (
-          id TEXT PRIMARY KEY, conversation_key TEXT NOT NULL, command TEXT NOT NULL, cwd TEXT NOT NULL,
-          state TEXT NOT NULL DEFAULT 'pending', requested_by TEXT NOT NULL, actor TEXT,
-          conversation TEXT NOT NULL, created_at INTEGER NOT NULL, decided_at INTEGER
-        );
-        PRAGMA user_version=4;
-      `)
-      if (version < 5)
-        this.db.exec(`
-        CREATE TABLE IF NOT EXISTS conversation_history (conversation_key TEXT PRIMARY KEY, source TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS run_history (run_id TEXT PRIMARY KEY REFERENCES runs(id), source TEXT NOT NULL, snapshot TEXT);
-        CREATE TABLE IF NOT EXISTS history_seen (conversation_key TEXT NOT NULL, session_id TEXT NOT NULL, message_id TEXT NOT NULL, hash TEXT NOT NULL,
-          PRIMARY KEY(conversation_key,session_id,message_id));
-        PRAGMA user_version=5;
-      `)
-      if (version < 6)
-        this.db.exec(`
-        CREATE TABLE IF NOT EXISTS room_transfers (
-          conversation_key TEXT PRIMARY KEY REFERENCES conversations(key), name TEXT NOT NULL UNIQUE,
-          channel TEXT UNIQUE, origin TEXT NOT NULL, summary TEXT NOT NULL, users TEXT NOT NULL,
-          state TEXT NOT NULL DEFAULT 'pending'
-        );
-        PRAGMA user_version=6;
-      `)
-      if (version < 7)
-        this.db.exec(`
-        CREATE TABLE IF NOT EXISTS slack_progress (run_id TEXT PRIMARY KEY, channel TEXT NOT NULL, ts TEXT NOT NULL);
-        PRAGMA user_version=7;
-      `)
-      if (version < 8)
-        this.db.exec(`
-        CREATE TABLE IF NOT EXISTS activity_progress (run_id TEXT PRIMARY KEY, data TEXT NOT NULL);
-        PRAGMA user_version=8;
-      `)
-      if (version < 9)
-        this.db.exec(`
-        CREATE TABLE IF NOT EXISTS slack_finish (run_id TEXT NOT NULL, page INTEGER NOT NULL, channel TEXT NOT NULL, ts TEXT NOT NULL, PRIMARY KEY(run_id,page));
-        PRAGMA user_version=9;
-      `)
-      if (version < 10)
-        this.db.exec(`
-        CREATE TABLE IF NOT EXISTS oauth_clients (id TEXT PRIMARY KEY, metadata TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS oauth_sessions (
-          id TEXT PRIMARY KEY, author TEXT NOT NULL, identity TEXT NOT NULL,
-          client_id TEXT NOT NULL REFERENCES oauth_clients(id), resource TEXT NOT NULL,
-          expires_at INTEGER NOT NULL, revoked INTEGER NOT NULL DEFAULT 0
-        );
-        CREATE TABLE IF NOT EXISTS oauth_tokens (
-          hash TEXT PRIMARY KEY, kind TEXT NOT NULL, session_id TEXT NOT NULL REFERENCES oauth_sessions(id),
-          expires_at INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0
-        );
-        CREATE INDEX IF NOT EXISTS oauth_sessions_author ON oauth_sessions(author);
-        CREATE INDEX IF NOT EXISTS oauth_tokens_session ON oauth_tokens(session_id);
-        PRAGMA user_version=10;
-      `)
-      if (version < 11)
-        this.db.exec(`
-        CREATE TABLE IF NOT EXISTS previews (
-          id TEXT PRIMARY KEY, conversation_key TEXT NOT NULL UNIQUE,
-          port INTEGER NOT NULL UNIQUE, cwd TEXT NOT NULL, pid INTEGER,
-          process_start TEXT, expires_at INTEGER NOT NULL
-        );
-        PRAGMA user_version=11;
-      `)
-      if (version < 12) {
-        if (
-          !this.db
-            .prepare('PRAGMA table_info(conversations)')
-            .all()
-            .some((column) => column.name === 'session_cwd')
-        )
-          this.db.exec('ALTER TABLE conversations ADD COLUMN session_cwd TEXT;')
-        this.db.exec('PRAGMA user_version=12;')
-      }
-    })
+    this.transaction(() => migrate(this.db))
   }
+
   claimRuntime(): void {
     this.transaction(() => {
       const existing = this.db.prepare('SELECT pid FROM runtime WHERE id=1').get()
-      if (existing) {
-        let alive = true
-        try {
-          process.kill(existing.pid as number, 0)
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === 'ESRCH') alive = false
-        }
-        if (alive)
-          throw new Error(
-            `Esta base ya tiene un runtime activo (PID ${existing.pid}). Usa otra REGENT_DB o deten ese proceso.`,
-          )
+
+      if (existing && processAlive(existing.pid as number)) {
+        throw new Error(
+          `Esta base ya tiene un runtime activo (PID ${existing.pid}). Usa otra REGENT_DB o deten ese proceso.`,
+        )
       }
+
       this.db.prepare('INSERT OR REPLACE INTO runtime VALUES(1,?,?)').run(process.pid, this.owner)
       this.ownsRuntime = true
     })
   }
+
   transaction<T>(fn: () => T): T {
     this.db.exec('BEGIN IMMEDIATE')
+
     try {
       const result = fn()
       this.db.exec('COMMIT')
@@ -208,58 +76,157 @@ export class Store {
       throw error
     }
   }
+
+  // Lookups
+
   conversation(key: string): Conversation | undefined {
     return this.db.prepare('SELECT * FROM conversations WHERE key=?').get(key) as unknown as
       | Conversation
       | undefined
   }
+
   run(id: string): Run | undefined {
     return this.db.prepare('SELECT * FROM runs WHERE id=?').get(id) as unknown as Run | undefined
   }
-  accept(
-    input: Inbound,
-    cwd: string,
-    idleHours: number,
-    switchContext = false,
-  ): { duplicate: boolean; runId: string | null; command: string | null } {
+
+  latestRun(key: string): Run | undefined {
+    return this.db
+      .prepare(
+        'SELECT * FROM runs WHERE conversation_key=? ORDER BY created_at DESC,rowid DESC LIMIT 1',
+      )
+      .get(key) as unknown as Run | undefined
+  }
+
+  /** The conversation that owns a managed room: anchored at channel root, not in a thread. */
+  roomConversationKey(channel: string): string | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT key FROM conversations WHERE adapter='slack' AND channel=? AND thread IS NULL",
+      )
+      .get(channel)
+
+    return row?.key as string | undefined
+  }
+
+  lastIntent(key: string): Intent | undefined {
+    return this.latestRun(key)?.intent
+  }
+
+  /** The run an inbound event created the first time it arrived, when it was seen before. */
+  inboundRun(adapter: string, eventId: string): { runId: string | null } | undefined {
+    const row = this.db
+      .prepare('SELECT run_id FROM inbound WHERE adapter=? AND event_id=?')
+      .get(adapter, eventId)
+
+    return row ? { runId: row.run_id as string | null } : undefined
+  }
+
+  hasQueued(key: string): boolean {
+    return this.hasRunIn(key, ['queued'])
+  }
+
+  hasActiveWork(key: string): boolean {
+    return this.hasRunIn(key, ['queued', 'running'])
+  }
+
+  queueDepth(): number {
+    return this.db.prepare("SELECT COUNT(*) AS n FROM runs WHERE state='queued'").get()!.n as number
+  }
+
+  pendingDeliveries(): number {
+    return this.db.prepare("SELECT COUNT(*) AS n FROM deliveries WHERE state='pending'").get()!
+      .n as number
+  }
+
+  healthy(): boolean {
+    return this.db.prepare('SELECT 1 AS ok').get()!.ok === 1
+  }
+
+  runCounts(): Array<{ state: RunState; n: number }> {
+    return this.db
+      .prepare('SELECT state,COUNT(*) AS n FROM runs GROUP BY state')
+      .all() as unknown as Array<{ state: RunState; n: number }>
+  }
+
+  recentRuns(limit: number): unknown[] {
+    return this.db
+      .prepare(
+        'SELECT id,conversation_key,state,cost,error FROM runs ORDER BY created_at DESC LIMIT ?',
+      )
+      .all(limit)
+  }
+
+  /** Finished runs of a conversation other than `excluding`, oldest first. */
+  previousOutcomes(
+    key: string,
+    excluding: string,
+    limit: number,
+  ): Array<{ prompt: string; result: string | null; error: string | null }> {
+    return this.db
+      .prepare(
+        "SELECT prompt,result,error FROM runs WHERE conversation_key=? AND id<>? AND state NOT IN ('queued','running') ORDER BY created_at DESC,rowid DESC LIMIT ?",
+      )
+      .all(key, excluding, limit)
+      .reverse() as unknown as Array<{
+      prompt: string
+      result: string | null
+      error: string | null
+    }>
+  }
+
+  eventsAfter(runId: string, cursor: number): Array<{ id: number; kind: string; data: string }> {
+    return this.db
+      .prepare('SELECT id,kind,data FROM events WHERE run_id=? AND id>? ORDER BY id')
+      .all(runId, cursor) as unknown as Array<{ id: number; kind: string; data: string }>
+  }
+
+  /** Parsed data of the newest event of that kind, or undefined. */
+  lastEvent<T = unknown>(runId: string, kind: string): T | undefined {
+    const row = this.db
+      .prepare('SELECT data FROM events WHERE run_id=? AND kind=? ORDER BY id DESC LIMIT 1')
+      .get(runId, kind)
+
+    return row ? (JSON.parse(row.data as string) as T) : undefined
+  }
+
+  queued(adapter?: AdapterFilter): Run[] {
+    const adapters = adapterList(adapter)
+
+    return this.db
+      .prepare(
+        "SELECT r.* FROM runs r JOIN conversations c ON c.key=r.conversation_key WHERE r.state='queued' AND c.state='queued' AND (? IS NULL OR c.adapter IN (SELECT value FROM json_each(?))) ORDER BY r.created_at,r.rowid",
+      )
+      .all(adapters, adapters) as unknown as Run[]
+  }
+
+  pending(adapter?: AdapterFilter): Run[] {
+    const adapters = adapterList(adapter)
+
+    return this.db
+      .prepare(
+        "SELECT r.* FROM runs r JOIN conversations c ON c.key=r.conversation_key WHERE r.state='queued' AND (? IS NULL OR c.adapter IN (SELECT value FROM json_each(?))) ORDER BY r.created_at,r.rowid",
+      )
+      .all(adapters, adapters) as unknown as Run[]
+  }
+
+  spent(author: string): number {
+    return this.db
+      .prepare('SELECT COALESCE(SUM(cost),0) AS cost FROM usage WHERE author=? AND day=?')
+      .get(author, today())!.cost as number
+  }
+
+  // Intake
+
+  accept(input: Inbound, cwd: string, idleHours: number, switchContext = false): Accepted {
     return this.transaction(() => {
-      const previous = this.db
-        .prepare('SELECT run_id FROM inbound WHERE adapter=? AND event_id=?')
-        .get(input.adapter, input.eventId)
-      if (previous)
-        return { duplicate: true, runId: previous.run_id as string | null, command: null }
+      const previous = this.inboundRun(input.adapter, input.eventId)
+      if (previous) return { duplicate: true, runId: previous.runId, command: null }
+
       const now = Date.now()
-      this.db
-        .prepare(
-          'INSERT OR IGNORE INTO conversations(key,adapter,channel,thread,team,author,cwd,updated_at) VALUES(?,?,?,?,?,?,?,?)',
-        )
-        .run(
-          input.key,
-          input.adapter,
-          input.channel,
-          input.thread ?? null,
-          input.team ?? null,
-          input.author,
-          cwd,
-          now,
-        )
-      const conversation = this.conversation(input.key)!
-      // A room keeps its session even when its stable key originated in a DM.
-      const resettable =
-        input.adapter === 'cli' ||
-        (conversation.channel.startsWith('D') && /^slack:D[^:]*$/.test(input.key))
-      if (
-        conversation.state === 'idle' &&
-        !input.thread &&
-        resettable &&
-        now - conversation.updated_at > idleHours * 3600000
-      ) {
-        this.db
-          .prepare('UPDATE conversations SET session_id=NULL,session_cwd=NULL WHERE key=?')
-          .run(input.key)
-      }
-      const text = input.text.trim().toLowerCase()
-      const command = ['stop', 'para', 'reset', 'nuevo'].includes(text) ? text : null
+      const conversation = this.ensureConversation(input, cwd, now)
+      if (sessionExpired(conversation, input, now, idleHours)) this.forgetSession(input.key)
+
+      const command = controlCommand(input.text)
       const id = command ? null : randomUUID()
       this.db.prepare('INSERT INTO inbound VALUES(?,?,?)').run(input.adapter, input.eventId, id)
       this.db
@@ -267,83 +234,124 @@ export class Store {
           "UPDATE conversations SET author=?, updated_at=?, cwd=CASE WHEN cwd='' THEN ? ELSE cwd END, team=COALESCE(team,?) WHERE key=?",
         )
         .run(input.author, now, cwd, input.team ?? null, input.key)
+
       if (id) {
-        this.db
-          .prepare(
-            'INSERT INTO runs(id,conversation_key,author,prompt,transcript,reply_thread,reply_channel,intent,state,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)',
-          )
-          .run(
-            id,
-            input.key,
-            input.author,
-            redact(input.text),
-            input.transcript ? redact(input.transcript) : null,
-            input.replyThread ?? input.thread ?? null,
-            input.channel,
-            input.intent ?? 'ask',
-            'queued',
-            now,
-          )
-        const history =
-          input.history ??
-          (input.adapter === 'slack'
-            ? this.db
-                .prepare('SELECT source FROM conversation_history WHERE conversation_key=?')
-                .get(input.key)?.source
-            : undefined)
-        if (history) {
-          const source = typeof history === 'string' ? history : JSON.stringify(history)
-          this.db.prepare('INSERT INTO run_history(run_id,source) VALUES(?,?)').run(id, source)
-          if (input.history)
-            this.db
-              .prepare(
-                'INSERT INTO conversation_history VALUES(?,?) ON CONFLICT(conversation_key) DO UPDATE SET source=excluded.source',
-              )
-              .run(
-                input.key,
-                JSON.stringify({ channel: input.history.channel, thread: input.history.thread }),
-              )
-        }
-        this.db
-          .prepare(
-            "UPDATE gates SET state='answered',answer=? WHERE conversation_key=? AND state='pending'",
-          )
-          .run(redact(input.text), input.key)
+        this.createRun(id, input, now)
+        this.attachHistory(id, input)
+        this.answerGate(input.key, input.text)
         if (conversation.state !== 'running') this.state(input.key, 'queued')
       }
-      if (switchContext && id)
+
+      if (switchContext && id) {
         this.db
           .prepare('UPDATE conversations SET cwd=?,session_id=NULL,session_cwd=NULL WHERE key=?')
           .run(cwd, input.key)
+      }
+
       return { duplicate: false, runId: id, command }
     })
   }
+
+  private ensureConversation(input: Inbound, cwd: string, now: number): Conversation {
+    this.db
+      .prepare(
+        'INSERT OR IGNORE INTO conversations(key,adapter,channel,thread,team,author,cwd,updated_at) VALUES(?,?,?,?,?,?,?,?)',
+      )
+      .run(
+        input.key,
+        input.adapter,
+        input.channel,
+        input.thread ?? null,
+        input.team ?? null,
+        input.author,
+        cwd,
+        now,
+      )
+
+    return this.conversation(input.key)!
+  }
+
+  private createRun(id: string, input: Inbound, now: number): void {
+    this.db
+      .prepare(
+        'INSERT INTO runs(id,conversation_key,author,prompt,transcript,reply_thread,reply_channel,intent,state,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)',
+      )
+      .run(
+        id,
+        input.key,
+        input.author,
+        redact(input.text),
+        input.transcript ? redact(input.transcript) : null,
+        input.replyThread ?? input.thread ?? null,
+        input.channel,
+        input.intent ?? 'ask',
+        'queued',
+        now,
+      )
+  }
+
+  /** Slack runs remember where their thread history comes from, so later turns can reread it. */
+  private attachHistory(id: string, input: Inbound): void {
+    const history =
+      input.history ?? (input.adapter === 'slack' ? this.conversationHistory(input.key) : undefined)
+
+    if (!history) return
+
+    const source = typeof history === 'string' ? history : JSON.stringify(history)
+    this.db.prepare('INSERT INTO run_history(run_id,source) VALUES(?,?)').run(id, source)
+    if (!input.history) return
+
+    this.db
+      .prepare(
+        'INSERT INTO conversation_history VALUES(?,?) ON CONFLICT(conversation_key) DO UPDATE SET source=excluded.source',
+      )
+      .run(
+        input.key,
+        JSON.stringify({ channel: input.history.channel, thread: input.history.thread }),
+      )
+  }
+
+  private conversationHistory(key: string): string | undefined {
+    const row = this.db
+      .prepare('SELECT source FROM conversation_history WHERE conversation_key=?')
+      .get(key)
+
+    return row?.source as string | undefined
+  }
+
+  // Conversation state
+
   state(key: string, state: ConversationState): void {
     this.db.prepare('UPDATE conversations SET state=? WHERE key=?').run(state, key)
   }
+
   session(key: string, id: string, directory?: string): void {
     this.db
       .prepare('UPDATE conversations SET session_id=?,session_cwd=? WHERE key=?')
       .run(id, directory ?? null, key)
   }
-  queued(adapter?: string | string[]): Run[] {
-    const adapters =
-      adapter === undefined ? null : JSON.stringify(Array.isArray(adapter) ? adapter : [adapter])
-    return this.db
-      .prepare(
-        "SELECT r.* FROM runs r JOIN conversations c ON c.key=r.conversation_key WHERE r.state='queued' AND c.state='queued' AND (? IS NULL OR c.adapter IN (SELECT value FROM json_each(?))) ORDER BY r.created_at,r.rowid",
-      )
-      .all(adapters, adapters) as unknown as Run[]
+
+  /** Drops the CLI session pointer; the next turn starts a fresh session in the same project. */
+  forgetSession(key: string): void {
+    this.db
+      .prepare('UPDATE conversations SET session_id=NULL,session_cwd=NULL WHERE key=?')
+      .run(key)
   }
-  pending(adapter?: string | string[]): Run[] {
-    const adapters =
-      adapter === undefined ? null : JSON.stringify(Array.isArray(adapter) ? adapter : [adapter])
-    return this.db
-      .prepare(
-        "SELECT r.* FROM runs r JOIN conversations c ON c.key=r.conversation_key WHERE r.state='queued' AND (? IS NULL OR c.adapter IN (SELECT value FROM json_each(?))) ORDER BY r.created_at,r.rowid",
-      )
-      .all(adapters, adapters) as unknown as Run[]
+
+  /** The user's explicit reset: fresh session, idle state and no pending question. */
+  resetConversation(key: string): void {
+    this.transaction(() => {
+      this.db
+        .prepare(
+          "UPDATE conversations SET session_id=NULL,session_cwd=NULL,state='idle' WHERE key=?",
+        )
+        .run(key)
+      this.db.prepare('DELETE FROM gates WHERE conversation_key=?').run(key)
+    })
   }
+
+  // Run lifecycle
+
   interruptQueued(id: string, reason: string): void {
     this.transaction(() => {
       const run = this.run(id)
@@ -353,15 +361,15 @@ export class Store {
           "UPDATE runs SET state='interrupted',error=?,ended_at=? WHERE id=? AND state='queued'",
         )
         .run(reason, Date.now(), id)
-      const pending = this.db
-        .prepare("SELECT 1 FROM runs WHERE conversation_key=? AND state='queued'")
-        .get(run.conversation_key)
-      if (!pending)
+
+      if (!this.hasQueued(run.conversation_key)) {
         this.db
           .prepare("UPDATE conversations SET state='interrupted' WHERE key=? AND state='queued'")
           .run(run.conversation_key)
+      }
     })
   }
+
   start(id: string): void {
     this.transaction(() => {
       this.db
@@ -370,9 +378,10 @@ export class Store {
       this.state(this.run(id)!.conversation_key, 'running')
     })
   }
+
   finish(
     id: string,
-    state: Exclude<RunState, 'queued' | 'running'>,
+    state: FinalRunState,
     result = '',
     error = '',
     acknowledge?: () => void,
@@ -382,84 +391,108 @@ export class Store {
         .prepare('UPDATE runs SET state=?,result=?,error=?,ended_at=? WHERE id=?')
         .run(state, redact(result), redact(error), Date.now(), id)
       const key = this.run(id)!.conversation_key
-      const pending = this.db
-        .prepare("SELECT 1 FROM runs WHERE conversation_key=? AND state='queued'")
-        .get(key)
-      const running = this.db
-        .prepare("SELECT 1 FROM runs WHERE conversation_key=? AND state='running'")
-        .get(key)
-      this.state(
-        key,
-        running
-          ? 'running'
-          : state === 'interrupted'
-            ? 'interrupted'
-            : state === 'waiting_human'
-              ? 'waiting_human'
-              : pending
-                ? 'queued'
-                : 'idle',
-      )
+      this.state(key, this.nextConversationState(key, state))
       this.db.prepare('UPDATE conversations SET updated_at=? WHERE key=?').run(Date.now(), key)
       acknowledge?.()
     })
   }
+
+  private nextConversationState(key: string, finished: FinalRunState): ConversationState {
+    if (this.hasRunIn(key, ['running'])) return 'running'
+    if (finished === 'interrupted' || finished === 'waiting_human') return finished
+    return this.hasQueued(key) ? 'queued' : 'idle'
+  }
+
+  setTranscript(id: string, transcript: string): void {
+    this.db.prepare('UPDATE runs SET transcript=? WHERE id=?').run(transcript, id)
+  }
+
   event(id: string, kind: string, data: unknown): void {
-    let retained = data
-    if ((kind === 'tool_use' || kind === 'tool_result') && data && typeof data === 'object') {
-      const event = data as Record<string, unknown>
-      const input = event.input as Record<string, unknown> | undefined
-      retained = {
-        kind,
-        id: event.id,
-        parentId: event.parentId,
-        name: event.name,
-        error: event.error,
-        background: event.background,
-        ...(event.name === 'Bash'
-          ? { input: { command: commandDisplay(input?.command)?.command } }
-          : {}),
-      }
-    }
+    const retained = isToolEvent(kind, data) ? retainedToolEvent(kind, data) : data
     this.db
       .prepare('INSERT INTO events(run_id,kind,data,created_at) VALUES(?,?,?,?)')
       .run(id, kind, JSON.stringify(redactDeep(retained)), Date.now())
   }
+
   recordUsage(id: string, cost: number, tokens: unknown): void {
     if (!Number.isFinite(cost) || cost < 0) throw new Error('Costo invalido en result de Claude.')
     this.transaction(() => {
       this.db
         .prepare('INSERT OR REPLACE INTO usage VALUES(?,?,?,?,?)')
-        .run(
-          id,
-          this.run(id)!.author,
-          new Date().toISOString().slice(0, 10),
-          cost,
-          JSON.stringify(tokens),
-        )
+        .run(id, this.run(id)!.author, today(), cost, JSON.stringify(tokens))
       this.db.prepare('UPDATE runs SET cost=? WHERE id=?').run(cost, id)
     })
   }
-  spent(author: string): number {
-    return this.db
-      .prepare('SELECT COALESCE(SUM(cost),0) AS cost FROM usage WHERE author=? AND day=?')
-      .get(author, new Date().toISOString().slice(0, 10))!.cost as number
+
+  // Human gates
+
+  askGate(key: string, question: GateQuestion, destination: Conversation): void {
+    this.db
+      .prepare(
+        "INSERT INTO gates(conversation_key,question,state,question_id,options,destination) VALUES(?,?,'pending',?,?,?) ON CONFLICT(conversation_key) DO UPDATE SET question=excluded.question,state='pending',answer=NULL,question_id=excluded.question_id,options=excluded.options,destination=excluded.destination",
+      )
+      .run(
+        key,
+        question.text,
+        question.id,
+        JSON.stringify(question.options),
+        JSON.stringify(destination),
+      )
   }
-  recover(adapter?: string | string[]): Conversation[] {
-    const adapters =
-      adapter === undefined ? null : JSON.stringify(Array.isArray(adapter) ? adapter : [adapter])
+
+  gate(
+    questionId: string,
+  ):
+    | { question: string; state: string; options: string[]; destination: Conversation | null }
+    | undefined {
+    const row = this.db.prepare('SELECT * FROM gates WHERE question_id=?').get(questionId)
+    if (!row) return undefined
+
+    return {
+      question: row.question as string,
+      state: row.state as string,
+      options: JSON.parse(row.options as string),
+      destination: row.destination ? JSON.parse(row.destination as string) : null,
+    }
+  }
+
+  pendingQuestion(key: string): { text: string; options: string[] } | undefined {
+    const row = this.db
+      .prepare("SELECT question,options FROM gates WHERE conversation_key=? AND state='pending'")
+      .get(key)
+
+    return row
+      ? { text: row.question as string, options: JSON.parse(row.options as string) }
+      : undefined
+  }
+
+  private answerGate(key: string, answer: string): void {
+    this.db
+      .prepare(
+        "UPDATE gates SET state='answered',answer=? WHERE conversation_key=? AND state='pending'",
+      )
+      .run(redact(answer), key)
+  }
+
+  // Restart
+
+  recover(adapter?: AdapterFilter): Conversation[] {
+    const adapters = adapterList(adapter)
+
     return this.transaction(() => {
       const affected = this.db
         .prepare(
           "SELECT DISTINCT c.* FROM conversations c JOIN runs r ON c.key=r.conversation_key WHERE r.state='running' AND (? IS NULL OR c.adapter IN (SELECT value FROM json_each(?)))",
         )
         .all(adapters, adapters) as unknown as Conversation[]
+
       for (const c of affected) {
         const run = this.db
           .prepare(
             "SELECT reply_thread FROM runs WHERE conversation_key=? AND state='running' LIMIT 1",
           )
           .get(c.key)
+
         if (!c.thread) c.thread = run?.reply_thread as string | null
         this.db
           .prepare(
@@ -468,11 +501,74 @@ export class Store {
           .run(Date.now(), c.key)
         this.state(c.key, 'interrupted')
       }
+
       return affected
     })
   }
+
   close(): void {
     if (this.ownsRuntime) this.db.prepare('DELETE FROM runtime WHERE owner=?').run(this.owner)
     this.db.close()
+  }
+
+  private hasRunIn(key: string, states: RunState[]): boolean {
+    return Boolean(
+      this.db
+        .prepare(
+          'SELECT 1 FROM runs WHERE conversation_key=? AND state IN (SELECT value FROM json_each(?))',
+        )
+        .get(key, JSON.stringify(states)),
+    )
+  }
+}
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH'
+  }
+}
+
+/** A room keeps its session even when its stable key originated in a DM. */
+function sessionExpired(
+  conversation: Conversation,
+  input: Inbound,
+  now: number,
+  idleHours: number,
+): boolean {
+  const resettable =
+    input.adapter === 'cli' ||
+    (conversation.channel.startsWith('D') && /^slack:D[^:]*$/.test(input.key))
+
+  return (
+    conversation.state === 'idle' &&
+    !input.thread &&
+    resettable &&
+    now - conversation.updated_at > idleHours * 3600000
+  )
+}
+
+function isToolEvent(kind: string, data: unknown): data is Record<string, unknown> {
+  return (
+    (kind === 'tool_use' || kind === 'tool_result') && Boolean(data) && typeof data === 'object'
+  )
+}
+
+/** Tool events keep their identity and outcome; inputs and outputs never reach the log. */
+function retainedToolEvent(kind: string, event: Record<string, unknown>) {
+  const input = event.input as Record<string, unknown> | undefined
+
+  return {
+    kind,
+    id: event.id,
+    parentId: event.parentId,
+    name: event.name,
+    error: event.error,
+    background: event.background,
+    ...(event.name === 'Bash'
+      ? { input: { command: commandDisplay(input?.command)?.command } }
+      : {}),
   }
 }

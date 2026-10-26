@@ -26,6 +26,7 @@ test('structured and embedded JSON secrets are redacted without corrupting their
 
 test('stored tool events retain activity transitions without raw arguments or results', () => {
   const store = new Store(':memory:')
+
   try {
     const { runId } = store.accept(
       {
@@ -40,6 +41,7 @@ test('stored tool events retain activity transitions without raw arguments or re
       process.cwd(),
       24,
     )
+
     store.event(runId, 'tool_use', {
       id: 'one',
       name: 'Bash',
@@ -63,6 +65,7 @@ test('stored tool events retain activity transitions without raw arguments or re
       .prepare('SELECT data FROM events ORDER BY id')
       .all()
       .map((row) => JSON.parse(row.data))
+
     assert.doesNotMatch(JSON.stringify(events), /fixture-secret|\/private/)
     assert.equal(events[0].input.command, 'gh api [argumentos y resto ocultos]')
     assert.equal(events[1].id, 'one')

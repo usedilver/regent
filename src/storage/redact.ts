@@ -27,14 +27,21 @@ export function redactDeep<T>(value: T): T {
         /* Non-JSON text still passes through textual redaction. */
       }
     }
+
     return redact(value) as T
   }
+
   if (Array.isArray(value)) return value.map(redactDeep) as T
+
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {}
-    for (const [k, v] of Object.entries(value))
+
+    for (const [k, v] of Object.entries(value)) {
       out[k] = sensitiveKey(k) && v != null ? '[REDACTED]' : redactDeep(v)
+    }
+
     return out as T
   }
+
   return value
 }
