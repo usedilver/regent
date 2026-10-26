@@ -5,33 +5,44 @@ import path from 'node:path'
 import { Store } from '../src/storage/store.ts'
 import { Core } from '../src/core/core.ts'
 import { ConfigSchema } from '../src/config.ts'
-import { SlackOutput } from '../src/adapters/slack/adapter.ts'
+import { SlackOutput } from '../src/adapters/slack/output.ts'
 import { DurableOutput } from '../src/storage/delivery.ts'
 import { interruptedText } from '../src/core/progress.ts'
 import { createHttp } from '../src/adapters/http.ts'
 import { SlackActivities } from '../src/adapters/slack/activities.ts'
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'regent-progress-'))
-let store, core, durable, server
+let store
+let core
+let durable
+let server
+
 const until = async (fn) => {
   for (let i = 0; i < 300; i++) {
     if (fn()) return
     await new Promise((r) => setTimeout(r, 10))
   }
+
   throw new Error('Timed out')
 }
+
 const calls = []
-let failStatus = false,
-  failDelete = false,
-  deleted = false
+let failStatus = false
+let failDelete = false
+let deleted = false
+
 const api = async (method, args) => {
   calls.push({ method, args })
-  if (method === 'agents.sessions.setStatus' && failStatus)
+
+  if (method === 'agents.sessions.setStatus' && failStatus) {
     throw new Error('simulated status failure')
+  }
+
   if (method === 'chat.delete' && failDelete) throw new Error('simulated deletion failure')
   if (method === 'chat.update' && deleted) throw new Error('message_not_found')
   return { ts: String(calls.length) }
 }
+
 const input = {
   adapter: 'slack',
   eventId: 'event1',
@@ -42,6 +53,7 @@ const input = {
   team: 'T1',
   text: 'Review',
 }
+
 try {
   const file = path.join(root, 'progress.sqlite')
   store = new Store(file)
@@ -49,8 +61,9 @@ try {
   store.start(accepted.runId)
   let slack = new SlackOutput(api)
   slack.store = store
-  const c = store.conversation(input.key),
-    run = store.run(accepted.runId)
+  const c = store.conversation(input.key)
+  const run = store.run(accepted.runId)
+
   assert.equal(slack.animates(c), false)
   await slack.status(c, 'processing')
   assert.equal(slack.animates(c), true)
@@ -96,7 +109,8 @@ try {
     repos: { path: root },
     slack: { workspace_team_id: 'T1', allowed_users: ['U1'] },
   })
-  let finish, options
+  let finish
+  let options
   failStatus = false
   calls.length = 0
   core = new Core({
@@ -120,6 +134,7 @@ try {
             usage: {},
           })
       })
+
       return { done, cancel: () => finish('interrupted') }
     },
   })
@@ -134,6 +149,7 @@ try {
   )
   server = createHttp(core, () => ({}))
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+
   const tool = async (args) => {
     const response = await fetch(`http://127.0.0.1:${server.address().port}/tools`, {
       method: 'POST',
@@ -149,8 +165,10 @@ try {
         params: { name: 'regent_status', arguments: args },
       }),
     })
+
     return response.json()
   }
+
   for (const args of [
     { text: 'Progreso text' },
     { status: 'Progreso alias' },
@@ -162,6 +180,7 @@ try {
     assert.equal(result.result.isError, undefined)
     assert.equal(calls.at(-1).args.text, args.text ?? args.status)
   }
+
   for (const phase of ['investigation', 'implementation', 'validation']) {
     const result = await tool({ phase, text: `Starting ${phase}` })
     assert.equal(result.result.isError, undefined)
@@ -169,12 +188,14 @@ try {
     assert.equal(calls.at(-1).args.text, `Starting ${phase}`)
     assert.equal(active.lastPhase, phase)
   }
+
   assert.match(
     JSON.stringify(await tool({ phase: 'validation', text: 'Repeated validation update' })),
     /throttled/,
   )
   const count = calls.length
   assert.match(JSON.stringify(await tool({ status: 'Demasiado pronto' })), /throttled/)
+
   for (const args of [
     {},
     { status: '' },
@@ -190,6 +211,7 @@ try {
       'Invalid status must return an actionable MCP error',
     )
   }
+
   assert.equal(calls.length, count)
   await assert.rejects(() => core.tool(active.token, 'regent_status', {}), /Mensaje de progreso/)
   await new Promise((resolve) => server.close(resolve))
@@ -215,6 +237,7 @@ try {
   const activities = new SlackActivities(async () => {
     throw new Error('simulated transport failure')
   }, store)
+
   slack.activities = activities
   activities.event(active.conversation, active.run, {
     kind: 'tool_use',
@@ -268,6 +291,7 @@ try {
   const before = calls.filter(
     (c) => c.method === 'chat.postMessage' && c.args.channel === 'CROOM',
   ).length
+
   core.refreshProgress(active)
   await active.output
   assert.equal(
@@ -314,6 +338,7 @@ try {
             usage: {},
           })
       })
+
       return { done, cancel: () => finish() }
     },
   })

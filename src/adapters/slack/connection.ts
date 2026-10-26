@@ -32,6 +32,7 @@ export class SlackConnection {
   async start(start: () => Promise<unknown>) {
     this.stopped = false
     this.pending = start()
+
     try {
       await this.pending
     } catch (error) {
@@ -55,6 +56,7 @@ export class SlackConnection {
 
   private async reconnect() {
     if (this.stopped) return
+
     try {
       this.pending = this.client.start()
       await this.pending

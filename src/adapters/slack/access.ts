@@ -24,10 +24,12 @@ export class SlackAccess {
     this.lookup = lookup
     this.now = now
   }
+
   async allowed(author: string): Promise<boolean> {
     if (!this.policy.allowsSlack(author)) return false
     if (!this.policy.openSlack) return true
     let entry = this.membership.get(author)
+
     if (!entry || this.now() - entry.checkedAt > 300000) {
       const user = await this.lookup(author)
       entry = {
@@ -38,6 +40,7 @@ export class SlackAccess {
       }
       this.membership.set(author, entry)
     }
+
     return this.policy.allowsSlack(author) && (!this.policy.openSlack || entry.allowed)
   }
 }

@@ -10,6 +10,7 @@ if (!user) throw new Error('Set REGENT_SLACK_SMOKE_USER to an authorized Slack u
 loadEnv()
 const config = loadConfig()
 assert.ok(config.slack.allowed_users.includes(user))
+
 const api = async (method, args) => {
   const response = await fetch(`https://slack.com/api/${method}`, {
     method: 'POST',
@@ -25,6 +26,7 @@ const api = async (method, args) => {
   console.log(`${method}: ok`)
   return data
 }
+
 const auth = await api('auth.test', {})
 assert.equal(auth.team_id, config.slack.workspace_team_id)
 const root = await api('chat.postMessage', {
@@ -32,6 +34,7 @@ const root = await api('chat.postMessage', {
   text: 'Prueba tecnica de progreso Regent. Solo actividades simuladas; no modifica proyectos ni consulta datos.',
 })
 const store = new Store(':memory:')
+
 try {
   const input = {
     adapter: 'slack',
@@ -45,8 +48,8 @@ try {
   }
   const { runId } = store.accept(input, process.cwd(), 24)
   store.start(runId)
-  const c = store.conversation(input.key),
-    run = store.run(runId)
+  const c = store.conversation(input.key)
+  const run = store.run(runId)
   const activities = new SlackActivities(api, store)
   activities.event(c, run, { kind: 'tool_use', id: 'synthetic-read', name: 'Read' })
   await activities.flush()

@@ -4,33 +4,42 @@ import { createRequire } from 'node:module'
 import { SlackConnection } from '../src/adapters/slack/connection.ts'
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
 const until = async (predicate) => {
   for (let i = 0; i < 200; i++) {
     if (predicate()) return
     await wait(5)
   }
+
   throw new Error('Timed out')
 }
+
 const client = new EventEmitter()
-let calls = 0,
-  active = 0,
-  maximum = 0,
-  release
+let calls = 0
+let active = 0
+let maximum = 0
+let release
+
 client.start = async () => {
   calls++
   active++
   maximum = Math.max(maximum, active)
+
   try {
     if (calls <= 2) throw new Error('slack_webapi_request_error: timeout')
-    if (calls === 4)
+
+    if (calls === 4) {
       await new Promise((resolve) => {
         release = resolve
       })
+    }
+
     client.emit('connected')
   } finally {
     active--
   }
 }
+
 const logs = []
 const connection = new SlackConnection(client, (message) => logs.push(message), 5)
 await connection.start(async () => {
@@ -54,6 +63,7 @@ const stopping = connection.stop(async () => {
   stopped = true
   client.emit('disconnected')
 })
+
 release()
 await stopping
 assert.equal(stopped, true)
@@ -73,9 +83,11 @@ await initial.stop(async () => {})
 
 const queuedClient = new EventEmitter()
 let queuedCalls = 0
+
 queuedClient.start = async () => {
   queuedCalls++
 }
+
 const queued = new SlackConnection(queuedClient, () => {}, 5)
 await queued.start(async () => {
   queuedClient.emit('connected')

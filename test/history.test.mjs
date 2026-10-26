@@ -5,7 +5,7 @@ import path from 'node:path'
 import { Store } from '../src/storage/store.ts'
 import { Core } from '../src/core/core.ts'
 import { ConfigSchema } from '../src/config.ts'
-import { gatherHistory } from '../src/adapters/slack/adapter.ts'
+import { gatherHistory } from '../src/adapters/slack/history.ts'
 import { History } from '../src/core/history.ts'
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'regent-history-'))
@@ -22,23 +22,27 @@ const input = (ts, text) => ({
   text,
   history: { channel: 'C1', thread: '1', latest: ts, trigger: `C1:${ts}` },
 })
+
 const until = async (fn) => {
   for (let i = 0; i < 300; i++) {
     if (fn()) return
     await new Promise((r) => setTimeout(r, 10))
   }
+
   throw new Error('Timed out')
 }
+
 const config = ConfigSchema.parse({
   auth: { mode: 'indie' },
   repos: { path: root },
   slack: { workspace_team_id: 'T1', allowed_users: ['U1'] },
 })
-let messages = [{ id: 'C1:1', text: '@U1: Question' }],
-  store,
-  core
+let messages = [{ id: 'C1:1', text: '@U1: Question' }]
+let store
+let core
 const starts = []
 let reads = 0
+
 function open() {
   store = new Store(db)
   core = new Core({
@@ -54,10 +58,12 @@ function open() {
       })
       const finish = (state = 'completed') =>
         resolve({ state, text: 'Answer', error: '', cost: 0, usage: {} })
+
       starts.push({ options, finish })
       return { done, cancel: () => finish('interrupted') }
     },
   })
+
   core.historyLoader = async (source) => {
     reads++
     return messages.filter(
@@ -65,6 +71,7 @@ function open() {
     )
   }
 }
+
 async function close() {
   await core.close()
   store.close()
@@ -89,8 +96,11 @@ try {
   await core.submit(input('8', 'Continue'))
   starts[0].finish()
   await until(() => starts.length === 2)
-  for (let i = 0; i < 5; i++)
+
+  for (let i = 0; i < 5; i++) {
     assert.equal(starts[1].options.prompt.match(new RegExp(`intermediate-${i}`, 'g')).length, 1)
+  }
+
   assert.doesNotMatch(starts[1].options.prompt, /Continue/)
   starts[1].finish()
   await until(() => starts.length === 3)
@@ -152,9 +162,11 @@ try {
   await close()
   open()
   const snapshotLoader = core.historyLoader
+
   core.historyLoader = async () => {
     throw new Error('The persisted snapshot must be used')
   }
+
   await core.recover()
   await until(() => starts.length === 8)
   assert.match(starts[7].options.prompt, /Queued context/)
@@ -162,9 +174,11 @@ try {
   await until(() => !core.active.size)
   core.historyLoader = snapshotLoader
   const loader = core.historyLoader
+
   core.historyLoader = async () => {
     throw new Error('missing_scope')
   }
+
   messages.push(
     { id: 'C1:15', text: '@U2: Recover this context' },
     { id: 'C1:16', text: '@U1: Failed fetch' },
@@ -184,9 +198,11 @@ try {
 
   // Channel history includes fresh replies under old roots and excludes the bot's own output.
   const calls = []
+
   const api = async (method, args) => {
     calls.push({ method, args })
-    if (method === 'conversations.history')
+
+    if (method === 'conversations.history') {
       return !args.cursor
         ? {
             messages: [
@@ -196,6 +212,8 @@ try {
             response_metadata: { next_cursor: 'next' },
           }
         : { messages: [{ ts: '1', user: 'U1', text: 'Old root', reply_count: 2 }] }
+    }
+
     return {
       messages: [
         { ts: '1', user: 'U1', text: 'Old root' },
@@ -204,12 +222,14 @@ try {
       ],
     }
   }
+
   const history = await gatherHistory(
     api,
     { channel: 'C1', latest: '9' },
     'BOT',
     async () => 'Attachment content',
   )
+
   assert.equal(history.filter((m) => m.id === 'C1:1').length, 1)
   assert.ok(history.some((m) => m.text.includes('Fresh reply')))
   assert.ok(history.some((m) => m.id === 'C1:7:files' && m.text.includes('Attachment content')))
@@ -222,6 +242,7 @@ try {
     undefined,
     true,
   )
+
   assert.ok(fresh.some((m) => m.text.includes('Own response')))
   assert.ok(calls.every((c) => c.args.latest === '9' && c.args.inclusive))
   await assert.rejects(

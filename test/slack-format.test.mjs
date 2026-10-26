@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { normalizeEmailLinks, replyPayloads } from '../src/adapters/slack/format.ts'
-import { SlackOutput } from '../src/adapters/slack/adapter.ts'
+import { SlackOutput } from '../src/adapters/slack/output.ts'
 
 const address = 'person+test@example.com'
 const link = `[${address}](mailto:${address})`
@@ -25,6 +25,7 @@ assert.equal(
   normalizeEmailLinks(`[Contactar](mailto:${address}?subject=Hola)`),
   `[Contactar](mailto:${address}?subject=Hola)`,
 )
+
 for (const code of [
   '`mailto:person@example.com`',
   '``mailto:person@example.com``',
@@ -36,10 +37,12 @@ for (const code of [
 ]) {
   assert.equal(normalizeEmailLinks(code), code)
 }
+
 assert.equal(replyPayloads(`Email: mailto:${address}`)[0].blocks[0].text, `Email: ${link}`)
 
 const text =
   '### Resultado\n**Cliente:** ejemplo\n- **Crear y editar**\n[Repo](https://example.com/a_b)\n```js\nconst value = "**literal**"\n```\n| A | B |\n|---|---|\n| 1 | 2 |'
+
 assert.deepEqual(replyPayloads(text), [{ text, blocks: [{ type: 'markdown', text }] }])
 const long = ('Texto de prueba '.repeat(200) + '😀').repeat(7)
 const pages = replyPayloads(long)
@@ -52,6 +55,7 @@ const output = new SlackOutput(async (method, args) => {
   calls.push({ method, args })
   return { ts: '2' }
 }, 5)
+
 await output.finish(c, { id: 'no-stream' }, text)
 assert.equal(calls[0].args.blocks[0].text, text)
 await output.delta(c, { id: 'stream', author: 'U1' }, 'Progreso\n')
@@ -63,12 +67,15 @@ assert.equal(calls.at(-1).args.blocks[0].text, link)
 
 let attempts = 0
 const fallback = new SlackOutput(async (_method, args) => {
-  if (++attempts === 1)
+  if (++attempts === 1) {
     throw Object.assign(new Error('invalid_blocks'), { data: { error: 'invalid_blocks' } })
+  }
+
   assert.equal(args.blocks[0].text.type, 'plain_text')
   assert.equal(args.blocks[0].text.text, text)
   return {}
 })
+
 await fallback.notice(c, text)
 assert.equal(attempts, 2)
 // finish idempotente: un fallo a mitad de una respuesta multipagina no duplica
@@ -81,9 +88,11 @@ const retry = new SlackOutput(async (method, args) => {
       failOnce = false
       throw new Error('network')
     }
+
     posted.push(args.blocks[0].text.text)
     return { ts: `ts-${posted.length}` }
   }
+
   if (method === 'chat.update') return { ts: args.ts }
   return { ts: 'x' }
 })
@@ -101,6 +110,7 @@ const wideOut = new SlackOutput(async (method, args) => {
   wideCalls.push({ method, args })
   return { ts: 'S1' }
 }, 5)
+
 await wideOut.delta(c, { id: 'wide', author: 'U1' }, 'Progreso\n')
 await new Promise((resolve) => setTimeout(resolve, 25))
 const wide = 'palabra '.repeat(700).trim()
