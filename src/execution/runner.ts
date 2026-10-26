@@ -9,6 +9,7 @@ import { executionFailure, type ExecutionFailure } from './failures.ts'
 
 type ToolEvent = { id: string; parentId?: string | null }
 type McpConnection = { name: string; status?: string }
+
 export type RunnerEvent =
   | {
       kind: 'init'
@@ -35,6 +36,10 @@ export type RunnerEvent =
       subtype?: string
     }
   | { kind: 'mcp_degraded'; servers: string[] }
+
+type InitEvent = Extract<RunnerEvent, { kind: 'init' }>
+type ResultEvent = Extract<RunnerEvent, { kind: 'result' }>
+
 export interface RunnerResult {
   state: 'completed' | 'failed' | 'interrupted'
   text: string
@@ -43,17 +48,13 @@ export interface RunnerResult {
   usage: unknown
   failure?: ExecutionFailure
 }
-let isolationVersionChecked = false
-export function assertIsolationVersion(version: string): void {
-  const match = version.match(/^(\d+)\.(\d+)\.(\d+)/)
-  if (!match) throw new Error('No pude verificar la version de Claude Code para aislamiento.')
-  const [major, minor, patch] = match.slice(1).map(Number)
-  if (major < 2 || (major === 2 && (minor < 1 || (minor === 1 && patch < 263)))) {
-    throw new Error(
-      'El aislamiento de Regent requiere Claude Code >= 2.1.263. Actualiza el CLI; no se ejecutara en el checkout compartido.',
-    )
-  }
+
+export interface RunnerHandle {
+  done: Promise<RunnerResult>
+  cancel(reason?: string): void
+  setTimeoutMs?(ms: number): void
 }
+
 export interface RunnerOptions {
   cwd: string
   prompt: string
@@ -81,11 +82,39 @@ export interface RunnerOptions {
   onEvent(event: RunnerEvent): void
 }
 
+const READ_ONLY_TOOLS = 'Read,Glob,Grep,Skill,ToolSearch,WebFetch,WebSearch'
+const MAX_EVENT_BYTES = 8 * 1024 * 1024
+const STDERR_TAIL_CHARS = 16000
+const KILL_GRACE_CAP_MS = 5000
+const TIMEOUT_MESSAGE = 'Se alcanzo el tiempo maximo de ejecucion de este turno.'
+
+let isolationVersionChecked = false
+
+export function assertIsolationVersion(version: string): void {
+  const match = version.match(/^(\d+)\.(\d+)\.(\d+)/)
+  if (!match) throw new Error('No pude verificar la version de Claude Code para aislamiento.')
+  const [major, minor, patch] = match.slice(1).map(Number)
+
+  if (major < 2 || (major === 2 && (minor < 1 || (minor === 1 && patch < 263)))) {
+    throw new Error(
+      'El aislamiento de Regent requiere Claude Code >= 2.1.263. Actualiza el CLI; no se ejecutara en el checkout compartido.',
+    )
+  }
+}
+
 export function runnerArgs(
   options: RunnerOptions,
   systemPromptFile = path.join(REGENT_DIR, 'plugins/executor/colleague.md'),
 ): string[] {
   const native = options.permissionMode === 'native'
+  let toolFlags: string[] = []
+
+  if (options.readOnly) {
+    toolFlags = ['--tools', READ_ONLY_TOOLS, '--allowedTools', `${READ_ONLY_TOOLS},mcp__*`]
+  } else if (native) {
+    toolFlags = ['--allowedTools', 'mcp__regent__*']
+  }
+
   return [
     '-p',
     '--output-format',
@@ -100,16 +129,7 @@ export function runnerArgs(
     '--setting-sources',
     'user,project,local',
     ...(options.worktreeName ? ['--worktree', options.worktreeName] : []),
-    ...(options.readOnly
-      ? [
-          '--tools',
-          'Read,Glob,Grep,Skill,ToolSearch,WebFetch,WebSearch',
-          '--allowedTools',
-          'Read,Glob,Grep,Skill,ToolSearch,WebFetch,WebSearch,mcp__*',
-        ]
-      : native
-        ? ['--allowedTools', 'mcp__regent__*']
-        : []),
+    ...toolFlags,
     ...(options.additionalDirectories ?? []).flatMap((dir) => ['--add-dir', dir]),
     '--append-system-prompt-file',
     systemPromptFile,
@@ -131,8 +151,28 @@ export function runnerArgs(
   ]
 }
 
+// Stream events
+
+/** Maps one line of the CLI's stream-json output onto the events the core understands. */
 export function normalizeEvent(raw: any): RunnerEvent[] {
-  if (raw.type === 'system' && raw.subtype === 'init')
+  switch (raw.type) {
+    case 'system':
+      return systemEvent(raw)
+    case 'stream_event':
+      return textDelta(raw)
+    case 'assistant':
+      return toolUses(raw)
+    case 'user':
+      return toolResults(raw)
+    case 'result':
+      return [resultEvent(raw)]
+    default:
+      return []
+  }
+}
+
+function systemEvent(raw: any): RunnerEvent[] {
+  if (raw.subtype === 'init') {
     return [
       {
         kind: 'init',
@@ -145,69 +185,163 @@ export function normalizeEvent(raw: any): RunnerEvent[] {
         tools: raw.tools ?? [],
       },
     ]
-  if (raw.type === 'system' && raw.subtype === 'api_retry')
-    return [{ kind: 'api_retry', attempt: raw.attempt, error: raw.error }]
-  if (raw.type === 'stream_event' && !raw.parent_tool_use_id) {
-    const event = raw.event
-    if (event?.type === 'content_block_delta' && event.delta?.type === 'text_delta')
-      return [{ kind: 'text_delta', text: event.delta.text }]
   }
-  if (raw.type === 'assistant')
-    return (raw.message?.content ?? [])
-      .filter((c: any) => c.type === 'tool_use')
-      .map((c: any) => ({
-        kind: 'tool_use',
-        id: c.id,
-        parentId: raw.parent_tool_use_id,
-        name: c.name,
-        input: c.input,
-      }))
-  if (raw.type === 'user')
-    return (raw.message?.content ?? [])
-      .filter((c: any) => c.type === 'tool_result')
-      .map((c: any) => ({
-        kind: 'tool_result',
-        id: c.tool_use_id,
-        parentId: raw.parent_tool_use_id,
-        background: Boolean(
-          raw.tool_use_result?.backgroundTaskId ||
-            /running in (?:the )?background/i.test(JSON.stringify(c.content)),
-        ),
-        error: c.is_error,
-        content: c.content,
-      }))
-  if (raw.type === 'result')
-    return [
-      {
-        kind: 'result',
-        text: raw.result ?? '',
-        cost: raw.total_cost_usd ?? 0,
-        usage: raw.usage ?? {},
-        error: Boolean(raw.is_error),
-        errors: raw.errors ?? [],
-        denials: raw.permission_denials ?? [],
-        subtype: raw.subtype,
-      },
-    ]
+
+  if (raw.subtype === 'api_retry') {
+    return [{ kind: 'api_retry', attempt: raw.attempt, error: raw.error }]
+  }
+
   return []
 }
 
-export function startRunner(options: RunnerOptions): {
-  done: Promise<RunnerResult>
-  cancel(reason?: string): void
-  setTimeoutMs?(ms: number): void
-} {
-  if (options.worktreeName && !options.command && !isolationVersionChecked) {
-    assertIsolationVersion(
-      execFileSync('claude', ['--version'], { encoding: 'utf8', timeout: 10000 }).trim(),
+/** Only the top-level assistant text streams; subagent output stays inside its tool result. */
+function textDelta(raw: any): RunnerEvent[] {
+  if (raw.parent_tool_use_id) return []
+  const event = raw.event
+  if (event?.type !== 'content_block_delta' || event.delta?.type !== 'text_delta') return []
+  return [{ kind: 'text_delta', text: event.delta.text }]
+}
+
+function toolUses(raw: any): RunnerEvent[] {
+  return (raw.message?.content ?? [])
+    .filter((c: any) => c.type === 'tool_use')
+    .map((c: any) => ({
+      kind: 'tool_use',
+      id: c.id,
+      parentId: raw.parent_tool_use_id,
+      name: c.name,
+      input: c.input,
+    }))
+}
+
+function toolResults(raw: any): RunnerEvent[] {
+  return (raw.message?.content ?? [])
+    .filter((c: any) => c.type === 'tool_result')
+    .map((c: any) => ({
+      kind: 'tool_result',
+      id: c.tool_use_id,
+      parentId: raw.parent_tool_use_id,
+      background: Boolean(
+        raw.tool_use_result?.backgroundTaskId ||
+          /running in (?:the )?background/i.test(JSON.stringify(c.content)),
+      ),
+      error: c.is_error,
+      content: c.content,
+    }))
+}
+
+function resultEvent(raw: any): ResultEvent {
+  return {
+    kind: 'result',
+    text: raw.result ?? '',
+    cost: raw.total_cost_usd ?? 0,
+    usage: raw.usage ?? {},
+    error: Boolean(raw.is_error),
+    errors: raw.errors ?? [],
+    denials: raw.permission_denials ?? [],
+    subtype: raw.subtype,
+  }
+}
+
+/** MCP servers named in the init errors, whichever shape the CLI used for them. */
+function erroredServers(event: InitEvent): string[] {
+  if (Array.isArray(event.errors)) {
+    return event.errors
+      .map((e: any) => (typeof e === 'string' ? e : (e?.name ?? '')))
+      .filter(Boolean)
+  }
+
+  return Object.keys(event.errors ?? {})
+}
+
+function unconnectedServers(event: InitEvent): string[] {
+  return (event.mcpServers ?? [])
+    .filter((server) => server.status && server.status !== 'connected')
+    .map((server) => server.name)
+}
+
+/** Why the CLI exit counts as an error, or '' when it finished cleanly. */
+function exitError(
+  result: ResultEvent | undefined,
+  code: number | null,
+  signal: NodeJS.Signals | null,
+  stderr: string,
+): string {
+  if (result?.error) {
+    return (
+      [...result.errors, result.text].filter(Boolean).join('; ') ||
+      result.subtype ||
+      'Claude reporto un error.'
     )
-    isolationVersionChecked = true
   }
+
+  if (code !== 0) {
+    if (stderr) return stderr
+    return signal ? `Claude termino por señal ${signal}` : `Claude termino con codigo ${code}`
+  }
+
+  return result ? '' : 'Claude termino sin evento result.'
+}
+
+function outcome(
+  fatal: string,
+  reason: string,
+  error: string,
+): Pick<RunnerResult, 'state' | 'failure'> {
+  if (fatal) {
+    return {
+      state: 'failed',
+      failure: { source: 'regent', code: 'execution_failed', detail: error },
+    }
+  }
+
+  if (reason) return { state: 'interrupted', failure: executionFailure(reason) }
+
+  if (error) {
+    const failure = executionFailure(error) ?? {
+      source: 'claude' as const,
+      code: 'execution_failed' as const,
+      detail: error,
+    }
+
+    return { state: 'failed', failure }
+  }
+
+  return { state: 'completed' }
+}
+
+// Process
+
+/** Splits a byte stream into complete lines, decoding UTF-8 across chunk boundaries. */
+class LineSplitter {
+  private decoder = new StringDecoder('utf8')
+  private buffer = ''
+
+  push(chunk: Buffer): string[] {
+    this.buffer += this.decoder.write(chunk)
+    const lines = this.buffer.split('\n')
+    this.buffer = lines.pop()!
+    return lines
+  }
+
+  get pendingChars(): number {
+    return this.buffer.length
+  }
+
+  discard(): void {
+    this.buffer = ''
+  }
+
+  /** Whatever is left once the stream ends, with no trailing newline. */
+  end(): string {
+    const rest = this.buffer + this.decoder.end()
+    this.buffer = ''
+    return rest
+  }
+}
+
+function runnerEnv(options: RunnerOptions): NodeJS.ProcessEnv {
   const native = options.permissionMode === 'native'
-  if (!native && !options.command && !options.readOnly) {
-    ensureTrusted(options.cwd)
-    ensureBypassAccepted()
-  }
   const env: NodeJS.ProcessEnv = {
     ...(options.env ?? process.env),
     REGENT_RUN_ID: options.runId,
@@ -222,6 +356,7 @@ export function startRunner(options: RunnerOptions): {
     GIT_OPTIONAL_LOCKS: '0',
     GIT_TERMINAL_PROMPT: '0',
   }
+
   // Do not inherit a parent interactive session or alternate subscription tokens.
   delete env.CLAUDECODE
   delete env.CLAUDE_CODE_OAUTH_TOKEN
@@ -230,15 +365,193 @@ export function startRunner(options: RunnerOptions): {
   delete env.WATCH_REPORT_DEPENDENCIES
   // In bypass the hook is the only guard: never let an inherited var make it abstain.
   if (!native) delete env.REGENT_PERMISSION_MODE
+  return env
+}
+
+/** One-time checks before the first real CLI launch; skipped for fakes and read-only runs. */
+function preflight(options: RunnerOptions): void {
+  if (options.worktreeName && !options.command && !isolationVersionChecked) {
+    assertIsolationVersion(
+      execFileSync('claude', ['--version'], { encoding: 'utf8', timeout: 10000 }).trim(),
+    )
+    isolationVersionChecked = true
+  }
+
+  if (options.permissionMode !== 'native' && !options.command && !options.readOnly) {
+    ensureTrusted(options.cwd)
+    ensureBypassAccepted()
+  }
+}
+
+type SystemPrompt = ReturnType<typeof createSystemPrompt>
+
+/** A running CLI process: parses its stream, enforces the deadlines and settles the result. */
+class RunnerSession {
+  readonly done: Promise<RunnerResult>
+  private readonly child: ChildProcessWithoutNullStreams
+  private readonly options: RunnerOptions
+  private readonly systemPrompt: SystemPrompt
+  private readonly lines = new LineSplitter()
+  private readonly startedAt = Date.now()
+  private readonly stall: NodeJS.Timeout
+  private timeout: NodeJS.Timeout
+  private termTimer?: NodeJS.Timeout
+  private killTimer?: NodeJS.Timeout
+  private reason = ''
+  private fatal = ''
+  private stderr = ''
+  private streamed = ''
+  private result?: ResultEvent
+  private lastEvent = Date.now()
+  private closed = false
+
+  constructor(child: ChildProcessWithoutNullStreams, options: RunnerOptions, prompt: SystemPrompt) {
+    this.child = child
+    this.options = options
+    this.systemPrompt = prompt
+    child.stdout.on('data', (chunk: Buffer) => this.onStdout(chunk))
+    child.stderr.on('data', (data) => {
+      this.stderr = (this.stderr + data.toString()).slice(-STDERR_TAIL_CHARS)
+    })
+    child.stdin.on('error', (error) => {
+      if ((error as NodeJS.ErrnoException).code !== 'EPIPE') this.abort(error.message)
+    })
+    child.stdin.end(runnerInput(options))
+    this.timeout = setTimeout(() => this.cancel(TIMEOUT_MESSAGE), options.timeoutMs)
+    this.stall = setInterval(() => this.checkStall(), Math.min(1000, options.stallMs))
+    this.done = new Promise<RunnerResult>((resolve) => {
+      child.on('error', (error) => {
+        this.fatal = `No pude iniciar Claude: ${error.message}`
+      })
+      child.on('close', (code, signal) => resolve(this.finish(code, signal)))
+    })
+  }
+
+  /** Asks the CLI to stop, escalating from SIGINT to SIGKILL as the grace period runs out. */
+  cancel(message = 'Detenido por el usuario'): void {
+    if (this.closed || this.reason) return
+    this.reason = message
+    this.signal('SIGINT')
+    this.termTimer = setTimeout(() => {
+      this.signal('SIGTERM')
+      const grace = Math.min(this.options.graceMs, KILL_GRACE_CAP_MS)
+      this.killTimer = setTimeout(() => this.signal('SIGKILL'), grace)
+    }, this.options.graceMs)
+  }
+
+  setTimeoutMs(ms: number): void {
+    clearTimeout(this.timeout)
+    const remaining = Math.max(1, ms - (Date.now() - this.startedAt))
+    this.timeout = setTimeout(() => this.cancel(TIMEOUT_MESSAGE), remaining)
+  }
+
+  /** A protocol failure on Regent's side: stop the CLI and report it as such. */
+  private abort(message: string): void {
+    this.fatal = message
+    this.cancel(message)
+  }
+
+  private signal(sig: NodeJS.Signals): void {
+    try {
+      if (process.platform !== 'win32' && this.child.pid) process.kill(-this.child.pid, sig)
+      else this.child.kill(sig)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+    }
+  }
+
+  private onStdout(chunk: Buffer): void {
+    for (const line of this.lines.push(chunk)) this.onLine(line)
+
+    if (this.lines.pendingChars > MAX_EVENT_BYTES) {
+      this.lines.discard()
+      this.abort('Evento de Claude mayor a 8 MB')
+    }
+  }
+
+  private onLine(value: string): void {
+    if (!value.trim() || this.fatal) return
+    let raw: unknown
+
+    try {
+      raw = JSON.parse(value)
+    } catch (error) {
+      this.abort(`Stream de Claude invalido: ${(error as Error).message}`)
+      return
+    }
+
+    try {
+      this.lastEvent = Date.now()
+      for (const event of normalizeEvent(raw)) this.onEvent(event)
+    } catch (error) {
+      this.abort(`No pude procesar un evento de Claude: ${(error as Error).message}`)
+    }
+  }
+
+  private onEvent(event: RunnerEvent): void {
+    this.options.onEvent(event)
+    if (event.kind === 'init') this.checkMcp(event)
+    if (event.kind === 'text_delta') this.streamed += event.text
+    if (event.kind === 'result') this.result = event
+  }
+
+  /** Regent's own MCP server carries every core tool, so losing it is fatal. Servers from the
+   * repo's or the user's .mcp.json are optional: report them and keep going. */
+  private checkMcp(event: InitEvent): void {
+    if (!event.sessionId) throw new Error('Claude no devolvio session_id.')
+    const unconnected = unconnectedServers(event)
+    const degraded = [...new Set([...erroredServers(event), ...unconnected])]
+
+    if (degraded.includes('regent')) {
+      throw new Error(
+        `El MCP interno de regent no arranco: ${JSON.stringify(event.errors)} ${unconnected.join(', ')}`,
+      )
+    }
+
+    if (degraded.length) this.options.onEvent({ kind: 'mcp_degraded', servers: degraded })
+  }
+
+  private checkStall(): void {
+    if (Date.now() - this.lastEvent >= this.options.stallMs) {
+      this.cancel('Claude dejo de emitir eventos.')
+    }
+  }
+
+  private finish(code: number | null, signal: NodeJS.Signals | null): RunnerResult {
+    this.systemPrompt.dispose()
+    const rest = this.lines.end()
+    if (rest) this.onLine(rest)
+    this.closed = true
+    clearTimeout(this.timeout)
+    clearInterval(this.stall)
+    clearTimeout(this.termTimer)
+    clearTimeout(this.killTimer)
+    const error = this.fatal || this.reason || exitError(this.result, code, signal, this.stderr)
+    const { state, failure } = outcome(this.fatal, this.reason, error)
+
+    return {
+      state,
+      text: this.result?.text || this.streamed,
+      error,
+      cost: this.result?.cost ?? 0,
+      usage: this.result?.usage ?? {},
+      ...(failure ? { failure } : {}),
+    }
+  }
+}
+
+export function startRunner(options: RunnerOptions): RunnerHandle {
+  preflight(options)
   const systemPrompt = createSystemPrompt(options.communicationFile)
   let child: ChildProcessWithoutNullStreams
+
   try {
     child = spawn(
       options.command ?? 'claude',
       [...(options.prefixArgs ?? []), ...runnerArgs(options, systemPrompt.file)],
       {
         cwd: options.cwd,
-        env,
+        env: runnerEnv(options),
         stdio: ['pipe', 'pipe', 'pipe'],
         detached: process.platform !== 'win32',
       },
@@ -247,159 +560,14 @@ export function startRunner(options: RunnerOptions): {
     systemPrompt.dispose()
     throw error
   }
-  let reason = '',
-    fatal = '',
-    stderr = '',
-    buffer = '',
-    streamed = '',
-    result: Extract<RunnerEvent, { kind: 'result' }> | undefined
-  let lastEvent = Date.now(),
-    closed = false
-  let termTimer: NodeJS.Timeout | undefined, killTimer: NodeJS.Timeout | undefined
-  const signal = (sig: NodeJS.Signals) => {
-    try {
-      if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, sig)
-      else child.kill(sig)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
-    }
+
+  const session = new RunnerSession(child, options, systemPrompt)
+
+  return {
+    done: session.done,
+    cancel: (reason) => session.cancel(reason),
+    setTimeoutMs: (ms) => session.setTimeoutMs(ms),
   }
-  const cancel = (message = 'Detenido por el usuario') => {
-    if (closed || reason) return
-    reason = message
-    signal('SIGINT')
-    termTimer = setTimeout(() => {
-      signal('SIGTERM')
-      killTimer = setTimeout(() => signal('SIGKILL'), Math.min(options.graceMs, 5000))
-    }, options.graceMs)
-  }
-  const emit = (event: RunnerEvent) => {
-    options.onEvent(event)
-    if (event.kind === 'init') {
-      if (!event.sessionId) throw new Error('Claude no devolvio session_id.')
-      const errorNames = (
-        Array.isArray(event.errors)
-          ? event.errors.map((e: any) => (typeof e === 'string' ? e : (e?.name ?? '')))
-          : Object.keys(event.errors ?? {})
-      ).filter(Boolean)
-      const failed = (event.mcpServers ?? [])
-        .filter((s: any) => s.status && s.status !== 'connected')
-        .map((s: any) => s.name)
-      const degraded = [...new Set([...errorNames, ...failed])]
-      // The internal 'regent' server (see runnerArgs) carries every core tool: its failure is fatal.
-      // Servers from the user's or repo's own .mcp.json are optional here — report, don't abort.
-      if (degraded.includes('regent'))
-        throw new Error(
-          `El MCP interno de regent no arranco: ${JSON.stringify(event.errors)} ${failed.join(', ')}`,
-        )
-      if (degraded.length) options.onEvent({ kind: 'mcp_degraded', servers: degraded })
-    }
-    if (event.kind === 'text_delta') streamed += event.text
-    if (event.kind === 'result') result = event
-  }
-  const line = (value: string) => {
-    if (!value.trim() || fatal) return
-    let raw: unknown
-    try {
-      raw = JSON.parse(value)
-    } catch (error) {
-      fatal = `Stream de Claude invalido: ${(error as Error).message}`
-      cancel(fatal)
-      return
-    }
-    try {
-      lastEvent = Date.now()
-      for (const event of normalizeEvent(raw)) emit(event)
-    } catch (error) {
-      fatal = `No pude procesar un evento de Claude: ${(error as Error).message}`
-      cancel(fatal)
-    }
-  }
-  const decoder = new StringDecoder('utf8')
-  child.stdout.on('data', (chunk) => {
-    buffer += decoder.write(chunk)
-    let index: number
-    while ((index = buffer.indexOf('\n')) >= 0) {
-      line(buffer.slice(0, index))
-      buffer = buffer.slice(index + 1)
-    }
-    if (buffer.length > 8 * 1024 * 1024) {
-      fatal = 'Evento de Claude mayor a 8 MB'
-      buffer = ''
-      cancel(fatal)
-    }
-  })
-  child.stderr.on('data', (data) => {
-    stderr = (stderr + data.toString()).slice(-16000)
-  })
-  child.stdin.on('error', (error) => {
-    if ((error as NodeJS.ErrnoException).code !== 'EPIPE') {
-      fatal = error.message
-      cancel(fatal)
-    }
-  })
-  child.stdin.end(runnerInput(options))
-  const startedAt = Date.now()
-  const timedOut = () => cancel('Se alcanzo el tiempo maximo de ejecucion de este turno.')
-  let timeout = setTimeout(timedOut, options.timeoutMs)
-  const setTimeoutMs = (ms: number) => {
-    clearTimeout(timeout)
-    timeout = setTimeout(timedOut, Math.max(1, ms - (Date.now() - startedAt)))
-  }
-  const stall = setInterval(
-    () => {
-      if (Date.now() - lastEvent >= options.stallMs) cancel('Claude dejo de emitir eventos.')
-    },
-    Math.min(1000, options.stallMs),
-  )
-  const done = new Promise<RunnerResult>((resolve) => {
-    child.on('error', (error) => {
-      fatal = `No pude iniciar Claude: ${error.message}`
-    })
-    child.on('close', (code, signal) => {
-      systemPrompt.dispose()
-      buffer += decoder.end()
-      if (buffer) line(buffer)
-      closed = true
-      clearTimeout(timeout)
-      clearInterval(stall)
-      clearTimeout(termTimer)
-      clearTimeout(killTimer)
-      const error =
-        fatal ||
-        reason ||
-        (result?.error
-          ? [...result.errors, result.text].filter(Boolean).join('; ') ||
-            result.subtype ||
-            'Claude reporto un error.'
-          : code !== 0
-            ? stderr ||
-              (signal ? `Claude termino por señal ${signal}` : `Claude termino con codigo ${code}`)
-            : !result
-              ? 'Claude termino sin evento result.'
-              : '')
-      const failure = fatal
-        ? { source: 'regent' as const, code: 'execution_failed' as const, detail: error }
-        : reason
-          ? executionFailure(reason)
-          : error
-            ? (executionFailure(error) ?? {
-                source: 'claude' as const,
-                code: 'execution_failed' as const,
-                detail: error,
-              })
-            : undefined
-      resolve({
-        state: fatal ? 'failed' : reason ? 'interrupted' : error ? 'failed' : 'completed',
-        text: result?.text || streamed,
-        error,
-        cost: result?.cost ?? 0,
-        usage: result?.usage ?? {},
-        ...(failure ? { failure } : {}),
-      })
-    })
-  })
-  return { done, cancel, setTimeoutMs }
 }
 
 export function runnerInput(options: Pick<RunnerOptions, 'prompt' | 'images'>): string {

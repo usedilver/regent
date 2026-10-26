@@ -20,13 +20,16 @@ const input = (eventId, text = 'Explica el proyecto') => ({
   eventId,
   text,
 })
+
 const until = async (predicate) => {
   const deadline = Date.now() + 5000
+
   while (!predicate()) {
     if (Date.now() > deadline) throw new Error('Execution outcome timed out')
     await new Promise((resolve) => setTimeout(resolve, 5))
   }
 }
+
 function fixture(t, script, overrides = {}, runner = startRunner) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-outcome-')))
   const store = new Store(':memory:')
@@ -36,8 +39,8 @@ function fixture(t, script, overrides = {}, runner = startRunner) {
     slack: { workspace_team_id: 'T', allowed_users: [] },
     mcp: { enabled: true, principals: [{ id: 'fixture', token_env: 'REGENT_MCP_TOKEN_FIXTURE' }] },
   })
-  const messages = [],
-    starts = []
+  const messages = []
+  const starts = []
   const core = new Core({
     store,
     config,
@@ -66,6 +69,7 @@ function fixture(t, script, overrides = {}, runner = startRunner) {
   const mcp = new ExternalMcp(core, {
     REGENT_MCP_TOKEN_FIXTURE: 'synthetic-test-token-00000000000000000',
   })
+
   t.after(async () => {
     await core.close()
     store.close()
@@ -73,6 +77,7 @@ function fixture(t, script, overrides = {}, runner = startRunner) {
   })
   return { root, store, core, messages, starts, mcp }
 }
+
 async function outcome(f) {
   const accepted = await f.core.submit(input('request'))
   await until(() => !f.core.active.size)
@@ -204,7 +209,8 @@ test('stopping a recovered execution does not expose the previous attempt as a t
   let finish
   const f = fixture(t, '', {}, (options) => {
     options.onEvent({ kind: 'init', sessionId: 'fixture-session' })
-    if (options.sessionId)
+
+    if (options.sessionId) {
       return {
         done: Promise.resolve({
           state: 'failed',
@@ -215,6 +221,8 @@ test('stopping a recovered execution does not expose the previous attempt as a t
         }),
         cancel() {},
       }
+    }
+
     return {
       done: new Promise((resolve) => {
         finish = resolve

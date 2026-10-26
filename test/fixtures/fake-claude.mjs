@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+
 const emit = (value) => process.stdout.write(JSON.stringify(value) + '\n')
 let prompt = ''
 for await (const chunk of process.stdin) prompt += chunk
@@ -15,6 +16,7 @@ emit({
   ],
 })
 if (scenario === 'malformed') process.stdout.write('not json\n')
+
 if (scenario === 'hang' || scenario === 'ignore-signals') {
   process.on('SIGINT', () => {
     if (scenario !== 'ignore-signals') process.exit(130)
@@ -37,6 +39,7 @@ if (scenario === 'hang' || scenario === 'ignore-signals') {
       body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),
     })
     const names = (await listing.json()).result.tools.map((tool) => tool.name)
+
     if (
       JSON.stringify(names.sort()) !==
       JSON.stringify([
@@ -51,6 +54,7 @@ if (scenario === 'hang' || scenario === 'ignore-signals') {
     ) {
       throw new Error('Unexpected repository MCP tools')
     }
+
     const response = await fetch(config.url, {
       method: 'POST',
       headers: {
@@ -65,15 +69,18 @@ if (scenario === 'hang' || scenario === 'ignore-signals') {
         params: { name: 'regent_status', arguments: { text: 'Consultando el repositorio' } },
       }),
     })
+
     if (!response.ok) throw new Error(`Internal MCP: HTTP ${response.status}`)
   }
+
   const text = `Respuesta: ${prompt.trim()}`
   emit({
     type: 'stream_event',
     event: { type: 'content_block_delta', delta: { type: 'text_delta', text } },
   })
   await new Promise((resolve) => setTimeout(resolve, Number(process.env.FAKE_CLAUDE_DELAY ?? 20)))
-  if (scenario !== 'no-result')
+
+  if (scenario !== 'no-result') {
     emit({
       type: 'result',
       subtype: scenario === 'error' ? 'error_during_execution' : 'success',
@@ -84,4 +91,5 @@ if (scenario === 'hang' || scenario === 'ignore-signals') {
       usage: { input_tokens: 10, output_tokens: 5 },
       permission_denials: [],
     })
+  }
 }

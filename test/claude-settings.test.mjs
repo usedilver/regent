@@ -6,6 +6,7 @@ import path from 'node:path'
 import { ensureBypassAccepted } from '../src/execution/claude-settings.ts'
 
 let failed = 0
+
 const check = (name, fn) => {
   try {
     fn()
@@ -15,8 +16,10 @@ const check = (name, fn) => {
     console.error(`  ✗ ${name}: ${err.message}`)
   }
 }
+
 const tmp = () =>
   path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cs-')), '.claude', 'settings.json')
+
 console.log('claude-settings:')
 
 check('sin settings.json: lo crea con el flag', () => {

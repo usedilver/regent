@@ -1,8 +1,8 @@
 /**
- * Ajustes globales de claude que un agente desatendido no puede contestar solo.
- * El primer arranque en modo bypass muestra un aviso ("Bypass Permissions mode…")
- * que espera Enter; `skipDangerousModePermissionPrompt` en la config de usuario
- * lo omite. Se siembra una vez; si el archivo está corrupto no se toca.
+ * Global Claude settings that an unattended agent cannot answer on its own. The first run in
+ * bypass mode shows a "Bypass Permissions mode…" notice that waits for Enter;
+ * `skipDangerousModePermissionPrompt` in the user settings skips it. Seeded once; a corrupt
+ * file is left alone.
  */
 import fs from 'node:fs'
 import os from 'node:os'
@@ -14,6 +14,7 @@ export function ensureBypassAccepted(
   settingsPath = USER_SETTINGS_PATH,
 ): 'seeded' | 'already' | 'unreadable' {
   let settings: Record<string, unknown> = {}
+
   if (fs.existsSync(settingsPath)) {
     try {
       settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'))
@@ -21,6 +22,7 @@ export function ensureBypassAccepted(
       return 'unreadable'
     }
   }
+
   if (settings.skipDangerousModePermissionPrompt === true) return 'already'
   settings.skipDangerousModePermissionPrompt = true
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true })
@@ -28,10 +30,11 @@ export function ensureBypassAccepted(
   return 'seeded'
 }
 
-/** Busca un archivo desde `from` hacia arriba, sin salir de $HOME. */
+/** Walks up from `from` looking for a file, without leaving $HOME. */
 export function findUp(name: string, from: string): string | null {
   const home = process.env.HOME ?? '/'
   let cur = path.resolve(from)
+
   for (let i = 0; i < 12; i++) {
     const candidate = path.join(cur, name)
     if (fs.existsSync(candidate)) return candidate
@@ -39,12 +42,14 @@ export function findUp(name: string, from: string): string | null {
     if (parent === cur || cur === home) return null
     cur = parent
   }
+
   return null
 }
 
 export function ensureTrusted(dir: string): void {
   const cfgPath = path.join(process.env.HOME ?? '', '.claude.json')
-  if (!fs.existsSync(cfgPath)) return // primer arranque global de claude: no interferir
+  if (!fs.existsSync(cfgPath)) return // first global run of claude: stay out of the way
+
   try {
     const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'))
     cfg.projects ??= {}
@@ -57,21 +62,22 @@ export function ensureTrusted(dir: string): void {
       console.log(`[claude] trust pre-sembrado para ${dir}`)
     }
 
-    // claude busca .mcp.json hacia ARRIBA: el agente corre en un submódulo
-    // y el archivo vive en la raíz del
-    // monorepo. Mirar solo el cwd dejaba el diálogo sin pre-aprobar.
+    // claude looks for .mcp.json upwards: the agent runs in a submodule while the file lives at
+    // the monorepo root. Checking only the cwd left the dialog unapproved.
     const mcpPath = findUp('.mcp.json', dir)
+
     if (mcpPath) {
       const declared = Object.keys(JSON.parse(fs.readFileSync(mcpPath, 'utf8')).mcpServers ?? {})
       proj.enabledMcpjsonServers ??= []
       proj.disabledMcpjsonServers ??= []
-      const nuevos = declared.filter(
+      const added = declared.filter(
         (n) => !proj.enabledMcpjsonServers.includes(n) && !proj.disabledMcpjsonServers.includes(n),
       )
-      if (nuevos.length) {
-        proj.enabledMcpjsonServers.push(...nuevos)
+
+      if (added.length) {
+        proj.enabledMcpjsonServers.push(...added)
         changed = true
-        console.log(`[claude] MCP del repo aprobados: ${nuevos.join(', ')}`)
+        console.log(`[claude] MCP del repo aprobados: ${added.join(', ')}`)
       }
     }
 
