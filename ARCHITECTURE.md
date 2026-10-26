@@ -142,6 +142,11 @@ Previews preserve application-owned login and authorization. Publication and rou
 that the listening socket belongs to the authorized process group in the worktree. Linux uses
 `/proc`; macOS uses `lsof`/`ps`. Lookup failures deny routing. Expiry terminates only the owned
 process group. Closing the gateway preserves preview records/processes for restart recovery.
+In bypass mode, the internal preview `start` action launches an argv command from a real
+directory inside the reserved worktree, with the existing Bash credential/worktree checks
+and a filtered repository environment. The runtime owns the detached group rather than
+the CLI's temporary Bash task. Startup is bounded and cancellation/failure cleans up the
+owned group. Native mode rejects managed start and retains Bash permissions plus `publish`.
 The external reverse proxy publishes only MCP/OAuth routes; internal tool and health routes stay local.
 The core supplies `preview_policy` to the executor: `visual_changes` for editing with a
 configured gateway, `status_only` for queries with that gateway, otherwise `unavailable`.

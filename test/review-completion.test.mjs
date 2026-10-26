@@ -261,3 +261,39 @@ test('completion endpoint requires the active run token and rejects browser requ
   )
   assert.equal(await f.hook({ REGENT_TOOLS_URL: 'http://127.0.0.1:1/tools' }), undefined)
 })
+
+test('managed start preserves query, native permission, credential and worktree boundaries', async (t) => {
+  const query = await fixture(t, { query: true })
+  await assert.rejects(
+    query.core.tool(query.active.token, 'regent_preview', {
+      action: 'start',
+      command: ['node', 'app.mjs'],
+    }),
+    /Query/,
+  )
+  const f = await fixture(t)
+  f.core.config.permission_mode = 'native'
+  await assert.rejects(
+    f.core.tool(f.active.token, 'regent_preview', {
+      action: 'start',
+      command: ['node', 'app.mjs'],
+    }),
+    /Native mode/,
+  )
+  f.core.config.permission_mode = 'bypass'
+  await assert.rejects(
+    f.core.tool(f.active.token, 'regent_preview', {
+      action: 'start',
+      directory: '..',
+      command: ['node', 'app.mjs'],
+    }),
+    /worktree/,
+  )
+  await assert.rejects(
+    f.core.tool(f.active.token, 'regent_preview', {
+      action: 'start',
+      command: ['cat', '/home/operator/.claude/.credentials.json'],
+    }),
+    /credential|credencial/i,
+  )
+})

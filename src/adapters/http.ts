@@ -18,7 +18,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   regent_git_read:
     'Read Git history, diffs, status, registered worktrees or tracked files using literal argument arrays, without a shell. Use directory for a submodule inside the selected project. Output is bounded; narrow large requests. No commits, checkouts or write/output options.',
   regent_preview:
-    'Preview temporal del worktree de esta conversacion. reserve asigna puerto y URL; inicia la app con Bash, luego publish verifica el PID y su respuesta. La app conserva su login y permisos. status consulta y stop libera el preview. Prefiere el preview del PR para entrega final.',
+    'Preview temporal del worktree de esta conversacion. reserve asigna puerto y URL; start inicia y publica un proceso independiente de las tareas Bash del CLI usando directory y command como lista de ejecutable/argumentos. Solo en bypass; native conserva permisos de Bash y publish. publish verifica un PID ya iniciado. La app conserva su login y permisos. status consulta y stop libera el preview. Prefiere el preview del PR para entrega final.',
 }
 
 const PolicyInput = z.object({

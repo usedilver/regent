@@ -35,7 +35,7 @@ try {
   fs.writeFileSync(path.join(repo, '.gitignore'), '.claude/worktrees/\npreview.log\n')
   fs.writeFileSync(
     path.join(repo, 'CLAUDE.md'),
-    'This is an isolated synthetic frontend fixture. Use only this repository and its built-in Node app. No subagents, commits, PRs, package installation or external services. Start with setsid node server.mjs --port PORT </dev/null >preview.log 2>&1 & and preserve its PID when a runtime is needed. Readiness checks must be bounded. The navigation in index.html and the /d/match/registros handler in server.mjs are independent; remove both when deleting that screen. Other pages must keep working.\n',
+    'This is an isolated synthetic frontend fixture. Use only this repository and its built-in Node app. No subagents, commits, PRs, package installation or external services. The development command is node server.mjs --port PORT. Use managed start when available; do not use temporary Bash background tasks for delivery. Readiness checks must be bounded. The navigation in index.html and the /d/match/registros handler in server.mjs are independent; remove both when deleting that screen. Other pages must keep working.\n',
   )
   const original =
     '<!doctype html><html><body><nav><a href="/">Inicio</a><a href="/d/match/registros">Match</a></nav><h1>Inicio</h1></body></html>\n'

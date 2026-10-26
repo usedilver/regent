@@ -1,5 +1,9 @@
 import { randomBytes } from 'node:crypto'
 import path from 'node:path'
+import fs from 'node:fs'
+import { quote } from 'shell-quote'
+import { launchPreview } from '../previews/launch.ts'
+import { agentEnvironment } from './agent-env.ts'
 import { redact } from '../storage/redact.ts'
 import type { Active, Core } from './core.ts'
 import { History } from './history.ts'
@@ -78,6 +82,47 @@ async function preview(call: ToolCall) {
 
   core.store.event(active.run.id, 'preview_attempt', { action: args.action })
 
+  if (args.action === 'start') {
+    if (core.config.permission_mode === 'native') {
+      throw new Error(
+        'Native mode requires starting the app through Bash with repository permissions, then publish. Managed start is available only in bypass mode.',
+      )
+    }
+    active.previewAttempted = true
+    if (!args.command)
+      throw new Error('Indica command como una lista de ejecutable y argumentos, sin shell.')
+    const root = isolationFor(conversation.cwd, key).dir
+    const directory = fs.realpathSync(path.resolve(root, args.directory))
+    if (!isInside(root, directory))
+      throw new Error('Inicia la app dentro del worktree de esta conversacion.')
+    const denial = core.permission(call.token, {
+      tool_name: 'Bash',
+      cwd: directory,
+      tool_input: { command: quote(args.command) },
+    })
+    if (denial) throw new Error(denial)
+    const env = agentEnvironment(core.config, core.secretKeys, conversation.cwd)
+    for (const name of Object.keys(env)) {
+      if (
+        name.startsWith('REGENT_') ||
+        name.startsWith('CLAUDE_') ||
+        name === 'ANTHROPIC_API_KEY' ||
+        name === 'WATCH_REPORT_DEPENDENCIES'
+      )
+        delete env[name]
+    }
+    const published = await launchPreview(
+      previews,
+      key,
+      directory,
+      args.command,
+      env,
+      active.abort.signal,
+    )
+    active.previewPublished = published.ready
+    return published
+  }
+
   if (args.action === 'publish') {
     active.previewAttempted = true
     if (!args.pid) {
@@ -102,8 +147,9 @@ async function preview(call: ToolCall) {
   }
   return {
     ...reservation,
+    managed_start: core.config.permission_mode === 'bypass',
     instruction:
-      'Inicia la app en este worktree usando el puerto reservado y bind 127.0.0.1. Usa Bash y las instrucciones del repo, con un proceso independiente (setsid en Linux), conserva su PID y luego llama publish. Conserva el login y los permisos de la app; el proxy no agrega autenticacion. Configura cookies, redirecciones y origenes permitidos para el host de preview segun las instrucciones del proyecto. Comparte el URL solo cuando publish confirme ready.',
+      'Inicia la app en este worktree usando el puerto reservado y bind 127.0.0.1. Si managed_start=true usa action=start con directory relativo al worktree y command como lista de ejecutable y argumentos, por ejemplo ["pnpm","dev","--port","PUERTO","--hostname","127.0.0.1"]. Regent inicia, conserva el proceso y publica al estar listo; no depende de tareas temporales de Bash. Usa el comando real del proyecto. Si managed_start=false usa Bash con los permisos nativos del repo y luego publish con un PID independiente; no evadas denegaciones. Conserva el login y los permisos de la app; el proxy no agrega autenticacion. Configura cookies, redirecciones y origenes permitidos para el host de preview segun las instrucciones del proyecto. Comparte el URL solo cuando start o publish confirme ready.',
   }
 }
 

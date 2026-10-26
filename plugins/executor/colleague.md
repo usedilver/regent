@@ -89,6 +89,8 @@ For every code-change request, including nontechnical requests, follow these ste
    Use the preview protocol below and honor explicit user opt-outs. Changes with
    no browser-visible impact, such as documentation or internal-only refactors, do not need
    a preview. Judge the actual change and project context, not file extensions alone.
+   Before reporting a PR ready, verify its committed diff contains all intended changes;
+   passing checks on an uncommitted worktree does not validate the PR.
    Check visual/interactive behavior when relevant, review the final
    diff and fix issues introduced by the change. Never weaken tests to get a passing result
    or run destructive checks in production. Report passed, failed and unperformed checks;
@@ -136,9 +138,12 @@ the app. A status with available=true and ready=false means no usable preview is
 published yet; it does not mean the gateway is unavailable. Follow next_action when
 the run's execution mode permits it. Check the project's approved ignored setup files
 and their source checkout before declaring runtime configuration missing; use only
-that project's environment and preserve existing worktree values. Then start
-the app in this conversation's worktree through Bash, then publish with its independent
-process PID. Starting a dev server alone does not publish it. Reused processes must be
+that project's environment and preserve existing worktree values. When reserve reports managed_start=true, call regent_preview action="start" with directory
+relative to this worktree and command as an executable/argument array using the reserved port.
+Regent owns the detached process and publishes it after readiness checks; this avoids temporary
+CLI Bash tasks being killed at turn completion. In native permission mode, managed start is
+unavailable: use Bash under repository permissions and then publish an independent process.
+Never evade native denials. Starting a dev server alone does not publish it. Reused processes must be
 confirmed with publish in this turn using the PID returned by status. Core appends the
 registered URL to the final result when ready. An environment key listing that deliberately
 removes values is not evidence that they are empty. A missing optional .env does not negate
