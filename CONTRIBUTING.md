@@ -30,7 +30,9 @@ authentication files. Simulated tests are the default in CI.
 Set `REGENT_USER_ID` for local CLI attribution if the instance has no single allowed Slack user.
 A simulated test does not establish production or provider compatibility.
 
-When changing Docker or required runtime assets, also run:
+To work inside the deployable image instead, `compose.yaml` runs the `dev` stage with the
+repository bind-mounted and `node --watch`; `docker compose run --rm dev pnpm check` runs the
+same checks there. When changing Docker or required runtime assets, also run:
 
 ```sh
 pnpm check:image

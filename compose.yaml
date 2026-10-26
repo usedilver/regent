@@ -1,0 +1,35 @@
+# Development environment: Regent under `node --watch` inside the production image's toolchain
+# (Node 22, pnpm, the official Claude CLI, git, gh, Python). The repository is bind-mounted, so an
+# edit restarts the server in the container the same way `pnpm dev` does on the host.
+#
+#   docker compose up --build        # Slack + MCP, like `pnpm dev`
+#   docker compose run --rm dev pnpm check   # the CI checks inside the image
+#   docker compose exec dev claude   # log the container's Claude CLI in (kept in the home volume)
+#
+# REGENT_PROJECTS (default ~/Projects) is mounted at /home/node/Projects, so a config with
+# `repos.path: ~/Projects` works unchanged. Secrets come from .env; the database is separate from
+# the host instance's. Stop any other instance using the same Slack app token first: two
+# connected processes split its events between them.
+services:
+  dev:
+    build:
+      context: .
+      target: dev
+    init: true
+    env_file: .env
+    environment:
+      # Bind inside the container only; the host still reaches it through loopback below.
+      REGENT_HOST: 0.0.0.0
+      REGENT_PORT: ${REGENT_PORT:-8788}
+      REGENT_DB: log/dev.sqlite
+    ports:
+      - '127.0.0.1:${REGENT_PORT:-8788}:${REGENT_PORT:-8788}'
+    volumes:
+      - .:/app
+      - node_modules:/app/node_modules
+      - home:/home/node
+      - ${REGENT_PROJECTS:-${HOME}/Projects}:/home/node/Projects
+
+volumes:
+  node_modules:
+  home:

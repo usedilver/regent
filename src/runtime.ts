@@ -25,6 +25,7 @@ export interface RuntimeOptions {
   store?: Store
   port?: number
   /** Bind address. Loopback unless a container needs to publish the port; see compose.yaml. */
+  host?: string
 }
 
 const DEFAULT_PORT = 8788
@@ -124,6 +125,7 @@ async function closeAll(steps: Array<() => unknown>): Promise<void> {
 
 export function createRuntime(config: Config, options: RuntimeOptions) {
   const port = options.port ?? runtimePort(process.env.REGENT_PORT, config.previews)
+  const host = options.host ?? process.env.REGENT_HOST ?? '127.0.0.1'
   const cwd = workspaceDir(config)
   const access = loadAccess(config)
   const store =
@@ -183,7 +185,7 @@ export function createRuntime(config: Config, options: RuntimeOptions) {
           throw closingError()
         }
 
-        await http.listen(port)
+        await http.listen(port, host)
         if (core.stopping) throw closingError()
         const address = server.address()
 
