@@ -3,11 +3,18 @@ import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 
+/** True when `target` is `root` itself or lives below it. Both paths must already be absolute. */
+export function isInside(root: string, target: string): boolean {
+  const relative = path.relative(root, target)
+  return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+}
+
 export function requireSameProject(current: string, target: string): void {
-  if (current !== target)
+  if (current !== target) {
     throw new Error(
       'Esta conversación está vinculada a otro proyecto. Abre una nueva conversación (un hilo nuevo en Slack) y selecciona allí el proyecto antes de continuar. Los servicios y submódulos del mismo proyecto sí pueden compartir esta sesión.',
     )
+  }
 }
 
 export function isolationFor(repo: string, conversation: string) {
@@ -16,26 +23,31 @@ export function isolationFor(repo: string, conversation: string) {
     .update(JSON.stringify([root, conversation]))
     .digest('hex')
     .slice(0, 24)}`
+
   return { name, dir: path.join(root, '.claude', 'worktrees', name) }
 }
 
 export function resolveRepository(workspace: string, value: string): string {
   const root = fs.realpathSync(workspace)
   const dir = fs.realpathSync(path.resolve(root, value))
-  const relative = path.relative(root, dir)
-  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+
+  if (!isInside(root, dir)) {
     throw new Error('El proyecto debe estar dentro del workspace autorizado.')
   }
+
   if (!fs.statSync(dir).isDirectory() || !fs.existsSync(path.join(dir, '.git'))) {
     throw new Error('Indica la raiz de un repositorio existente.')
   }
+
   return dir
 }
 
 export function projectRoot(workspace: string, repo: string): string {
   let current = resolveRepository(workspace, repo)
+
   while (true) {
     let parent: string
+
     try {
       parent = execFileSync('git', ['rev-parse', '--show-superproject-working-tree'], {
         cwd: current,
@@ -46,16 +58,14 @@ export function projectRoot(workspace: string, repo: string): string {
     } catch {
       return current
     }
+
     if (!parent) return current
     const resolved = resolveRepository(workspace, parent)
-    const relative = path.relative(resolved, current)
-    if (
-      !relative ||
-      relative === '..' ||
-      relative.startsWith(`..${path.sep}`) ||
-      path.isAbsolute(relative)
-    )
+
+    if (resolved === current || !isInside(resolved, current)) {
       throw new Error('Relacion de submodulo invalida.')
+    }
+
     current = resolved
   }
 }
@@ -66,7 +76,10 @@ export function repositoryRequest(text: string): { text: string; repo?: string }
   const match = text.match(/^repo:[ \t]*([^\r\n]+)\r?\n([\s\S]+)$/i)
   if (!match) throw new Error('Indica repo: <ruta> y la solicitud en la siguiente linea.')
   const repo = match[1].trim().replace(/^(["'])(.*)\1$/, '$2')
-  if (!repo || !match[2].trim())
+
+  if (!repo || !match[2].trim()) {
     throw new Error('Indica repo: <ruta> y la solicitud en la siguiente linea.')
+  }
+
   return { repo, text: match[2].trim() }
 }
