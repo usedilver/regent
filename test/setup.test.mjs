@@ -15,20 +15,25 @@ const configFile = path.join(root, 'config/regent.yaml')
 const example = loadConfig(path.resolve('config/regent.example.yaml'))
 assert.equal(example.permission_mode, 'bypass')
 assert.deepEqual(Object.keys(example.models).sort(), ['ask', 'patch', 'project', 'task'])
-let core, store
+let core
+let store
+
 try {
-  const repo = path.join(root, 'default'),
-    other = path.join(root, 'other repo')
+  const repo = path.join(root, 'default')
+  const other = path.join(root, 'other repo')
+
   for (const dir of [repo, other]) {
     execFileSync('git', ['init', dir], { stdio: 'ignore' })
     fs.writeFileSync(path.join(dir, '.env'), `SETUP_FIXTURE_REPO=${path.basename(dir)}\n`)
   }
+
   const result = setup(['--repo', repo, '--team', 'T1', '--user', 'U1'], configFile)
   assert.match(result, /Configuracion creada/)
   assert.match(result, /no aplica allow\/ask\/deny/)
   const original = fs.readFileSync(configFile, 'utf8')
   assert.doesNotMatch(original, /TOKEN|API_KEY|notion|policy|projects|skills/)
   const config = loadConfig(configFile)
+
   for (const allowed_users of [[], ['U1', 'U2']]) {
     const invalidFile = path.join(root, 'invalid-auth.json')
     fs.writeFileSync(
@@ -48,12 +53,14 @@ try {
         timeout: 10000,
       },
     )
+
     assert.equal(stopped.status, 0)
     assert.equal((stopped.stdout.match(/ADVERTENCIA/g) ?? []).length, 1)
     assert.match(stopped.stdout, /startup-continues/)
     assert.doesNotMatch(stopped.stderr, /at assertAuth|throw new Error|file:\/\//)
     assert.doesNotMatch(stopped.stdout, /ARRANQUE BLOQUEADO/)
   }
+
   assert.equal(config.permission_mode, 'bypass')
   assert.equal(config.slack.progress_mode, 'auto')
   assert.deepEqual(config.communication, { instructions_file: null })
@@ -65,20 +72,24 @@ try {
   assert.deepEqual(config.limits.max_run_sec, { ask: 600, patch: 1800, task: 3600, project: 7200 })
   assert.deepEqual(config.repos.agent_env_files, [])
   assert.deepEqual(config.mcp, { enabled: false, principals: [], oauth: null })
+
   for (const key of ['policy', 'projects', 'notion']) {
     assert.throws(() => ConfigSchema.parse({ ...config, [key]: {} }), /Unrecognized key/)
   }
+
   for (const [section, keys] of [
     ['repos', ['default_base_branch', 'base_branches', 'test_commands']],
     ['slack', ['ops_channel', 'digest_channel']],
     ['communication', ['audience', 'prompt']],
-  ])
+  ]) {
     for (const key of keys) {
       assert.throws(
         () => ConfigSchema.parse({ ...config, [section]: { ...config[section], [key]: null } }),
         /Unrecognized key/,
       )
     }
+  }
+
   assert.throws(
     () =>
       ConfigSchema.parse({
@@ -185,6 +196,7 @@ try {
       const done = new Promise((r) => {
         resolve = r
       })
+
       starts.push(options)
       return {
         done,
@@ -203,6 +215,7 @@ try {
     text,
     ...extra,
   })
+
   await core.submit(input('default', 'Investigate this URL https://example.org'))
   await core.submit(input('explicit', 'repo: other repo\nReview this'))
   await core.submit(input('cli', 'Review this', { adapter: 'cli', repo: 'other repo' }))
