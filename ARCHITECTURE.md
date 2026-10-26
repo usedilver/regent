@@ -147,7 +147,20 @@ The core supplies `preview_policy` to the executor: `visual_changes` for editing
 configured gateway, `status_only` for queries with that gateway, otherwise `unavailable`.
 The executor includes a preview by default for user-visible or interactive changes unless
 the user opts out; project context determines relevance across frameworks. Internal-only
-changes do not require previews. Blocked visual review remains explicit. This policy guides
+changes do not require previews. The executor declares a typed visual assessment through
+`regent_status.review`. A native CLI Stop hook checks this contract over the authenticated
+loopback endpoint and allows at most two corrective continuations, within the existing deadline.
+It does not infer UI relevance from prose or filenames. Queries, cancellation, waiting and
+disabled previews do not enter this check. A claimed blocker requires a publication attempt
+or failed reservation; reserving a port alone is insufficient. Setup evidence contains only
+ignored environment file presence and key counts, never values.
+Core checks delivery again at settlement even if a hook fails. `run.delivery` records a ready,
+externally reported, not-applicable, blocked or missing review. Ready requires publication in
+this turn, owned listener/process and public HTTPS reachability; it does not prove authenticated
+UI correctness. External URLs remain explicitly agent-reported. Core inserts the known link
+into stored/final output or marks visual review pending, independently of the agent prose.
+The terminal run state still describes execution; clients must also report unresolved delivery.
+Blocked visual review remains explicit. This policy guides
 execution and does not relax query permissions or authorize production deployment.
 Explicit requests to run a preview use the operational `task` profile; questions about previews
 and explicit query limits remain read-only. MCP status includes an additive `preview` field for

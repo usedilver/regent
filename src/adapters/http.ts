@@ -6,10 +6,11 @@ import type { Core } from '../core/core.ts'
 import { ToolSchemas } from '../core/tool-schemas.ts'
 import { BodyTooLarge, InvalidJson, readJsonBody } from './body.ts'
 import type { ExternalMcp } from './mcp/server.ts'
+import { completionCheck } from '../core/review.ts'
 
 const MAX_BODY_BYTES = 1024 * 1024
 /** Routes only the agent's own CLI process reaches, authenticated by its run token. */
-const RUN_ROUTES = ['/tools', '/hook-denial', '/tool-policy']
+const RUN_ROUTES = ['/tools', '/hook-denial', '/tool-policy', '/completion-check']
 
 const TOOL_DESCRIPTIONS: Record<string, string> = {
   regent_read_history:
@@ -117,6 +118,10 @@ async function handleRunRequest(
     const { reason } = HookDenial.parse(payload)
     core.store.event(active.run.id, 'permission_denied', { reason })
     return send(200, { ok: true })
+  }
+
+  if (request.url === '/completion-check') {
+    return send(200, await completionCheck(core, active))
   }
 
   await serveTools(core, token, payload, request, response)

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { failureMessage, type ExecutionFailure } from '../execution/failures.ts'
+import { ReviewAssessment } from './review.ts'
 
 export function progressText(tool: string): string {
   if (
@@ -46,6 +47,9 @@ export type DevelopmentPhase = z.infer<typeof DevelopmentPhase>
 
 export const StatusRequest = z
   .object({
+    review: ReviewAssessment.optional().describe(
+      'Visual delivery assessment for an editing run. Required includes UI removal; blocked requires an actual preview attempt. Never infer empty environment from redacted values.',
+    ),
     phase: DevelopmentPhase.optional().describe(
       'Development phase being started; not proof of completion.',
     ),

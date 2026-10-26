@@ -26,7 +26,14 @@ checks live in `test/smoke/` and require explicit opt-in and the operator's own 
 `REGENT_SMOKE=1 node test/smoke/on-demand-worktrees.mjs` checks query → edit → query with the
 unmodified CLI, a temporary repository and a synthetic project MCP. It incurs normal provider
 usage, keeps source files unchanged and removes its temporary files; it never inspects or copies
-authentication files. Simulated tests are the default in CI.
+authentication files. `REGENT_SMOKE=1 REGENT_SMOKE_PREVIEW_DOMAIN=<domain> node test/smoke/visual-delivery.mjs`
+checks automatic visual delivery through MCP and the real CLI using a synthetic frontend.
+It requires an exclusively available preview gateway listener already routed through public
+HTTPS (default port 8791, override with `REGENT_SMOKE_GATEWAY_PORT`). Never run it against
+an occupied listener. It uses a temporary SQLite database, preserves source files, checks
+the native Stop hook and removes its preview/process/files after checking the public page.
+It does not validate business data or an authenticated application session.
+Simulated tests are the default in CI.
 Set `REGENT_USER_ID` for local CLI attribution if the instance has no single allowed Slack user.
 A simulated test does not establish production or provider compatibility.
 

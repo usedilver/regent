@@ -16,6 +16,7 @@ import { prepareImages } from './images.ts'
 import { resolveIdentity, type Identity } from './identity.ts'
 import { failedText, interruptedText } from './progress.ts'
 import { isolationFor } from './repository.ts'
+import { reviewDelivery, reviewText } from './review.ts'
 import type { Conversation, Run, RunState } from './types.ts'
 
 const HEARTBEAT_MS = 45000
@@ -438,8 +439,12 @@ export class Turn {
     const error = this.stopReason() ?? result.error
     const failure = this.terminalFailure(state, result, error)
     if (failure) this.core.store.event(this.run.id, 'execution_failure', failure)
+    const delivery =
+      state === 'completed' ? await reviewDelivery(this.core, this.active) : undefined
+    if (delivery) this.core.store.event(this.run.id, 'delivery_review', delivery)
+    const reviewed = { ...result, text: reviewText(delivery, result.text) }
 
-    this.core.store.finish(this.run.id, state, result.text, error, () => {
+    this.core.store.finish(this.run.id, state, reviewed.text, error, () => {
       const delivered = state === 'completed' || state === 'waiting_human'
 
       if (deliveredSession && !this.active.contextChanged && delivered) {
@@ -447,7 +452,7 @@ export class Turn {
       }
     })
 
-    const text = this.replyText(state, result, failure, error)
+    const text = this.replyText(state, reviewed, failure, error)
     this.core.publish(this.active, () =>
       this.core.output.finish(this.conversation, this.run, redact(text)),
     )

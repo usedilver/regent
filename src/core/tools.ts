@@ -67,7 +67,7 @@ async function preview(call: ToolCall) {
 
   if (args.action === 'status') {
     const current = previews.get(key)
-    if (current) return { available: true, ...previews.result(current) }
+    if (current) return { available: true, ...previews.result(current), pid: current.pid }
     return {
       available: true,
       ready: false,
@@ -76,20 +76,32 @@ async function preview(call: ToolCall) {
     }
   }
 
+  core.store.event(active.run.id, 'preview_attempt', { action: args.action })
+
   if (args.action === 'publish') {
+    active.previewAttempted = true
     if (!args.pid) {
       throw new Error('Indica el PID del proceso independiente que iniciaste en el worktree.')
     }
 
-    return previews.publish(key, args.pid)
+    const published = await previews.publish(key, args.pid)
+    active.previewPublished = published.ready
+    return published
   }
 
   const reason = await core.prepareWorkspace(call.token)
   if (reason) throw new Error(reason)
   const directory = isolationFor(conversation.cwd, key).dir
 
+  let reservation
+  try {
+    reservation = await previews.reserve(key, directory)
+  } catch (error) {
+    active.previewAttempted = true
+    throw error
+  }
   return {
-    ...(await previews.reserve(key, directory)),
+    ...reservation,
     instruction:
       'Inicia la app en este worktree usando el puerto reservado y bind 127.0.0.1. Usa Bash y las instrucciones del repo, con un proceso independiente (setsid en Linux), conserva su PID y luego llama publish. Conserva el login y los permisos de la app; el proxy no agrega autenticacion. Configura cookies, redirecciones y origenes permitidos para el host de preview segun las instrucciones del proyecto. Comparte el URL solo cuando publish confirme ready.',
   }
@@ -226,6 +238,11 @@ function switchProject(
 
 async function status({ core, active, conversation, input }: ToolCall) {
   const args = ToolSchemas.regent_status.parse(input)
+  if (args.review) {
+    if (active.readOnly) throw new Error('Query mode cannot declare an editing review.')
+    active.review = { ...args.review, reason: redact(args.review.reason) }
+    core.store.event(active.run.id, 'review_assessment', active.review)
+  }
   const text = redact(args.text ?? args.status!)
   const phaseChanged = args.phase !== undefined && args.phase !== active.lastPhase
 

@@ -32,6 +32,7 @@ import {
 import { RoomTransfers } from './rooms.ts'
 import { CORE_TOOLS, isToolName } from './tools.ts'
 import { Turn } from './turn.ts'
+import type { ReviewAssessment } from './review.ts'
 import type { Conversation, Inbound, Output, Rooms, Run } from './types.ts'
 
 /** Tools the agent may still call once the turn is in its wrap-up margin. */
@@ -74,6 +75,10 @@ export interface Active {
   executionDir?: string
   workspace?: ProjectWorkspace
   workspacePreparation?: Promise<ProjectWorkspace>
+  review?: ReviewAssessment
+  reviewRetries?: number
+  previewAttempted?: boolean
+  previewPublished?: boolean
 }
 
 export interface CoreOptions {

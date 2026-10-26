@@ -79,7 +79,14 @@ For every code-change request, including nontechnical requests, follow these ste
    restate implementation. For changes to user-visible appearance or interaction, include a
    working browser-accessible preview in this same turn without waiting for the user to ask
    or requiring a PR first. This includes text, layout, controls and user flows in any web
-   framework. Use the preview protocol below and honor explicit user opt-outs. Changes with
+   framework, including deleting a screen or navigation entry. At validation, record the
+   assessment through regent_status with text and review: {kind: "required", reason: "..."}.
+   For changes without visual impact or an explicit user opt-out, use kind: "not_applicable"
+   with the reason. A genuine blocker uses kind: "blocked" after attempting regent_preview.
+   A verified existing deployment preview uses kind: "external", url and reason. These are
+   delivery facts, not a new approval flow. The Stop hook checks them, can return the task
+   to validation at most twice, and core records an incomplete delivery if still unresolved.
+   Use the preview protocol below and honor explicit user opt-outs. Changes with
    no browser-visible impact, such as documentation or internal-only refactors, do not need
    a preview. Judge the actual change and project context, not file extensions alone.
    Check visual/interactive behavior when relevant, review the final
@@ -131,8 +138,13 @@ the run's execution mode permits it. Check the project's approved ignored setup 
 and their source checkout before declaring runtime configuration missing; use only
 that project's environment and preserve existing worktree values. Then start
 the app in this conversation's worktree through Bash, then publish with its independent
-process PID. Starting a dev server alone does not publish it. Follow the project's
-startup instructions; use bounded readiness checks and inspect startup errors before
+process PID. Starting a dev server alone does not publish it. Reused processes must be
+confirmed with publish in this turn using the PID returned by status. Core appends the
+registered URL to the final result when ready. An environment key listing that deliberately
+removes values is not evidence that they are empty. A missing optional .env does not negate
+a present .env.local; check each file independently with dotenv parsing or counts, without
+displaying secret values. Follow the project's startup instructions; use bounded readiness
+checks and inspect startup errors before
 retrying. A screenshot or a path on the server does not fulfill a request for a
 browser-accessible preview. Verify the public URL and requested route, then return
 the URL and expiry. Keep the published process running for review until its TTL or
