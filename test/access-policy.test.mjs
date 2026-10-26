@@ -21,13 +21,16 @@ const document = (users = ['U1'], emails = ['alice@example.test']) => ({
   slack: { allowed_users: users },
   oauth: { allowed_emails: emails },
 })
+
 const until = async (condition, timeout = 5000) => {
   const deadline = Date.now() + timeout
+
   while (!condition()) {
     if (Date.now() >= deadline) throw new Error('Condition timed out')
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
 }
+
 function fixture(t) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-access-')))
   t.after(() => fs.rmSync(root, { recursive: true, force: true }))
@@ -40,8 +43,10 @@ function fixture(t) {
     repos: { path: root },
     slack: { workspace_team_id: 'T1', allowed_users: ['STALE'] },
   })
+
   return { root, file, write, config }
 }
+
 function reloader(config, report = () => {}, changed) {
   const loaded = loadAccess(config)
   return new AccessReloader(loaded.policy, loaded.file, {
@@ -50,6 +55,7 @@ function reloader(config, report = () => {}, changed) {
     changed,
   })
 }
+
 const inbound = (eventId, author = 'U1', key = 'shared') => ({
   adapter: 'slack',
   key,
@@ -60,6 +66,7 @@ const inbound = (eventId, author = 'U1', key = 'shared') => ({
   text: 'Review this',
 })
 const result = { state: 'completed', text: 'done', error: '', cost: 0, usage: {} }
+
 function queuedCore(t, config, policy) {
   const store = new Store(':memory:')
   const controllers = []
@@ -84,10 +91,12 @@ function queuedCore(t, config, policy) {
           finish(result)
         },
       }
+
       controllers.push(controller)
       return controller
     },
   })
+
   t.after(async () => {
     await core.close()
     store.close()
@@ -97,8 +106,9 @@ function queuedCore(t, config, policy) {
 
 test('policy snapshots are immutable, normalized and atomically replaced', () => {
   const policy = new AccessPolicy(document(['U2', 'U1', 'U1'], ['ALICE@example.test']))
-  const original = policy.snapshot,
-    version = policy.version
+  const original = policy.snapshot
+  const version = policy.version
+
   assert.deepEqual(original.slack.allowed_users, ['U1', 'U2'])
   assert.ok(policy.allowsOAuth('Alice@example.test'))
   assert.throws(() => original.slack.allowed_users.push('U3'), TypeError)
@@ -110,8 +120,9 @@ test('policy snapshots are immutable, normalized and atomically replaced', () =>
 })
 
 test('external policy overrides inline lists, resolves installation-relative paths and fails closed at startup', (t) => {
-  const f = fixture(t),
-    loaded = loadAccess(f.config)
+  const f = fixture(t)
+  const loaded = loadAccess(f.config)
+
   assert.ok(loaded.policy.allowsSlack('U1'))
   assert.ok(!loaded.policy.allowsSlack('STALE'))
   assert.equal(
@@ -132,9 +143,9 @@ test('external policy overrides inline lists, resolves installation-relative pat
 })
 
 test('invalid, missing, oversized and partial files retain the entire last valid policy with safe diagnostics', (t) => {
-  const f = fixture(t),
-    logs = [],
-    loader = reloader(f.config, (message) => logs.push(message))
+  const f = fixture(t)
+  const logs = []
+  const loader = reloader(f.config, (message) => logs.push(message))
   const original = loader.policy.snapshot
   const invalid = [
     'secret: [unterminated-sensitive-value',
@@ -145,6 +156,7 @@ test('invalid, missing, oversized and partial files retain the entire last valid
     YAML.stringify({ ...document(['U2']), secret: 'sensitive-value' }),
     'x'.repeat(128 * 1024 + 1),
   ]
+
   for (const content of invalid) {
     fs.writeFileSync(f.file, content)
     assert.equal(loader.reload(), false)
@@ -153,6 +165,7 @@ test('invalid, missing, oversized and partial files retain the entire last valid
     loader.reload()
     assert.equal(logs.length, count + 1)
   }
+
   fs.unlinkSync(f.file)
   loader.reload()
   loader.reload()
@@ -170,15 +183,16 @@ test('invalid, missing, oversized and partial files retain the entire last valid
 })
 
 test('atomic replacement, reorder-only edits and recovery with identical effective policy', (t) => {
-  const f = fixture(t),
-    logs = [],
-    loader = reloader(f.config, (message) => logs.push(message))
+  const f = fixture(t)
+  const logs = []
+  const loader = reloader(f.config, (message) => logs.push(message))
   const next = f.file + '.next'
   fs.writeFileSync(next, YAML.stringify(document(['U2', 'U1'])))
   fs.renameSync(next, f.file)
   assert.equal(loader.reload(), true)
-  const version = loader.policy.version,
-    count = logs.length
+  const version = loader.policy.version
+  const count = logs.length
+
   fs.writeFileSync(f.file, '# reordered\n' + YAML.stringify(document(['U1', 'U2', 'U1'])))
   assert.equal(loader.reload(), false)
   assert.equal(loader.policy.version, version)
@@ -219,13 +233,14 @@ test('OAuth without an inline allowlist requires an external valid email policy'
 
 test('Slack membership cache never caches access-list decisions or bypasses a concurrent withdrawal', async () => {
   const policy = new AccessPolicy(document([]))
-  let calls = 0,
-    resolve
+  let calls = 0
+  let resolve
   const member = { team_id: 'T1' }
   const access = new SlackAccess(policy, 'T1', async () => {
     calls++
     return member
   })
+
   assert.ok(await access.allowed('U1'))
   assert.ok(await access.allowed('U1'))
   assert.equal(calls, 1)
@@ -241,10 +256,12 @@ test('Slack membership cache never caches access-list decisions or bypasses a co
         resolve = r
       }),
   ).allowed('U1')
+
   policy.replace(document(['U2']))
   resolve(member)
   assert.ok(!(await pending))
   policy.replace(document([]))
+
   for (const denied of [
     { team_id: 'OTHER' },
     { ...member, deleted: true },
@@ -300,8 +317,8 @@ test('withdrawal interrupts only that author’s queued work, while active work 
 })
 
 test('admission rechecks run authors, preserves manual pauses and retains withdrawal when preparation fails', async (t) => {
-  const f = fixture(t),
-    policy = loadAccess(f.config).policy
+  const f = fixture(t)
+  const policy = loadAccess(f.config).policy
   const { core, store, controllers } = queuedCore(t, f.config, policy)
   const bad = store.accept(inbound('bad', 'U1', 'mixed'), f.root)
   const good = store.accept(inbound('good', 'U2', 'mixed'), f.root)
@@ -322,6 +339,7 @@ test('admission rechecks run authors, preserves manual pauses and retains withdr
         reject = no
       }),
   )
+
   await until(() => Boolean(reject))
   policy.replace(document(['U2']))
   core.pump()
@@ -354,6 +372,7 @@ for (const mode of ['slack', 'mcp']) {
           ? { output, connected: () => true, async start() {}, async stop() {} }
           : undefined,
     })
+
     t.after(() => runtime.close())
     await runtime.start()
     assert.equal(process.listenerCount('SIGHUP'), before.length + 1)
@@ -375,8 +394,9 @@ for (const mode of ['slack', 'mcp']) {
 
 test('a real executor subprocess finishes after SIGHUP withdraws access without signalling the executor', async (t) => {
   const f = fixture(t)
-  const probe = path.join(f.root, 'executor.mjs'),
-    marker = path.join(f.root, 'pid')
+  const probe = path.join(f.root, 'executor.mjs')
+  const marker = path.join(f.root, 'pid')
+
   fs.writeFileSync(
     probe,
     `import fs from 'node:fs'
@@ -421,8 +441,8 @@ console.log(JSON.stringify({type:'result',result:'completed after withdrawal',to
 })
 
 test('failed startup removes the reload signal handler', async (t) => {
-  const f = fixture(t),
-    store = new Store(':memory:')
+  const f = fixture(t)
+  const store = new Store(':memory:')
   const runtime = createRuntime(f.config, {
     store,
     claudeVersion: 'fixture',
@@ -444,7 +464,7 @@ test('failed startup removes the reload signal handler', async (t) => {
   await runtime.close()
 })
 
-for (const devMode of [false, true])
+for (const devMode of [false, true]) {
   test(
     `${devMode ? 'development watcher' : 'normal process'} requires an explicit signal and preserves its PID`,
     { skip: devMode && process.platform !== 'darwin' },
@@ -459,6 +479,7 @@ for (const devMode of [false, true])
       const dev = devMode
         ? JSON.parse(fs.readFileSync('package.json', 'utf8')).scripts.dev.split(' ').slice(1)
         : ['fixture']
+
       dev[dev.length - 1] = path.resolve('test/fixtures/access-runtime.mjs')
       let logs = ''
       const child = spawn(process.execPath, dev, {
@@ -472,6 +493,7 @@ for (const devMode of [false, true])
           ACCESS_STORE_MODULE: pathToFileURL(path.resolve('src/storage/store.ts')).href,
         },
       })
+
       child.stdout.on('data', (chunk) => {
         logs += chunk
       })
@@ -483,8 +505,10 @@ for (const devMode of [false, true])
         try {
           process.kill(-child.pid, 'SIGTERM')
         } catch {}
+
         await stopped
       })
+
       const status = () => {
         try {
           return JSON.parse(fs.readFileSync(path.join(f.root, 'status.json'), 'utf8'))
@@ -492,6 +516,7 @@ for (const devMode of [false, true])
           return undefined
         }
       }
+
       await until(() => status()?.users.includes('U1'))
       const pid = status().pid
       fs.writeFileSync(file, YAML.stringify(document(['U2'])))
@@ -503,10 +528,12 @@ for (const devMode of [false, true])
       assert.doesNotMatch(logs, /Restarting/)
     },
   )
+}
 
 test('automatic profile continuations recheck authorization before starting', async (t) => {
-  const f = fixture(t),
-    policy = loadAccess(f.config).policy
+  const f = fixture(t)
+  const policy = loadAccess(f.config).policy
+
   fs.mkdirSync(path.join(f.root, '.git'))
   const { core, store, controllers } = queuedCore(t, f.config, policy)
   await core.submit({ ...inbound('switch'), text: '/task Review this' })
@@ -518,6 +545,7 @@ test('automatic profile continuations recheck authorization before starting', as
     intent: 'project',
     handoff: 'Continue the work',
   })
+
   assert.ok(selected.switching)
   controllers[0].finish()
   await until(() => core.active.size === 0)
@@ -532,8 +560,8 @@ test('automatic profile continuations recheck authorization before starting', as
 })
 
 test('an explicit startup reload does not admit queued work before recovery', async (t) => {
-  const f = fixture(t),
-    store = new Store(':memory:')
+  const f = fixture(t)
+  const store = new Store(':memory:')
   const denied = store.accept(inbound('denied', 'U1', 'one'), f.root)
   const allowed = store.accept(inbound('allowed', 'U2', 'two'), f.root)
   const controllers = []
@@ -554,6 +582,7 @@ test('an explicit startup reload does not admit queued work before recovery', as
       },
     },
   )
+
   runtime.core.runner = () => {
     let finish
     const done = new Promise((resolve) => {
@@ -563,6 +592,7 @@ test('an explicit startup reload does not admit queued work before recovery', as
     controllers.push(controller)
     return controller
   }
+
   t.after(() => runtime.close())
   await runtime.start()
   await until(() => controllers.length === 1)

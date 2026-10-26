@@ -2,8 +2,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { isInside } from './repository.ts'
 
 const execute = promisify(execFile)
+
 export const GitReadOperations = [
   'log',
   'show',
@@ -15,44 +17,47 @@ export const GitReadOperations = [
   'rev-parse',
   'worktrees',
 ] as const
+
 const operations = new Set<string>(GitReadOperations)
-export async function queryGit(
-  root: string,
-  operation: string,
-  args: string[],
-  directory = '.',
-  signal?: AbortSignal,
-) {
-  if (!operations.has(operation)) throw new Error('Git operation is not a reader.')
-  const forbidden = [
-    '--output',
-    '--ext-diff',
-    '--textconv',
-    '--no-index',
-    '--exec',
-    '--config-env',
-    '--git-dir',
-    '--work-tree',
-    '--show-signature',
-  ]
-  if (
-    args.some(
-      (arg) =>
-        (arg !== '--' &&
-          arg.startsWith('--') &&
-          forbidden.some((flag) => flag.startsWith(arg.split('=')[0]))) ||
-        /\.credentials\.json|\.claude\.json/.test(arg),
-    )
-  )
+const GIT_TIMEOUT_MS = 15000
+const OUTPUT_BYTES = 512 * 1024
+const CREDENTIAL_FILES = /\.credentials\.json|\.claude\.json/
+/** Options that write, run external programs or escape the repository. */
+const FORBIDDEN_FLAGS = [
+  '--output',
+  '--ext-diff',
+  '--textconv',
+  '--no-index',
+  '--exec',
+  '--config-env',
+  '--git-dir',
+  '--work-tree',
+  '--show-signature',
+]
+const BASE_FLAGS = [
+  '--no-pager',
+  '-c',
+  'core.fsmonitor=false',
+  '-c',
+  'core.hooksPath=/dev/null',
+  '-c',
+  'core.pager=cat',
+]
+
+function assertReadOnlyArgs(args: string[]): void {
+  const forbidden = (arg: string) =>
+    arg !== '--' &&
+    arg.startsWith('--') &&
+    FORBIDDEN_FLAGS.some((flag) => flag.startsWith(arg.split('=')[0]))
+
+  if (args.some((arg) => forbidden(arg) || CREDENTIAL_FILES.test(arg))) {
     throw new Error('Git option is not allowed in query mode.')
-  const base = fs.realpathSync(root),
-    cwd = fs.realpathSync(path.resolve(base, directory))
-  const relative = path.relative(base, cwd)
-  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
-    throw new Error(
-      'Read Git inside the selected project; use regent_use_repo for another project.',
-    )
-  const env: NodeJS.ProcessEnv = {
+  }
+}
+
+/** A minimal environment: no user config, no prompts, no pager. */
+function readerEnv(): NodeJS.ProcessEnv {
+  return {
     PATH: process.env.PATH,
     HOME: process.env.HOME,
     LANG: process.env.LANG,
@@ -61,52 +66,82 @@ export async function queryGit(
     GIT_CONFIG_COUNT: '0',
     GIT_PAGER: 'cat',
   }
-  const common = [
-    '--no-pager',
-    '-c',
-    'core.fsmonitor=false',
-    '-c',
-    'core.hooksPath=/dev/null',
-    '-c',
-    'core.pager=cat',
-  ]
-  // Read-only Git commands can still run configured clean/process filters. Disable them
-  // for this invocation rather than changing repository configuration.
-  let filters = ''
+}
+
+/**
+ * Read-only Git commands can still run configured clean/smudge/process filters. Returns the
+ * `-c` overrides that disable them for this invocation, without touching the repository config.
+ */
+async function filterOverrides(
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  let configured = ''
+
   try {
-    filters = (
-      await execute(
-        'git',
-        [
-          ...common,
-          'config',
-          '--null',
-          '--name-only',
-          '--get-regexp',
-          '^filter\..*\.(clean|smudge|process|required)$',
-        ],
-        { cwd, env, signal, timeout: 15000, maxBuffer: 65536, encoding: 'utf8' },
-      )
-    ).stdout
+    const result = await execute(
+      'git',
+      [
+        ...BASE_FLAGS,
+        'config',
+        '--null',
+        '--name-only',
+        '--get-regexp',
+        '^filter\\..*\\.(clean|smudge|process|required)$',
+      ],
+      { cwd, env, signal, timeout: GIT_TIMEOUT_MS, maxBuffer: 65536, encoding: 'utf8' },
+    )
+
+    configured = result.stdout
   } catch (error) {
+    // Exit code 1 only means that no filter is configured.
     if ((error as { code?: number }).code !== 1) throw error
   }
-  for (const key of filters.split('\0').filter(Boolean))
-    common.push('-c', key + (key.endsWith('.required') ? '=false' : '='))
-  const flags = ['log', 'show', 'diff'].includes(operation)
-    ? ['--no-ext-diff', '--no-textconv']
-    : operation === 'blame'
-      ? ['--no-textconv']
-      : []
+
+  return configured
+    .split('\0')
+    .filter(Boolean)
+    .flatMap((key) => ['-c', key + (key.endsWith('.required') ? '=false' : '=')])
+}
+
+function operationFlags(operation: string): string[] {
+  if (['log', 'show', 'diff'].includes(operation)) return ['--no-ext-diff', '--no-textconv']
+  if (operation === 'blame') return ['--no-textconv']
+  return []
+}
+
+export async function queryGit(
+  root: string,
+  operation: string,
+  args: string[],
+  directory = '.',
+  signal?: AbortSignal,
+) {
+  if (!operations.has(operation)) throw new Error('Git operation is not a reader.')
+  assertReadOnlyArgs(args)
+  const base = fs.realpathSync(root)
+  const cwd = fs.realpathSync(path.resolve(base, directory))
+
+  if (!isInside(base, cwd)) {
+    throw new Error(
+      'Read Git inside the selected project; use regent_use_repo for another project.',
+    )
+  }
+
+  const env = readerEnv()
+  const command = operation === 'worktrees' ? ['worktree', 'list'] : [operation]
   const result = await execute(
     'git',
     [
-      ...common,
-      ...(operation === 'worktrees' ? ['worktree', 'list'] : [operation]),
-      ...flags,
+      ...BASE_FLAGS,
+      ...(await filterOverrides(cwd, env, signal)),
+      ...command,
+      ...operationFlags(operation),
       ...args,
     ],
-    { cwd, env, signal, timeout: 15000, maxBuffer: 512 * 1024, encoding: 'utf8' },
+    { cwd, env, signal, timeout: GIT_TIMEOUT_MS, maxBuffer: OUTPUT_BYTES, encoding: 'utf8' },
   )
+
   return { output: result.stdout, warnings: result.stderr }
 }

@@ -4,6 +4,7 @@ import { redact, redactDeep } from '../src/storage/redact.ts'
 import { Store } from '../src/storage/store.ts'
 
 let failed = 0
+
 const check = async (name, fn) => {
   try {
     await fn()
@@ -13,6 +14,7 @@ const check = async (name, fn) => {
     console.error(`  FAIL ${name}: ${error.stack}`)
   }
 }
+
 const tick = () => new Promise((resolve) => setTimeout(resolve, 15))
 const permanent = () =>
   Object.assign(new Error('An API error occurred: msg_too_long'), {
@@ -65,6 +67,7 @@ await check('unparseable args are dead-lettered, never delivered', async () => {
       },
     }),
   )
+
   store.db
     .prepare('INSERT INTO deliveries(conversation_key,kind,args) VALUES(?,?,?)')
     .run('slack:C2:1', 'notice', '{bad json')
@@ -91,6 +94,7 @@ await check(
         },
       }),
     )
+
     store.db
       .prepare(
         'INSERT INTO conversations(key,adapter,channel,thread,author,cwd,updated_at) VALUES(?,?,?,?,?,?,?)',
@@ -171,6 +175,7 @@ await check(
     let row = store.db
       .prepare("SELECT state,attempts FROM deliveries WHERE conversation_key='slack:C4:1'")
       .get()
+
     assert.equal(row.state, 'pending')
     assert.equal(row.attempts, 1)
     store.db.prepare("UPDATE deliveries SET attempts=24 WHERE conversation_key='slack:C4:1'").run()

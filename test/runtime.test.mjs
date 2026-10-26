@@ -18,6 +18,7 @@ async function freePort() {
   await new Promise((resolve) => server.close(resolve))
   return port
 }
+
 const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-runtime-')))
 const output = { async notice() {}, async status() {}, async delta() {}, async finish() {} }
 const config = (previewPort) =>
@@ -28,12 +29,13 @@ const config = (previewPort) =>
     mcp: { enabled: true, principals: [{ id: 'fixture', token_env: 'REGENT_MCP_TOKEN_FIXTURE' }] },
     previews: { domain: 'preview.example.invalid', listen_port: previewPort },
   })
+
 process.env.REGENT_MCP_TOKEN_FIXTURE = 'fixture-token-'.repeat(4)
 
 for (const mode of ['slack', 'mcp']) {
   test(`${mode} runtime closes HTTP, preview gateway and SQLite exactly once`, async () => {
-    const previewPort = await freePort(),
-      calls = []
+    const previewPort = await freePort()
+    const calls = []
     const store = new Store(':memory:')
     const slack =
       mode === 'slack'
@@ -54,6 +56,7 @@ for (const mode of ['slack', 'mcp']) {
       port: 0,
       claudeVersion: 'fixture',
     })
+
     await runtime.start()
     const main = runtime.core.toolsUrl.replace('/tools', '/healthz')
     assert.equal((await (await fetch(main)).json()).db_ok, true)
@@ -72,8 +75,8 @@ for (const mode of ['slack', 'mcp']) {
 }
 
 test('failed Slack startup closes all resources and preserves the startup error', async () => {
-  const previewPort = await freePort(),
-    store = new Store(':memory:')
+  const previewPort = await freePort()
+  const store = new Store(':memory:')
   let stops = 0
   const runtime = createRuntime(config(previewPort), {
     store,
@@ -90,6 +93,7 @@ test('failed Slack startup closes all resources and preserves the startup error'
       },
     },
   })
+
   await assert.rejects(runtime.start(), /fixture startup failed/)
   await runtime.close()
   assert.equal(stops, 1)
@@ -99,8 +103,8 @@ test('failed Slack startup closes all resources and preserves the startup error'
 })
 
 test('failed Slack shutdown still closes the other resources', async () => {
-  const previewPort = await freePort(),
-    store = new Store(':memory:')
+  const previewPort = await freePort()
+  const store = new Store(':memory:')
   const runtime = createRuntime(config(previewPort), {
     store,
     port: 0,
@@ -114,6 +118,7 @@ test('failed Slack shutdown still closes the other resources', async () => {
       },
     },
   })
+
   await runtime.start()
   await assert.rejects(runtime.close(), AggregateError)
   assert.equal(runtime.server.listening, false)
@@ -131,6 +136,7 @@ test('HTTP shutdown also destroys upgraded sockets', async () => {
   const lifecycle = httpLifecycle(server)
   await lifecycle.listen(0)
   const socket = net.connect(server.address().port, '127.0.0.1')
+
   try {
     socket.write(
       'GET / HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: fixture\r\n\r\n',
@@ -150,6 +156,7 @@ test('invalid MCP configuration releases the SQLite runtime claim', async () => 
   const store = new Store(':memory:')
   const previous = process.env.REGENT_MCP_TOKEN_FIXTURE
   delete process.env.REGENT_MCP_TOKEN_FIXTURE
+
   try {
     assert.throws(
       () => createRuntime(config(8791), { store, port: 0, claudeVersion: 'fixture' }),
@@ -165,14 +172,16 @@ test('an occupied main port closes the preview gateway without affecting its lis
   const foreign = http
     .createServer((req, res) => res.end('existing service'))
     .listen(0, '127.0.0.1')
+
   await once(foreign, 'listening')
-  const previewPort = await freePort(),
-    store = new Store(':memory:')
+  const previewPort = await freePort()
+  const store = new Store(':memory:')
   const runtime = createRuntime(config(previewPort), {
     store,
     port: foreign.address().port,
     claudeVersion: 'fixture',
   })
+
   try {
     await assert.rejects(runtime.start(), /EADDRINUSE/)
     await assert.rejects(fetch(`http://127.0.0.1:${previewPort}/`))
@@ -189,9 +198,11 @@ test('an occupied main port closes the preview gateway without affecting its lis
 test('main port validation rejects invalid ports and preview collisions', () => {
   const previews = config(8791).previews
   assert.equal(runtimePort(undefined, previews), 8788)
+
   for (const value of ['', '0', '-1', '65536', '1.2', 'abc', '8791', '32001']) {
     assert.throws(() => runtimePort(value, previews), /REGENT_PORT/)
   }
+
   assert.equal(runtimePort('9000', previews), 9000)
 })
 

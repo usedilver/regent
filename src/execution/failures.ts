@@ -23,45 +23,44 @@ export class HistoryUnavailable extends Error {
   }
 }
 
-const contextOverflow =
+const RUN_TIMEOUT = /tiempo m[aá]ximo de ejecuci[oó]n de este turno/i
+const RUN_STALLED = /Claude dej[oó] de emitir eventos/i
+const USAGE_LIMIT =
+  /you['’]ve hit your (?:session|weekly|usage) limit|usage limit (?:reached|exceeded)|out of (?:extra )?usage|credit balance is too low/i
+const USAGE_RESET = /\bresets?\s+([^\n]{1,150})/i
+const RATE_LIMIT =
+  /rate[_ -]limit(?:_error| exceeded| reached)?|too many requests|(?:HTTP|API)(?:[ _-]error)?\s*:?\s*429\b|status(?:Code|_code)?[\"'\s]*[:=]\s*429\b/i
+const AUTHENTICATION =
+  /authentication_error|invalid (?:api key|authentication)|not logged in|please (?:log|sign) in|OAuth token (?:has )?expired|(?:HTTP|API)(?:[ _-]error)?\s*:?\s*401\b|status(?:Code|_code)?[\"'\s]*[:=]\s*401\b/i
+const RUN_BUDGET =
+  /error_max_budget_usd|presupuesto diario agotado|(?:maximum|max) budget (?:exceeded|reached)|budget (?:limit )?exceeded/i
+const COMPACTION_FAILED = /automatic compaction failed:\s*([^\n]+)/i
+const CONTEXT_OVERFLOW =
   /prompt[_ -](?:is[_ -])?too[_ -]long|conversation too long|context[_ -]length[_ -]exceeded|context[_ -]window(?:[_ -]exceeded| (?:is )?(?:full|exceeded))|context[_ -]limit[_ -](?:reached|exceeded)|maximum context length/i
 
+/** Classifies an error message from the runner or the CLI. Unknown errors return undefined. */
 export function executionFailure(detail: string): ExecutionFailure | undefined {
-  if (/tiempo m[aá]ximo de ejecuci[oó]n de este turno/i.test(detail))
-    return { source: 'regent', code: 'run_timeout', detail }
-  if (/Claude dej[oó] de emitir eventos/i.test(detail))
-    return { source: 'regent', code: 'run_stalled', detail }
+  if (RUN_TIMEOUT.test(detail)) return { source: 'regent', code: 'run_timeout', detail }
+  if (RUN_STALLED.test(detail)) return { source: 'regent', code: 'run_stalled', detail }
+
   // A failed compaction can wrap the real blocker: quota, authentication or rate limiting.
-  if (
-    /you['’]ve hit your (?:session|weekly|usage) limit|usage limit (?:reached|exceeded)|out of (?:extra )?usage|credit balance is too low/i.test(
-      detail,
-    )
-  ) {
-    const reset = detail.match(/\bresets?\s+([^\n]{1,150})/i)?.[1]
+  if (USAGE_LIMIT.test(detail)) {
+    const reset = detail.match(USAGE_RESET)?.[1]
     return { source: 'claude', code: 'usage_limit', detail, ...(reset ? { reset } : {}) }
   }
-  if (
-    /rate[_ -]limit(?:_error| exceeded| reached)?|too many requests|(?:HTTP|API)(?:[ _-]error)?\s*:?\s*429\b|status(?:Code|_code)?[\"'\s]*[:=]\s*429\b/i.test(
-      detail,
-    )
-  )
-    return { source: 'claude', code: 'rate_limit', detail }
-  if (
-    /authentication_error|invalid (?:api key|authentication)|not logged in|please (?:log|sign) in|OAuth token (?:has )?expired|(?:HTTP|API)(?:[ _-]error)?\s*:?\s*401\b|status(?:Code|_code)?[\"'\s]*[:=]\s*401\b/i.test(
-      detail,
-    )
-  )
-    return { source: 'claude', code: 'authentication', detail }
-  if (
-    /error_max_budget_usd|presupuesto diario agotado|(?:maximum|max) budget (?:exceeded|reached)|budget (?:limit )?exceeded/i.test(
-      detail,
-    )
-  )
-    return { source: 'regent', code: 'run_budget', detail }
-  const compaction = detail.match(/automatic compaction failed:\s*([^\n]+)/i)?.[1]
-  if (compaction && !contextOverflow.test(compaction))
+
+  if (RATE_LIMIT.test(detail)) return { source: 'claude', code: 'rate_limit', detail }
+  if (AUTHENTICATION.test(detail)) return { source: 'claude', code: 'authentication', detail }
+  if (RUN_BUDGET.test(detail)) return { source: 'regent', code: 'run_budget', detail }
+
+  const compaction = detail.match(COMPACTION_FAILED)?.[1]
+
+  if (compaction && !CONTEXT_OVERFLOW.test(compaction)) {
     return { source: 'claude', code: 'compaction_failed', detail }
-  if (contextOverflow.test(detail)) return { source: 'claude', code: 'context_window', detail }
+  }
+
+  if (CONTEXT_OVERFLOW.test(detail)) return { source: 'claude', code: 'context_window', detail }
+  return undefined
 }
 
 export function failureMessage(failure: ExecutionFailure): string {
@@ -69,8 +68,10 @@ export function failureMessage(failure: ExecutionFailure): string {
     case 'usage_limit':
       return `La cuenta de Claude agotó su cuota de uso.${failure.reset ? ` Claude indica que se restablece: ${failure.reset}.` : ''} El trabajo se conserva; podrás continuar cuando vuelva a haber cuota. Reiniciar la conversación no recupera esa cuota.`
     case 'context_window':
-      if (failure.fresh_session)
+      if (failure.fresh_session) {
         return 'El contexto inicial supera la ventana de contexto de Claude, incluso con una sesión nueva. El código y el hilo se conservan; el operador debe revisar las instrucciones, herramientas y adjuntos antes de reintentar.'
+      }
+
       return 'La sesión de Claude superó su ventana de contexto. El código y el hilo se conservan; envía «continúa» para retomar con una sesión de ejecución nueva.'
     case 'rate_limit':
       return 'Claude alcanzó un límite temporal de peticiones. El trabajo se conserva; espera un momento antes de continuar.'

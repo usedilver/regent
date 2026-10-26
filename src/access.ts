@@ -11,11 +11,13 @@ import {
 } from './core/access-policy.ts'
 
 const MAX_BYTES = 128 * 1024
+
 class PolicyError extends Error {
   constructor(category: string, fields: string[] = []) {
     super(`Access policy rejected (${category})${fields.length ? ': ' + fields.join(', ') : ''}.`)
   }
 }
+
 function read(file: string): string {
   try {
     const stat = fs.statSync(file)
@@ -29,8 +31,10 @@ function read(file: string): string {
     throw new PolicyError('read')
   }
 }
+
 function parse(content: string, oauthRequired: boolean): AccessDocument {
   let raw: unknown
+
   try {
     const document = YAML.parseDocument(content, { logLevel: 'silent' })
     if (document.errors.length || document.warnings.length) throw new PolicyError('yaml')
@@ -38,11 +42,15 @@ function parse(content: string, oauthRequired: boolean): AccessDocument {
   } catch {
     throw new PolicyError('yaml')
   }
+
   const result = AccessSchema.safeParse(raw)
-  if (!result.success)
+
+  if (!result.success) {
     throw new PolicyError('schema', [
       ...new Set(result.error.issues.map((issue) => issue.path.join('.') || 'document')),
     ])
+  }
+
   if (oauthRequired && !result.data.oauth) throw new PolicyError('schema', ['oauth.allowed_emails'])
   return result.data
 }
@@ -71,35 +79,44 @@ export class AccessReloader {
     changed?: (previous: AccessPolicy['snapshot']) => void
     report?: (message: string) => void
   }
+
   constructor(policy: AccessPolicy, file: string, options: AccessReloader['options']) {
     this.policy = policy
     this.file = file
     this.options = options
   }
+
   private report(message: string) {
     const report = this.options.report ?? console.info
     report(message)
   }
+
   reload(): boolean {
     let document: AccessDocument
+
     try {
       document = parse(read(this.file), this.options.oauthRequired)
     } catch (error) {
       const message =
         error instanceof PolicyError ? error.message : 'Access policy rejected (read).'
+
       this.report(message + ' Previous valid policy retained.')
       return false
     }
+
     const previous = this.policy.snapshot
     const changed = this.policy.replace(document)
+
     if (changed) {
       const snapshot = this.policy.snapshot
       this.report(
         `Access policy ${this.policy.version} applied: Slack=${snapshot.slack.allowed_users.length}${this.policy.openSlack ? ' (verified workspace membership; empty list broadens access)' : ''}, OAuth=${snapshot.oauth?.allowed_emails.length ?? 0}.`,
       )
       this.options.changed?.(previous)
-    } else
+    } else {
       this.report(`Access policy ${this.policy.version} valid; effective permissions unchanged.`)
+    }
+
     return changed
   }
 }

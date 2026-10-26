@@ -10,20 +10,22 @@ export function httpLifecycle(server: Server) {
     socket.once('close', () => sockets.delete(socket))
   })
   return {
-    async listen(port: number) {
+    async listen(port: number, host = '127.0.0.1') {
       if (closing) throw new Error('El servidor HTTP se esta cerrando.')
       listening = new Promise<void>((resolve, reject) => {
         const failed = (error: Error) => {
           server.removeListener('listening', ready)
           reject(error)
         }
+
         const ready = () => {
           server.removeListener('error', failed)
           resolve()
         }
+
         server.once('error', failed)
         server.once('listening', ready)
-        server.listen(port, '127.0.0.1')
+        server.listen(port, host)
       })
       await listening
     },
@@ -36,6 +38,7 @@ export function httpLifecycle(server: Server) {
             resolve()
             return
           }
+
           server.close((error) => (error ? reject(error) : resolve()))
           for (const socket of sockets) socket.destroy()
         })

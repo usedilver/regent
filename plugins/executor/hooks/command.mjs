@@ -6,8 +6,10 @@ export function literalCommand(command) {
     typeof command !== 'string' ||
     command.length > 8192 ||
     !/^[a-zA-Z0-9_./:@%+=, *?'"\-]+$/.test(command)
-  )
+  ) {
     return null
+  }
+
   try {
     const words = parse(command, {})
     return words.length && words.every((word) => typeof word === 'string') ? words : null

@@ -1,6 +1,7 @@
 import { App, applyDocumentTheme, applyHostStyleVariables } from '@modelcontextprotocol/ext-apps'
 
 const element = (id: string) => document.getElementById(id)!
+const statusIcons: Record<string, string> = { complete: '✓', error: '!' }
 const displayName = element('heading').textContent ?? 'Regent'
 const app = new App(
   { name: `Progreso de ${displayName}`, version: '1.0.0' },
@@ -13,42 +14,50 @@ let busy = false
 let active = true
 let failures = 0
 
+const ACTIVE_STATES = ['queued', 'running']
+
+function connectionLabel(state: string): string {
+  if (state === 'queued') return 'Esperando turno'
+  return ACTIVE_STATES.includes(state) ? 'Actualizando automáticamente' : 'Trabajo detenido'
+}
+
+function repoName(repo: unknown): string {
+  if (typeof repo !== 'string') return ''
+  return repo.split(/[\\/]/).filter(Boolean).at(-1) ?? ''
+}
+
+function taskRow(task: any): HTMLLIElement {
+  const row = document.createElement('li')
+  const icon = document.createElement('span')
+  icon.className = `icon ${task.status}`
+  icon.textContent = statusIcons[task.status] ?? '◉'
+  const body = document.createElement('div')
+  const title = document.createElement('div')
+  title.className = 'title'
+  title.textContent = task.title
+  const detail = document.createElement('div')
+  detail.className = 'detail'
+  detail.textContent = task.output
+  body.append(title, detail)
+  row.append(icon, body)
+  return row
+}
+
 function render(data: any) {
   const run = data.latest_run ?? data.run
+
   if (!run) {
     runId = data.run_id ?? runId
     return
   }
+
   runId = run.id
-  active = ['queued', 'running'].includes(run.state)
-  element('heading').textContent =
-    `${displayName} · ${data.activities?.title ?? (active ? 'Trabajando' : 'Estado del trabajo')}`
-  element('repo').textContent = data.repo?.split(/[\\/]/).filter(Boolean).at(-1) ?? ''
-  element('connection').textContent =
-    data.progress ??
-    (run.state === 'queued'
-      ? 'Esperando turno'
-      : active
-        ? 'Actualizando automáticamente'
-        : 'Trabajo detenido')
-  const list = element('activities')
-  list.replaceChildren()
-  for (const task of data.activities?.tasks ?? []) {
-    const row = document.createElement('li')
-    const icon = document.createElement('span')
-    icon.className = `icon ${task.status}`
-    icon.textContent = task.status === 'complete' ? '✓' : task.status === 'error' ? '!' : '◉'
-    const body = document.createElement('div')
-    const title = document.createElement('div')
-    title.className = 'title'
-    title.textContent = task.title
-    const detail = document.createElement('div')
-    detail.className = 'detail'
-    detail.textContent = task.output
-    body.append(title, detail)
-    row.append(icon, body)
-    list.append(row)
-  }
+  active = ACTIVE_STATES.includes(run.state)
+  const heading = data.activities?.title ?? (active ? 'Trabajando' : 'Estado del trabajo')
+  element('heading').textContent = `${displayName} · ${heading}`
+  element('repo').textContent = repoName(data.repo)
+  element('connection').textContent = data.progress ?? connectionLabel(run.state)
+  element('activities').replaceChildren(...(data.activities?.tasks ?? []).map(taskRow))
   element('question').textContent = data.question?.text ?? ''
   element('result').textContent = run.error ?? ''
   if (!active && !data.progress) element('connection').textContent = 'Estado actualizado'
@@ -59,20 +68,24 @@ function receive(result: any) {
   const data =
     result.structuredContent ??
     JSON.parse(result.content.find((item: any) => item.type === 'text').text)
+
   render(data)
 }
 
 function schedule() {
   clearTimeout(timer)
-  if (active && failures < 3)
+
+  if (active && failures < 3) {
     timer = setTimeout(() => {
       void refresh()
     }, 3000)
+  }
 }
 
 async function refresh() {
   if (!runId || busy) return
   busy = true
+
   try {
     receive(
       await app.callServerTool({
@@ -101,15 +114,18 @@ app.ontoolresult = (result) => {
     element('connection').textContent = 'No se pudo leer este trabajo.'
   }
 }
+
 app.onteardown = async () => {
   active = false
   clearTimeout(timer)
   return {}
 }
+
 function theme(context: any) {
   if (context?.theme) applyDocumentTheme(context.theme)
   if (context?.styles?.variables) applyHostStyleVariables(context.styles.variables)
 }
+
 app.onhostcontextchanged = theme
 element('refresh').addEventListener('click', () => {
   failures = 0

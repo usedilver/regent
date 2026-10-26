@@ -5,6 +5,7 @@ export function claudeVersion(): string {
   const version = execFileSync('claude', ['--version'], { encoding: 'utf8', timeout: 10000 }).trim()
   assertIsolationVersion(version)
   const help = execFileSync('claude', ['--help'], { encoding: 'utf8', timeout: 10000 })
+
   for (const flag of [
     '--permission-prompts',
     '--plugin-dir',
@@ -14,5 +15,6 @@ export function claudeVersion(): string {
   ]) {
     if (!help.includes(flag)) throw new Error(`Actualiza Claude Code: falta ${flag}.`)
   }
+
   return version
 }

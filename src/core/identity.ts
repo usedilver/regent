@@ -13,12 +13,14 @@ export async function resolveIdentity(
   const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
   let onAbort: () => void = () => {}
+
   try {
     return await new Promise<Identity>((done, reject) => {
       onAbort = () => {
         controller.abort()
         reject(signal.reason)
       }
+
       signal.addEventListener('abort', onAbort, { once: true })
       timer = setTimeout(() => {
         controller.abort()

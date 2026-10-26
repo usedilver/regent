@@ -10,10 +10,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { Store } from '../src/storage/store.ts'
-import { conversationRoute } from '../src/adapters/slack/adapter.ts'
+import { conversationRoute } from '../src/adapters/slack/routing.ts'
 import { isolationFor } from '../src/core/repository.ts'
 
 let failed = 0
+
 const check = (name, fn) => {
   try {
     fn()
@@ -23,6 +24,7 @@ const check = (name, fn) => {
     console.error(`  ✗ ${name}: ${err.message}`)
   }
 }
+
 console.log('slack-thread:')
 
 const laravelLog = {
@@ -70,6 +72,7 @@ check('blocks: section y rich_text', () => {
       },
     ],
   })
+
   assert.match(body, /Deploy failed/)
   assert.match(body, /step: build/)
 })
@@ -105,6 +108,7 @@ check('normalizeFences: la valla inline de un campo queda en líneas propias', (
   const body = messageBody({
     attachments: [{ fields: [{ title: 'Exception', value: '```{\n"a":1\n}```' }] }],
   })
+
   assert.equal(body, 'Exception:\n```\n{\n"a":1\n}\n```')
 })
 
@@ -114,6 +118,7 @@ check(
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'regent-dm-routing-'))
     const file = path.join(root, 'state.sqlite')
     let store = new Store(file)
+
     try {
       const accept = (event, repo = '/default') => {
         const route = conversationRoute(store, event)
@@ -132,8 +137,10 @@ check(
           repo,
           24,
         )
+
         return { ...route, ...accepted }
       }
+
       // Old DM state cannot hijack either new root or replies in an existing thread.
       store.accept(
         {
@@ -148,6 +155,7 @@ check(
         24,
       )
       store.session('slack:D1', 'legacy-session')
+
       for (const channel of ['D1', 'C1', 'G1']) {
         const first = accept({ channel, ts: '101' }, '/first-app')
         store.session(first.key, 'first-session')
@@ -167,6 +175,7 @@ check(
           store.db.prepare('SELECT source FROM run_history WHERE run_id=?').get(second.runId)
             .source,
         )
+
         assert.equal(source.thread, '102')
         // The stop event resolves exactly the same thread, never its sibling.
         assert.equal(
@@ -174,6 +183,7 @@ check(
           first.key,
         )
       }
+
       store.close()
       store = new Store(file)
       const restored = conversationRoute(store, { channel: 'D1', ts: '105', thread_ts: '101' })

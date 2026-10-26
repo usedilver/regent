@@ -61,5 +61,21 @@ REGENT_USER_ID=U012345 REGENT_DB=log/cli.sqlite pnpm regent ask "Explica este pr
 | Desarrollar y contribuir a Regent                    | [Contribuciones](CONTRIBUTING.md)          |
 
 Para contribuir: `pnpm install --frozen-lockfile` y `pnpm check`, sin credenciales de producción.
-Consulta [arquitectura](ARCHITECTURE.md) para ubicar cada módulo. Para ejecutar la instancia
-durante desarrollo: `pnpm dev`.
+Consulta [arquitectura](ARCHITECTURE.md) para ubicar cada módulo.
+
+## Desarrollo
+
+`pnpm dev` ejecuta la instancia local completa, Slack y MCP, y la reinicia al cambiar `src/`,
+`plugins/executor/` o `.env`. Para desarrollar dentro de la misma imagen que despliega producción
+(Node 22, Claude CLI, git, gh y Python), con el repositorio montado y el mismo reinicio automático:
+
+```sh
+docker compose up --build                # Slack + MCP, igual que pnpm dev
+docker compose run --rm dev pnpm check   # las comprobaciones de CI en la imagen
+```
+
+El contenedor lee `.env`, monta `~/Projects` (o `REGENT_PROJECTS`) en `/home/node/Projects` y usa
+su propia base `log/dev.sqlite`. Publica `127.0.0.1:8788` (o `REGENT_PORT`). Claude usa
+`ANTHROPIC_API_KEY` si está en `.env`; si no, inicia sesión una vez con
+`docker compose exec dev claude`, que persiste en el volumen del home. Detén antes cualquier otra
+instancia con el mismo app token de Slack: dos procesos conectados se reparten sus eventos.

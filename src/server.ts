@@ -7,12 +7,16 @@ import { claudeVersion } from './startup.ts'
 loadEnv()
 const config = loadConfig()
 assertAuth(config)
-if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_APP_TOKEN)
+
+if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_APP_TOKEN) {
   throw new Error('Configura SLACK_BOT_TOKEN y SLACK_APP_TOKEN antes de iniciar Slack.')
+}
+
 const runtime = createRuntime(config, {
   slack: createSlack(config),
   claudeVersion: claudeVersion(),
 })
+
 console.log(authNotice(config, process.env, runtime.core.access.snapshot.slack.allowed_users))
 installShutdown(runtime)
 await runtime.start()

@@ -5,8 +5,8 @@ import { Core } from '../src/core/core.ts'
 import { Store } from '../src/storage/store.ts'
 import { ConfigSchema } from '../src/config.ts'
 
-let clock = 0,
-  calls = 0
+let clock = 0
+let calls = 0
 let user = {
   id: 'U1',
   team_id: 'T1',
@@ -22,6 +22,7 @@ const resolver = createIdentityResolver(
   'T1',
   () => clock,
 )
+
 assert.deepEqual(await resolver('U1'), { name: 'Person One', email: 'one@example.com' })
 await resolver('U1')
 assert.equal(calls, 1)
@@ -33,6 +34,7 @@ user = {
 }
 assert.deepEqual(await resolver('U1'), { name: 'Other Name' })
 assert.equal(calls, 2)
+
 for (const invalid of [
   { id: 'U2', team_id: 'T1' },
   { id: 'U1', team_id: 'T2' },
@@ -45,12 +47,15 @@ for (const invalid of [
     }),
     'T1',
   )
+
   assert.deepEqual(await lookup('U1'), {})
 }
+
 const partial = createIdentityResolver(
   async () => ({ user: { id: 'U1', team_id: 'T1', profile: {} } }),
   'T1',
 )
+
 assert.deepEqual(await partial('U1'), {})
 let attempts = 0
 const failing = createIdentityResolver(
@@ -61,6 +66,7 @@ const failing = createIdentityResolver(
   'T1',
   () => clock,
 )
+
 assert.deepEqual(await failing('U1'), {})
 await failing('U1')
 assert.equal(attempts, 1)
@@ -124,28 +130,35 @@ const input = (eventId, author, text = 'my task') => ({
   thread: '1',
   text,
 })
+
 const drain = async () => {
   while (core.active.size) await Promise.allSettled([...core.active.values()].map((a) => a.done))
 }
+
 try {
   core.identities = async (id) => ({ name: `Person ${id}`, email: `${id}@example.com` })
+
   for (const id of ['U1', 'U2']) {
     await core.submit(input(id, id))
     await drain()
   }
+
   for (let i = 0; i < 2; i++) {
     const state = JSON.parse(prompts[i].split('Estado del core: ')[1].split('\n')[0])
     assert.equal(state.author.id, `U${i + 1}`)
     assert.equal(state.author.email, `U${i + 1}@example.com`)
     assert.equal(state.author.team_id, 'T1')
   }
-  let entered = false,
-    lookupSignal
+
+  let entered = false
+  let lookupSignal
+
   core.identities = (_id, abort) => {
     entered = true
     lookupSignal = abort
     return new Promise(() => {})
   }
+
   await core.submit(input('slow', 'U1'))
   while (!entered) await new Promise((r) => setTimeout(r, 1))
   await core.submit(input('stop', 'U1', 'stop'))
@@ -162,6 +175,7 @@ try {
   await core.close()
   store.close()
 }
+
 console.log(
   'Identity: optional profiles, TTL, API failure, timeout, per-turn authors and cancellation passed',
 )

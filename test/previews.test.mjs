@@ -12,11 +12,13 @@ import { Core } from '../src/core/core.ts'
 import { createHttp } from '../src/adapters/http.ts'
 
 const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-previews-')))
+
 const listen = async (server) => {
   server.listen(0, '127.0.0.1')
   await once(server, 'listening')
   return server.address().port
 }
+
 const close = (server) => new Promise((resolve) => server.close(resolve))
 const store = new Store(':memory:')
 let seen
@@ -25,10 +27,12 @@ const authenticated = (request) =>
   request.headers.authorization === 'Bearer app-token'
 const app = http.createServer((req, res) => {
   seen = { headers: req.headers, url: req.url }
+
   if (req.url === '/private' && !authenticated(req)) {
     res.writeHead(401)
     return res.end('Application login required')
   }
+
   if (req.url === '/login') {
     res.writeHead(302, {
       location: '/private',
@@ -39,19 +43,27 @@ const app = http.createServer((req, res) => {
     })
     return res.end()
   }
+
   if (req.url === '/restricted-origin' && req.headers.origin !== 'https://app.example.com') {
     res.writeHead(403)
     return res.end('Application origin policy')
   }
+
   res.end('Preview fixture')
 })
+
 app.on('upgrade', (req, socket) => {
   seen = { headers: req.headers, url: req.url }
-  if (!authenticated(req))
+
+  if (!authenticated(req)) {
     return socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+  }
+
   socket.end('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: test\r\n\r\n')
 })
-let gateway, previews
+let gateway
+let previews
+
 try {
   // Reserve a real free port, then let the fixture application occupy it.
   const probe = http.createServer()
@@ -69,9 +81,10 @@ try {
       ttl_minutes: 5,
     },
   }).previews
-  let now = Date.now(),
-    processInfo = { cwd: directory, start: 'owned', group: 42 },
-    killed = []
+  let now = Date.now()
+  let processInfo = { cwd: directory, start: 'owned', group: 42 }
+  let killed = []
+
   previews = new Previews(
     store,
     config,
@@ -122,6 +135,7 @@ try {
         )
         .on('error', reject)
     })
+
   assert.equal((await request()).status, 200)
   const denied = await request({}, '/private')
   assert.equal(denied.status, 401)
@@ -137,6 +151,7 @@ try {
     },
     '/screen?test=1',
   )
+
   assert.equal(result.status, 200)
   assert.equal(result.text, 'Preview fixture')
   assert.equal(seen.url, '/screen?test=1')
@@ -165,6 +180,7 @@ try {
         port: gatewayPort,
         headers: { host, connection: 'Upgrade', upgrade: 'test', ...(cookie ? { cookie } : {}) },
       })
+
       req.on('upgrade', (res, socket) => {
         socket.destroy()
         resolve(res.statusCode)
@@ -176,6 +192,7 @@ try {
       req.on('error', reject)
       req.end()
     })
+
   assert.equal(await upgrade(), 401)
   assert.equal(await upgrade('match_session=match-token'), 101)
   assert.equal(seen.headers.cookie, 'match_session=match-token')
@@ -198,6 +215,7 @@ try {
     () => now,
     () => true,
   )
+
   assert.equal(resumed.result(resumed.get('one')).ready, true)
   processInfo.start = 'reused'
   assert.equal(resumed.resolve(host), undefined)
@@ -243,6 +261,7 @@ try {
     directory,
     24,
   )
+
   store.db.prepare("UPDATE runs SET state='running' WHERE id=?").run(accepted.runId)
   core.active.set('test', {
     run: store.run(accepted.runId),
@@ -254,6 +273,7 @@ try {
     waiting: false,
     cancelled: false,
   })
+
   for (const enabled of [false, true]) {
     core.previews = enabled ? previews : undefined
     const response = await fetch(`http://127.0.0.1:${corePort}/tools`, {
@@ -271,6 +291,7 @@ try {
       enabled,
     )
   }
+
   core.active.clear()
   await close(coreHttp)
   console.log('  OK preview tool is advertised only when the server configures the gateway')

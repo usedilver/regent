@@ -283,7 +283,8 @@ responder; no amplía el timeout ni garantiza recuperar una herramienta interrum
 ## Operación
 
 - `pnpm start` sirve Slack y, si está habilitado, MCP; `pnpm start:mcp` sirve solo MCP.
-- El puerto predeterminado es `8788`, enlazado a `127.0.0.1`. El estado predeterminado
+- El puerto predeterminado es `8788`, enlazado a `127.0.0.1`; `REGENT_HOST` cambia la
+  dirección solo para contenedores que publican el puerto. El estado predeterminado
   está en `log/v2.sqlite`. [`.env.example`](../.env.example) muestra los overrides.
 - Un solo runtime puede escribir en una base SQLite. Usa otra `REGENT_DB` para una
   CLI concurrente. No cambies la base existente durante una actualización.

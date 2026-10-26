@@ -12,6 +12,7 @@ for (const command of ['pnpm test', 'npm run build', 'yarn lint', 'git diff --st
   assert.ok(activityView(state).tasks[0].title.includes(command))
   assert.equal(activityView(state).tasks[0].details, command)
 }
+
 for (const command of [
   undefined,
   {},
@@ -38,6 +39,7 @@ for (const command of [
   assert.equal(Object.values(state.calls)[0].command, undefined)
   assert.ok(!JSON.stringify(state).includes('secret'))
 }
+
 for (const [command, operation] of [
   ['gh repo view private-repo --json name 2>&1', 'gh repo view'],
   ['which vercel && vercel --version 2>&1 || echo secret', 'which vercel'],
@@ -65,6 +67,7 @@ const mixed = {
     c: { group: 'command', tool: 'Bash', status: 'running' },
   },
 }
+
 assert.equal(activityView(mixed).tasks[0].output, '1 ejecucion terminada\n1 con error\n1 en curso')
 assert.match(
   activityView({ ...mixed, terminal: 'completed' }).tasks[0].output,
@@ -90,22 +93,28 @@ const normalized = normalizeEvent({
   tool_use_result: { agentId: 'sync-agent' },
   message: { content: [{ type: 'tool_result', tool_use_id: 'x', content: 'done' }] },
 })
+
 assert.equal(normalized[0].id, 'x')
 assert.equal(normalized[0].parentId, 'p')
 assert.equal(normalized[0].background, false)
 
 const store = new Store(':memory:')
-let calls = [],
-  fail = false
+let calls = []
+let fail = false
+
 const api = async (method, args) => {
   calls.push({ method, args })
+
   if (fail) {
     fail = false
     throw new Error('invalid_blocks')
   }
+
   return { ts: '2' }
 }
+
 let activities = new SlackActivities(api, store)
+
 const create = (key, thread = '1') => {
   const input = {
     adapter: 'slack',
@@ -121,14 +130,18 @@ const create = (key, thread = '1') => {
   store.start(accepted.runId)
   return [store.conversation(key), store.run(accepted.runId)]
 }
+
 const flush = async (run) => {
   const record = activities.get(run.id)
+
   if (record) {
     record.nextAt = 0
     activities.save(run.id, record)
   }
+
   await activities.flush()
 }
+
 try {
   const [c, run] = create('stream')
   activities.event(c, run, use)
@@ -198,6 +211,7 @@ try {
   const gate = new Promise((resolve) => {
     release = resolve
   })
+
   calls = []
   activities = new SlackActivities(async (method, args) => {
     calls.push({ method, args })
@@ -228,12 +242,14 @@ try {
   await flush(rejectingRun)
   assert.equal(calls.at(-1).method, 'chat.update')
   assert.equal(activities.get(rejectingRun.id).ts, '2')
+
   for (const call of calls.filter((c) => c.args.chunks)) {
     for (const chunk of call.args.chunks) {
       assert.ok(!('output' in chunk), 'Never append a full counter snapshot')
       assert.ok(!('details' in chunk), 'Never append repeated tool lists')
     }
   }
+
   console.log(
     'Activity correlation, privacy, stream lifecycle, rooms, recovery, fallback and moves passed',
   )

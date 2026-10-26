@@ -9,7 +9,7 @@ import { Store } from '../src/storage/store.ts'
 import { Core } from '../src/core/core.ts'
 import { ConfigSchema } from '../src/config.ts'
 import { History, HISTORY_CONTEXT_CHARS } from '../src/core/history.ts'
-import { gatherHistory } from '../src/adapters/slack/adapter.ts'
+import { gatherHistory } from '../src/adapters/slack/history.ts'
 import { executionFailure, failureMessage } from '../src/execution/failures.ts'
 import { startRunner } from '../src/execution/runner.ts'
 import { queryDenial } from '../plugins/executor/hooks/query.mjs'
@@ -28,13 +28,16 @@ const input = (id, text = 'Explica el código') => ({
   text,
   history: { channel: 'C', thread: '1', latest: id, trigger: `C:${id}` },
 })
+
 const until = async (predicate) => {
   const deadline = Date.now() + 5000
+
   while (!predicate()) {
     if (Date.now() > deadline) throw new Error('Timed out')
     await new Promise((resolve) => setTimeout(resolve, 5))
   }
 }
+
 const success = () => ({
   state: 'completed',
   text: 'Verificado',
@@ -49,10 +52,12 @@ const overflow = () => ({
   cost: 0.2,
   usage: { input_tokens: 100 },
 })
+
 function fixture(t, execute = async () => success(), editing = false) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-context-')))
   const git = (...args) =>
     execFileSync('git', ['-C', root, ...args], { stdio: ['ignore', 'pipe', 'pipe'] })
+
   git('init', '-b', 'main')
   git('config', 'user.name', 'Fixture')
   git('config', 'user.email', 'fixture@example.test')
@@ -67,8 +72,8 @@ function fixture(t, execute = async () => success(), editing = false) {
     repos: { path: root },
     slack: { workspace_team_id: 'T', allowed_users: ['U'] },
   })
-  const messages = [],
-    starts = []
+  const messages = []
+  const starts = []
   const core = new Core({
     store,
     config,
@@ -91,10 +96,12 @@ function fixture(t, execute = async () => success(), editing = false) {
   const seed = store.accept(input('seed', 'Objetivo original autorizado'), root, 24)
   store.finish(seed.runId, 'completed', 'Decisión previa: conservar el trabajo existente.')
   const isolation = isolationFor(root, key)
+
   if (editing) {
     git('worktree', 'add', '-b', isolation.name, isolation.dir, 'HEAD')
     fs.writeFileSync(path.join(isolation.dir, 'work.txt'), 'cambio existente')
   }
+
   store.session(key, 'old-session', editing ? isolation.dir : root)
   core.historyLoader = async () => [
     { id: 'C:prior', text: 'Requisito previo importante' },
@@ -107,21 +114,27 @@ function fixture(t, execute = async () => success(), editing = false) {
   })
   return { root, store, core, starts, messages, isolation, git, editing }
 }
+
 const submit = async (f) => {
   const accepted = await f.core.submit(
     input('next', f.editing ? 'Corrige el footer de la aplicación' : 'Explica el código'),
   )
+
   await until(() => !f.core.active.size)
   return f.store.run(accepted.runId)
 }
 
 test('delivered Slack history exceeding 200000 characters does not block a small follow-up', async () => {
   const store = new Store(':memory:')
+
   try {
     const messages = []
+
     for (let batch = 0; batch < 6; batch++) {
-      for (let i = 0; i < 10; i++)
+      for (let i = 0; i < 10; i++) {
         messages.push({ id: `C:${batch * 10 + i}`, text: 'x'.repeat(4000) })
+      }
+
       const run = store.accept(input(`batch-${batch}`), '/tmp', 24)
       const history = await new History(store).prepare(
         run.runId,
@@ -129,8 +142,10 @@ test('delivered Slack history exceeding 200000 characters does not block a small
         batch ? 'session' : null,
         async () => messages,
       )
+
       history.acknowledge('session')
     }
+
     messages.push({ id: 'C:last', text: 'n'.repeat(2000) })
     const run = store.accept(input('last', 'n'.repeat(2000)), '/tmp', 24)
     const history = await new History(store).prepare(
@@ -139,6 +154,7 @@ test('delivered Slack history exceeding 200000 characters does not block a small
       'session',
       async () => messages,
     )
+
     assert.ok(JSON.stringify(messages).length > 200000)
     assert.equal(history.omitted, 0)
     assert.ok(history.text.length < 4000)
@@ -151,6 +167,7 @@ test('delivered Slack history exceeding 200000 characters does not block a small
 
 test('large initial history is bounded, remains readable and does not acknowledge omitted content', async () => {
   const store = new Store(':memory:')
+
   try {
     const messages = [
       { id: 'C:large', text: 'older requirement '.repeat(18000) },
@@ -168,14 +185,16 @@ test('large initial history is bounded, remains readable and does not acknowledg
       0,
     )
     const expected = messages.map((m) => `[${m.id}] ${m.text}`).join('\n\n')
-    let offset = 0,
-      full = ''
+    let offset = 0
+    let full = ''
+
     do {
       const page = new History(store).read(run.runId, offset, 4096)
       assert.ok(page.text.length <= 4096)
       full += page.text
       offset = page.next_offset
     } while (offset !== null)
+
     assert.equal(full, expected)
   } finally {
     store.close()
@@ -190,8 +209,9 @@ test('Slack retrieval accepts more than 2000 messages while still detecting pagi
   }))
   const messages = await gatherHistory(
     async (_method, args) => {
-      const offset = Number(args.cursor ?? 0),
-        next = offset + 100
+      const offset = Number(args.cursor ?? 0)
+      const next = offset + 100
+
       return {
         messages: rows.slice(offset, next),
         response_metadata: { next_cursor: next < rows.length ? String(next) : '' },
@@ -201,6 +221,7 @@ test('Slack retrieval accepts more than 2000 messages while still detecting pagi
     'BOT',
     async () => '',
   )
+
   assert.equal(messages.length, 2101)
   assert.match(messages.at(-1).text, /message-2100/)
 })
@@ -216,11 +237,14 @@ test('known quota/authentication/rate failures take priority over their compacti
     ['Prompt is too long · automatic compaction failed: upstream unavailable', 'compaction_failed'],
     ['Prompt is too long', 'context_window'],
     ['error_max_budget_usd', 'run_budget'],
-  ])
+  ]) {
     assert.equal(executionFailure(detail).code, code)
+  }
+
   const message = failureMessage(
     executionFailure("You've hit your session limit · resets 6pm (UTC)"),
   )
+
   assert.match(message, /cuota de uso/)
   assert.match(message, /6pm \(UTC\)/)
   assert.equal(executionFailure('A different execution failure'), undefined)
@@ -245,13 +269,14 @@ test('runner preserves an error result with subtype success and exit code 1', as
     graceMs: 20,
     onEvent() {},
   }).done
+
   assert.equal(result.state, 'failed')
   assert.equal(result.failure.code, 'usage_limit')
   assert.match(result.error, /session limit/)
   assert.doesNotMatch(result.error, /^Claude termino con codigo 1$/)
 })
 
-for (const editing of [false, true])
+for (const editing of [false, true]) {
   test(`context recovery preserves ${editing ? 'an existing dirty worktree' : 'query mode'}, deadlines, costs and conversation`, async (t) => {
     const f = fixture(
       t,
@@ -260,6 +285,7 @@ for (const editing of [false, true])
           await new Promise((resolve) => setTimeout(resolve, 25))
           return overflow()
         }
+
         return success()
       },
       editing,
@@ -288,13 +314,17 @@ for (const editing of [false, true])
       150,
     )
     assert.equal(f.messages.filter((m) => m.kind === 'finish').length, 1)
-    if (editing)
+
+    if (editing) {
       assert.equal(
         fs.readFileSync(path.join(f.isolation.dir, 'work.txt'), 'utf8'),
         'cambio existente',
       )
-    else assert.ok(!fs.existsSync(f.isolation.dir))
+    } else {
+      assert.ok(!fs.existsSync(f.isolation.dir))
+    }
   })
+}
 
 test('quota failures never retry or clear the session and explain the reset time', async (t) => {
   const f = fixture(t, async () => ({
@@ -329,6 +359,7 @@ test('context failure after a tool preserves edits and waits for another human m
         fs.writeFileSync(path.join(f.isolation.dir, 'work.txt'), 'trabajo parcial')
         return overflow()
       }
+
       return success()
     },
     true,
@@ -350,6 +381,7 @@ test('access withdrawal between attempts prevents automatic execution', async (t
     f.core.access.replace({ slack: { allowed_users: ['OTHER'] } })
     return overflow()
   })
+
   await submit(f)
   assert.equal(f.starts.length, 1)
 })
@@ -376,6 +408,7 @@ test('history reader is read-only, paged, scoped to the active run and expires w
     max_chars: 12,
     run_id: other.runId,
   })
+
   assert.equal(page.text.length, 12)
   assert.ok(page.next_offset > 0)
   const all = await f.core.tool(active.token, 'regent_read_history', {})
@@ -389,9 +422,11 @@ test('history reader is read-only, paged, scoped to the active run and expires w
 
 test('Slack history failures are distinguished from Claude context failures', async (t) => {
   const f = fixture(t)
+
   f.core.historyLoader = async () => {
     throw new Error('missing_scope')
   }
+
   const run = await submit(f)
   assert.equal(f.starts.length, 0)
   assert.equal(run.state, 'failed')
@@ -403,6 +438,7 @@ test('Slack history failures are distinguished from Claude context failures', as
       .prepare("select data from events where run_id=? and kind='execution_failure'")
       .get(run.id).data,
   )
+
   assert.equal(event.source, 'slack')
   assert.equal(event.code, 'history_unavailable')
 })
@@ -423,6 +459,7 @@ test('a user stop arriving before a context failure prevents automatic recovery'
         release = resolve
       }),
   )
+
   await f.core.submit(input('next'))
   await until(() => release)
   await f.core.submit(input('stop', 'stop'))
@@ -458,6 +495,7 @@ test('MCP status exposes a classified failure, without retaining it after succes
   const failure = executionFailure(
     "Prompt is too long · automatic compaction failed: You've hit your session limit · resets 6pm (UTC)",
   )
+
   f.store.event(accepted.runId, 'execution_failure', failure)
   f.store.finish(accepted.runId, 'failed', failure.detail, 'provider failure')
   f.core.config.mcp.enabled = true

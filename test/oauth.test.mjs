@@ -25,22 +25,25 @@ const publicKey = {
   use: 'sig',
   alg: 'RS256',
 }
-let identity = { sub: 'alice', email: 'alice@example.test', name: 'Alice', email_verified: true },
-  fault
+let identity = { sub: 'alice', email: 'alice@example.test', name: 'Alice', email_verified: true }
+let fault
 const upstreamCodes = new Map()
 const listen = (server) =>
   new Promise((resolve) =>
     server.listen(0, '127.0.0.1', () => resolve(`http://127.0.0.1:${server.address().port}`)),
   )
+
 const json = (res, value, status = 200) => {
   res.writeHead(status, { 'content-type': 'application/json' })
   res.end(JSON.stringify(value))
 }
+
 const jwt = (claims) => {
   const body =
     Buffer.from(JSON.stringify({ alg: 'RS256', kid: 'fixture' })).toString('base64url') +
     '.' +
     Buffer.from(JSON.stringify(claims)).toString('base64url')
+
   return (
     body +
     '.' +
@@ -51,9 +54,11 @@ const jwt = (claims) => {
     ).toString('base64url')
   )
 }
+
 const provider = http.createServer(async (req, res) => {
   const url = new URL(req.url, upstream)
-  if (url.pathname === '/.well-known/openid-configuration')
+
+  if (url.pathname === '/.well-known/openid-configuration') {
     return json(res, {
       issuer: upstream,
       authorization_endpoint: upstream + '/authorize',
@@ -65,7 +70,10 @@ const provider = http.createServer(async (req, res) => {
       token_endpoint_auth_methods_supported: ['client_secret_post'],
       code_challenge_methods_supported: ['S256'],
     })
+  }
+
   if (url.pathname === '/jwks') return json(res, { keys: [publicKey] })
+
   if (url.pathname === '/authorize') {
     const code = random()
     upstreamCodes.set(code, Object.fromEntries(url.searchParams))
@@ -76,19 +84,23 @@ const provider = http.createServer(async (req, res) => {
     res.end()
     return
   }
+
   if (url.pathname === '/token') {
     let body = ''
     for await (const chunk of req) body += chunk
-    const params = new URLSearchParams(body),
-      code = upstreamCodes.get(params.get('code'))
+    const params = new URLSearchParams(body)
+    const code = upstreamCodes.get(params.get('code'))
+
     if (
       !code ||
       params.get('client_secret') !== 'fixture-secret' ||
       params.get('client_id') !== 'fixture-client' ||
       params.get('redirect_uri') !== code.redirect_uri ||
       digest(params.get('code_verifier')) !== code.code_challenge
-    )
+    ) {
       return json(res, { error: 'invalid_grant' }, 400)
+    }
+
     upstreamCodes.delete(params.get('code'))
     const claims = {
       iss: fault === 'issuer' ? upstream + '/wrong' : upstream,
@@ -98,6 +110,7 @@ const provider = http.createServer(async (req, res) => {
       nonce: fault === 'nonce' ? 'wrong-nonce' : code.nonce,
       ...identity,
     }
+
     return json(res, {
       token_type: 'Bearer',
       access_token: 'upstream-access-not-for-mcp',
@@ -105,6 +118,7 @@ const provider = http.createServer(async (req, res) => {
       id_token: jwt(claims),
     })
   }
+
   res.writeHead(404)
   res.end()
 })
@@ -154,7 +168,8 @@ const core = new Core({
     }
   },
 })
-let external, handler
+let external
+let handler
 const server = http.createServer((req, res) => handler.emit('request', req, res))
 const base = await listen(server)
 config.mcp.oauth.issuer_url = base
@@ -169,6 +184,7 @@ const post = (endpoint, body, headers = {}) =>
     headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers },
     body: new URLSearchParams(body),
   })
+
 const register = async (callback) => {
   const response = await fetch(base + '/register', {
     method: 'POST',
@@ -179,11 +195,14 @@ const register = async (callback) => {
       redirect_uris: [callback ?? 'https://claude.ai/api/mcp/auth_callback'],
     }),
   })
+
   return { response, client: await response.json() }
 }
+
 const begin = async (client, changes = {}) => {
   const verifier = random()
   const url = new URL(base + '/authorize')
+
   for (const [key, value] of Object.entries({
     client_id: client.client_id,
     redirect_uri: client.redirect_uris[0],
@@ -194,8 +213,10 @@ const begin = async (client, changes = {}) => {
     resource: base + '/mcp',
     state: 'client-state',
     ...changes,
-  }))
+  })) {
     url.searchParams.set(key, value)
+  }
+
   const response = await get(url)
   return {
     response,
@@ -204,6 +225,7 @@ const begin = async (client, changes = {}) => {
     upstream: response.headers.get('location'),
   }
 }
+
 const login = async (client) => {
   const flow = await begin(client)
   assert.equal(flow.response.status, 302)
@@ -217,16 +239,19 @@ const login = async (client) => {
     consentUrl: new URL(response.headers.get('location') ?? '/', base),
   }
 }
+
 const approve = async (client, decision = 'allow') => {
   const flow = await login(client)
   assert.equal(flow.response.status, 302)
-  const consent = await get(flow.consentUrl, flow.cookie),
-    html = await consent.text()
+  const consent = await get(flow.consentUrl, flow.cookie)
+  const html = await consent.text()
+
   assert.equal(consent.headers.get('referrer-policy'), 'same-origin')
   const formPolicy = consent.headers
     .get('content-security-policy')
     .split(';')
     .find((value) => value.trim().startsWith('form-action'))
+
   assert.deepEqual(formPolicy.trim().split(/\s+/), ['form-action', "'self'", 'https://claude.ai'])
   assert.ok(html.includes('&lt;Fixture Client&gt;'))
   const csrf = /name="csrf" value="([^"]+)"/.exec(html)[1]
@@ -236,23 +261,27 @@ const approve = async (client, decision = 'allow') => {
     { request, csrf, decision },
     { cookie: flow.cookie, origin: 'https://attacker.invalid' },
   )
+
   assert.equal(rejected.status, 403)
   const opaque = await post(
     '/oauth/consent',
     { request, csrf, decision },
     { cookie: flow.cookie, origin: 'null' },
   )
+
   assert.equal(opaque.status, 403)
   const response = await post(
     '/oauth/consent',
     { request, csrf, decision },
     { cookie: flow.cookie, origin: base },
   )
+
   assert.equal(response.status, 302)
   const redirect = new URL(response.headers.get('location'))
   assert.equal(redirect.searchParams.get('state'), 'client-state')
   return { ...flow, code: redirect.searchParams.get('code'), redirect }
 }
+
 const exchange = async (client, flow, changes = {}) => {
   const response = await post('/token', {
     grant_type: 'authorization_code',
@@ -263,8 +292,10 @@ const exchange = async (client, flow, changes = {}) => {
     resource: base + '/mcp',
     ...changes,
   })
+
   return { response, tokens: await response.json() }
 }
+
 const connect = async (token) => {
   const client = new Client({ name: 'oauth-fixture', version: '1' })
   await client.connect(
@@ -274,7 +305,9 @@ const connect = async (token) => {
   )
   return client
 }
+
 let failures = 0
+
 const check = async (name, task) => {
   try {
     await task()
@@ -284,6 +317,7 @@ const check = async (name, task) => {
     console.error('  FAIL ' + name + ': ' + error.stack)
   }
 }
+
 try {
   const { client } = await register()
   await check('OAuth metadata, PKCE and registration reject unapproved callbacks', async () => {
@@ -324,11 +358,13 @@ try {
       assert.equal((await exchange(client, flow)).response.status, 400)
       assert.notEqual(tokens.access_token, 'upstream-access-not-for-mcp')
       const connection = await connect(tokens.access_token)
+
       try {
         const result = await connection.callTool({
           name: 'regent_start',
           arguments: { request_id: randomUUID(), prompt: 'Read this fixture' },
         })
+
         assert.ok(!result.isError)
         while (core.active.size) await new Promise((resolve) => setTimeout(resolve, 10))
         assert.equal(starts.at(-1).env.REGENT_OIDC_TEST_SECRET, undefined)
@@ -336,6 +372,7 @@ try {
       } finally {
         await connection.close()
       }
+
       const dump = JSON.stringify(store.db.prepare('SELECT * FROM oauth_tokens').all())
       assert.ok(!dump.includes(tokens.access_token) && !dump.includes(tokens.refresh_token))
     },
@@ -348,6 +385,7 @@ try {
         const flow = await login(client)
         assert.equal(flow.response.status, 403, invalid)
       }
+
       fault = undefined
       identity = { ...identity, email_verified: false }
       assert.equal((await login(client)).response.status, 403)
@@ -419,6 +457,7 @@ try {
       await initialClient.close()
       assert.ok(state.tokens?.access_token)
       const connection = new Client({ name: 'oauth-reconnect-fixture', version: '1' })
+
       try {
         await connection.connect(
           new StreamableHTTPClientTransport(new URL(base + '/mcp'), { authProvider }),
@@ -443,21 +482,25 @@ try {
       identity = { sub: 'bob', email: 'bob@example.test', name: 'Bob', email_verified: true }
       const bob = (await exchange(client, await approve(client))).tokens
       const bobClient = await connect(bob.access_token)
+
       try {
         const rejected = await bobClient.callTool({
           name: 'regent_get_run',
           arguments: { run_id: run.run_id },
         })
+
         assert.equal(rejected.isError, true)
       } finally {
         await bobClient.close()
       }
+
       const refresh = await post('/token', {
         grant_type: 'refresh_token',
         client_id: client.client_id,
         refresh_token: bob.refresh_token,
         resource: base + '/mcp',
       })
+
       assert.equal(refresh.status, 200)
       const renewed = await refresh.json()
       assert.notEqual(renewed.refresh_token, bob.refresh_token)
@@ -467,6 +510,7 @@ try {
         refresh_token: bob.refresh_token,
         resource: base + '/mcp',
       })
+
       assert.equal(replay.status, 400)
       await assert.rejects(() => external.oauth.verifyAccessToken(renewed.access_token))
       store.db.prepare("UPDATE oauth_tokens SET expires_at=0 WHERE kind='access'").run()
@@ -492,6 +536,7 @@ try {
         },
         { cookie: flow.cookie, origin: base },
       )
+
       assert.equal(denied.status, 403)
       const refusedLogin = await login(client)
       assert.equal(refusedLogin.response.status, 403)
@@ -521,6 +566,7 @@ try {
         refresh_token: granted.refresh_token,
         resource: base + '/mcp',
       })
+
       assert.notEqual(refresh.status, 200)
       allow(['alice@example.test', 'bob@example.test'])
       await external.oauth.verifyAccessToken(granted.access_token)
@@ -543,6 +589,7 @@ try {
         client_id: client.client_id,
         token: renewed.refresh_token,
       })
+
       assert.equal(revoked.status, 200)
       await assert.rejects(() => external.oauth.verifyAccessToken(renewed.access_token))
       const granted = (await exchange(client, await approve(client))).tokens
@@ -560,4 +607,5 @@ try {
   store.close()
   fs.rmSync(root, { recursive: true, force: true })
 }
+
 if (failures) process.exitCode = 1

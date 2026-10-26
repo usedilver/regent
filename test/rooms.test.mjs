@@ -4,7 +4,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { Store } from '../src/storage/store.ts'
 import { RoomTransfers } from '../src/core/rooms.ts'
-import { createRoomApi, conversationRoute, SlackOutput } from '../src/adapters/slack/adapter.ts'
+import { createRoomApi } from '../src/adapters/slack/rooms.ts'
+import { conversationRoute } from '../src/adapters/slack/routing.ts'
+import { SlackOutput } from '../src/adapters/slack/output.ts'
 import { Core } from '../src/core/core.ts'
 import { ConfigSchema } from '../src/config.ts'
 import { DurableOutput } from '../src/storage/delivery.ts'
@@ -12,9 +14,9 @@ import { isolationFor } from '../src/core/repository.ts'
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'regent-rooms-'))
 const file = path.join(root, 'state.sqlite')
-let store = new Store(file),
-  core,
-  output
+let store = new Store(file)
+let core
+let output
 const signal = new AbortController().signal
 const input = (key, eventId = key) => ({
   adapter: 'slack',
@@ -25,14 +27,14 @@ const input = (key, eventId = key) => ({
   eventId,
   text: 'Create a room',
 })
-const rooms = new Map(),
-  invites = [],
-  notices = [],
-  questions = []
-let creates = 0,
-  failInvite = false,
-  loseCreate = false,
-  online = true
+const rooms = new Map()
+const invites = []
+const notices = []
+const questions = []
+let creates = 0
+let failInvite = false
+let loseCreate = false
+let online = true
 const api = {
   async validateUser(id) {
     if (id === 'UINVALID') throw new Error('invalid user')
@@ -44,10 +46,12 @@ const api = {
     creates++
     const channel = `C${creates}`
     rooms.set(name, channel)
+
     if (loseCreate) {
       loseCreate = false
       throw new Error('timeout after creation')
     }
+
     return channel
   },
   async invite(channel, id) {
@@ -68,13 +72,16 @@ const delegate = {
     questions.push({ c, question })
   },
 }
+
 const until = async (fn) => {
   for (let i = 0; i < 300; i++) {
     if (fn()) return
     await new Promise((r) => setTimeout(r, 10))
   }
+
   throw new Error('Timed out')
 }
+
 try {
   const redactionKey = 'redaction-regression'
   store.accept(input(redactionKey), root, 24)
@@ -89,6 +96,7 @@ try {
     },
     async invite() {},
   }
+
   await redactionTransfer.prepare(
     store.conversation(redactionKey),
     { name: 'redaction', summary: 'db secret: audit-fixture"trailing' },
@@ -99,11 +107,14 @@ try {
   const serialized = store.db
     .prepare('SELECT args FROM deliveries WHERE conversation_key=?')
     .all(redactionKey)
+
   assert.equal(serialized.length, 4)
+
   for (const row of serialized) {
     assert.doesNotThrow(() => JSON.parse(row.args))
     assert.doesNotMatch(row.args, /audit-fixture/)
   }
+
   store.db.prepare('DELETE FROM deliveries WHERE conversation_key=?').run(redactionKey)
 
   const key = 'slack:D1:1'
@@ -149,6 +160,7 @@ try {
     api,
     signal,
   )
+
   assert.equal(creates, 1)
   assert.equal(transfer.channel, 'C1')
   assert.ok(invites.some(([channel, id]) => channel === 'C1' && id === 'U2'))
@@ -171,6 +183,7 @@ try {
   assert.equal(destination.session_id, 'same-session')
   assert.equal(conversationRoute(store, { channel: 'D1', ts: '2', thread_ts: '1' }).redirect, 'C1')
   assert.equal(conversationRoute(store, { channel: 'D1', ts: '2' }).redirect, undefined)
+
   for (const thread_ts of [undefined, 'room-thread']) {
     const route = conversationRoute(store, { channel: 'C1', ts: '3', thread_ts })
     assert.equal(route.key, key)
@@ -178,11 +191,14 @@ try {
     assert.equal(route.pending, false)
     assert.equal(route.redirect, undefined)
   }
+
   assert.deepEqual(isolationFor(destination.cwd, destination.key), isolation)
+
   for (const id of [first.runId, queued.runId]) {
     assert.equal(store.run(id).reply_channel, 'C1')
     assert.equal(store.run(id).reply_thread, null)
   }
+
   assert.deepEqual(
     JSON.parse(
       store.db.prepare('SELECT source FROM conversation_history WHERE conversation_key=?').get(key)
@@ -235,6 +251,7 @@ try {
     api,
     signal,
   )
+
   assert.equal(recovered.channel, 'C2')
   assert.equal(creates, 2)
   await assert.rejects(
@@ -260,6 +277,7 @@ try {
     api,
     signal,
   )
+
   transfers.move(threadKey, threadRoom.channel)
   assert.equal(
     conversationRoute(store, { channel: 'CSOURCE', ts: '2', thread_ts: '1' }).redirect,
@@ -279,6 +297,7 @@ try {
     repos: { path: root },
     slack: { workspace_team_id: 'T1', allowed_users: ['U1'] },
   })
+
   core = new Core({
     store,
     config,
@@ -290,6 +309,7 @@ try {
       const done = new Promise((r) => {
         resolve = r
       })
+
       return {
         done,
         cancel: () => resolve({ state: 'interrupted', text: '', error: '', cost: 0, usage: {} }),
@@ -305,6 +325,7 @@ try {
     name: 'discussion',
     summary: 'A discussion, not a task',
   })
+
   assert.equal(result.moved, true)
   assert.equal(active.conversation.channel, result.channel)
   assert.equal(active.run.reply_channel, result.channel)
@@ -313,6 +334,7 @@ try {
     name: 'again',
     summary: 'Again',
   })
+
   assert.equal(again.channel, result.channel)
   assert.equal(creates, 4)
   online = true
@@ -345,23 +367,31 @@ try {
   const slack = createRoomApi(
     async (method, args) => {
       calls.push({ method, args })
-      if (method === 'users.info')
+
+      if (method === 'users.info') {
         return { user: { team_id: args.user === 'UOTHER' ? 'T2' : 'T1' } }
+      }
+
       if (method === 'conversations.create') {
         if (args.name === 'taken') throw new Error('name_taken')
         return { channel: { id: 'CPRIVATE' } }
       }
+
       if (method === 'conversations.invite') throw new Error('already_in_channel')
-      if (!args.cursor)
+
+      if (!args.cursor) {
         return {
           channels: [{ name: 'taken', id: 'CFOREIGN', creator: 'OTHER', is_member: true }],
           response_metadata: { next_cursor: 'next' },
         }
+      }
+
       return { channels: [{ name: 'taken', id: 'COWN', creator: 'BOT', is_member: true }] }
     },
     'T1',
     () => 'BOT',
   )
+
   await slack.validateUser('U1')
   await assert.rejects(() => slack.validateUser('UOTHER'), /workspace/)
   assert.equal(await slack.create('new'), 'CPRIVATE')

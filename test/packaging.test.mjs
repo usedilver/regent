@@ -9,6 +9,7 @@ import { createSystemPrompt } from '../src/execution/prompt.ts'
 
 test('plugin artifact is versioned, reproducible and limited to its five public files', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'regent-package-'))
+
   try {
     for (const name of [
       'scripts/package-client-plugin.py',
@@ -21,6 +22,7 @@ test('plugin artifact is versioned, reproducible and limited to its five public 
       fs.mkdirSync(path.dirname(dest), { recursive: true })
       fs.copyFileSync(name, dest)
     }
+
     fs.writeFileSync(
       path.join(directory, 'plugins/regent/private.env'),
       'secret=fixture-must-never-ship',
@@ -33,6 +35,7 @@ test('plugin artifact is versioned, reproducible and limited to its five public 
       '--endpoint',
       'https://regent.example.org/mcp',
     ]
+
     execFileSync('python3', args, { cwd: directory })
     const archive = path.join(directory, 'dist/plugins', `${manifest.name}-${manifest.version}.zip`)
     const first = fs.readFileSync(archive)
@@ -53,6 +56,7 @@ test('plugin artifact is versioned, reproducible and limited to its five public 
         { encoding: 'utf8' },
       ),
     )
+
     assert.deepEqual(
       Object.keys(bundle).sort(),
       ['.claude-plugin/plugin.json', '.mcp.json', 'LICENSE', 'README.md', 'skills/regent/SKILL.md']
@@ -64,6 +68,7 @@ test('plugin artifact is versioned, reproducible and limited to its five public 
       'https://regent.example.org/mcp',
     )
     assert.doesNotMatch(JSON.stringify(bundle), /fixture-must-never-ship/)
+
     for (const endpoint of [
       'http://regent.example.org/mcp',
       'https://localhost/mcp',
@@ -83,11 +88,13 @@ test('plugin artifact is versioned, reproducible and limited to its five public 
 
 test('default prompt resources work without private instance configuration', () => {
   const prompt = createSystemPrompt()
+
   try {
     assert.match(fs.readFileSync(prompt.file, 'utf8'), /Instance Communication/)
     assert.equal(fs.statSync(prompt.file).mode & 0o777, 0o600)
   } finally {
     prompt.dispose()
   }
+
   assert.equal(fs.existsSync(prompt.file), false)
 })

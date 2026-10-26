@@ -64,8 +64,11 @@ try {
           name: value.worktreeName,
           dir: path.join(repo, '.claude/worktrees', value.worktreeName),
         }
-        if (!fs.existsSync(isolated.dir))
+
+        if (!fs.existsSync(isolated.dir)) {
           git(repo, 'worktree', 'add', '-b', `worktree-${isolated.name}`, isolated.dir, 'HEAD')
+        }
+
         let finish
         return {
           done: new Promise((resolve) => {
@@ -76,6 +79,7 @@ try {
         }
       },
     })
+
     try {
       const key = 'slack:C1:1'
       await core.submit({
@@ -91,11 +95,13 @@ try {
       const active = [...core.active.values()][0]
       const permit = (tool_name, tool_input) =>
         core.permission(active.token, { tool_name, tool_input })
+
       assert.equal(options.cwd, fs.realpathSync(repo))
       assert.deepEqual(options.additionalDirectories, [])
       const isolated = isolationFor(repo, key)
       assert.equal(options.worktreeName, isolated.name)
       assert.doesNotMatch(options.prompt, /"policy"|"worktrees"|"task"/)
+
       for (const tool_name of ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']) {
         const field = tool_name === 'NotebookEdit' ? 'notebook_path' : 'file_path'
         assert.equal(permit(tool_name, { [field]: 'answer.txt' }), null)
@@ -106,6 +112,7 @@ try {
         assert.equal(permit(tool_name, { [field]: '.env.local' }), null) // build config del proyecto: editable dentro del worktree
         assert.ok(permit(tool_name, { [field]: '.credentials.json' })) // credencial dura: sigue bloqueada
       }
+
       assert.equal(permit('Write', { file_path: '.claude/settings.json' }), null)
       assert.equal(permit('Write', { file_path: '.mcp.json' }), null)
       fs.writeFileSync(path.join(isolated.dir, '.env.local'), 'FIRST=keep\nSECOND=old\n')
@@ -128,20 +135,28 @@ try {
         fs.readFileSync(path.join(isolated.dir, '.env.local'), 'utf8'),
         'FIRST=keep\nSECOND=new\n',
       )
-      if (!fs.existsSync(path.join(isolated.dir, '.env.link')))
+
+      if (!fs.existsSync(path.join(isolated.dir, '.env.link'))) {
         fs.symlinkSync(path.join(repo, '.env'), path.join(isolated.dir, '.env.link'))
+      }
+
       for (const tool of ['Write', 'Edit']) {
         assert.ok(permit(tool, { file_path: path.join(repo, '.env') }))
         assert.ok(permit(tool, { file_path: '.env.link' }))
       }
+
       for (const command of [
         'vercel env pull .env.local',
         'git check-ignore .env.local',
         'cat .env.local',
-      ])
+      ]) {
         assert.equal(permit('Bash', { command }), null)
-      for (const file_path of [path.join(repo, '.env'), '.env.link'])
+      }
+
+      for (const file_path of [path.join(repo, '.env'), '.env.link']) {
         assert.equal(permit('Read', { file_path }), null)
+      }
+
       for (const command of [
         `cat ${repo}/.env`,
         'cat .env.link',
@@ -151,10 +166,13 @@ try {
         'cat ../.env',
         `chmod 600 ${repo}/.env && stat ${repo}/.env`,
         'grep -oE "^[A-Z_]+=" .env.local',
-      ])
+      ]) {
         assert.equal(permit('Bash', { command }), null)
+      }
+
       assert.ok(permit('Write', { file_path: path.join(repo, 'secret-alias') }))
       assert.ok(permit('Write', { file_path: path.join(repo, 'broken-link') }))
+
       for (const command of [
         'git add answer.txt',
         'git commit -m fix',
@@ -164,6 +182,7 @@ try {
       ]) {
         assert.equal(permit('Bash', { command }), null)
       }
+
       // Simulate the runtime using the approved repository tools, not core helpers.
       fs.writeFileSync(path.join(isolated.dir, 'answer.txt'), `${permission_mode}\n`)
       assert.match(git(isolated.dir, 'diff', '--', 'answer.txt'), new RegExp(permission_mode))
@@ -217,9 +236,11 @@ try {
         git(other.dir, 'symbolic-ref', 'HEAD'),
       )
       assert.equal(isolationFor(repo, key).dir, isolated.dir)
+
       for (const table of ['tasks', 'task_gates', 'worktrees', 'prs']) {
         assert.equal(store.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n, 0)
       }
+
       assert.ok(
         core.permission('expired', { tool_name: 'Edit', tool_input: { file_path: 'answer.txt' } }),
       )
@@ -238,15 +259,18 @@ try {
       store.close()
     }
   }
+
   for (const name of ['plan', 'implement', 'qa']) {
     assert.ok(!fs.existsSync(path.resolve('plugins/executor/skills', name, 'SKILL.md')))
   }
+
   const parent = path.join(root, 'parent')
   git(root, 'init', parent)
   git(parent, '-c', 'protocol.file.allow=always', 'submodule', 'add', repo, 'hire')
   const hire = path.join(parent, 'hire')
-  const a = isolationFor(hire, 'thread-A'),
-    b = isolationFor(hire, 'thread-B')
+  const a = isolationFor(hire, 'thread-A')
+  const b = isolationFor(hire, 'thread-B')
+
   git(hire, 'worktree', 'add', '-b', a.name, a.dir, 'HEAD')
   git(hire, 'worktree', 'add', '-b', b.name, b.dir, 'HEAD')
   fs.writeFileSync(path.join(a.dir, 'answer.txt'), 'fix A')
@@ -324,8 +348,9 @@ try {
   assert.deepEqual(context.instruction_directories[0].configured_mcp_servers, ['shared'])
   assert.equal(context.instruction_directories[0].skills[0].name, 'shared-skill')
 
-  const workspaceA = isolationFor(parent, 'project-A'),
-    workspaceB = isolationFor(parent, 'project-B')
+  const workspaceA = isolationFor(parent, 'project-A')
+  const workspaceB = isolationFor(parent, 'project-B')
+
   for (const [key, isolated] of [
     ['project-A', workspaceA],
     ['project-B', workspaceB],
@@ -344,6 +369,7 @@ try {
       '{"fixture":true}\n',
     )
   }
+
   fs.writeFileSync(path.join(workspaceA.dir, 'hire/answer.txt'), 'task A hire\n')
   fs.writeFileSync(path.join(workspaceA.dir, 'web/answer.txt'), 'task A web\n')
   fs.writeFileSync(path.join(workspaceA.dir, 'hire/.env'), 'CHILD_SETUP=changed\n')
@@ -403,10 +429,11 @@ try {
     repos: { path: root, default_repo: 'parent/hire' },
     slack: { workspace_team_id: 'T1', allowed_users: ['U1'] },
   })
+
   fs.writeFileSync(path.join(parent, '.env'), 'PROJECT_ONLY=parent\n')
   fs.writeFileSync(path.join(independent, '.env'), 'INDEPENDENT_ONLY=independent\n')
-  const starts = [],
-    finish = []
+  const starts = []
+  const finish = []
   const core = new Core({
     store,
     config,
@@ -415,8 +442,11 @@ try {
     runner: (options) => {
       starts.push(options)
       const isolated = isolationFor(options.cwd, 'project-session')
-      if (!fs.existsSync(isolated.dir))
+
+      if (!fs.existsSync(isolated.dir)) {
         git(options.cwd, 'worktree', 'add', '-b', isolated.name, isolated.dir, 'HEAD')
+      }
+
       options.onEvent({ kind: 'init', sessionId: options.sessionId ?? `fixture-${starts.length}` })
       let resolve
       const done = new Promise((complete) => {
@@ -424,17 +454,21 @@ try {
       })
       const complete = () =>
         resolve({ state: 'completed', text: 'done', error: '', cost: 0, usage: {} })
+
       finish.push(complete)
       return { done, cancel: complete }
     },
   })
+
   const wait = async (predicate) => {
     const deadline = Date.now() + 5000
+
     while (!predicate()) {
       if (Date.now() > deadline) throw new Error('Project test timed out')
       await new Promise((resolve) => setTimeout(resolve, 10))
     }
   }
+
   try {
     const input = {
       adapter: 'slack',
@@ -446,6 +480,7 @@ try {
       text: 'Update backend',
       repo: hire,
     }
+
     await core.submit(input)
     await wait(() => starts.length === 1)
     const active = [...core.active.values()][0]
@@ -502,6 +537,7 @@ try {
       repo: path.join(isolated.dir, 'web'),
       handoff: 'Continue frontend',
     })
+
     assert.equal(selected.unchanged, true)
     assert.equal(selected.cwd, path.join(isolated.dir, 'web'))
     assert.equal(store.conversation(input.key).session_id, 'fixture-1')

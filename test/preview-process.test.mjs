@@ -15,6 +15,7 @@ test('preview publication and routing require the listener to belong to the auth
   const server = http.createServer((request, response) => response.end('foreign app'))
   const children = []
   let previews
+
   try {
     server.listen(0, '127.0.0.1')
     await once(server, 'listening')
@@ -33,6 +34,7 @@ test('preview publication and routing require the listener to belong to the auth
       detached: true,
       stdio: 'ignore',
     })
+
     children.push(idle)
     await once(idle, 'spawn')
     server.listen(port, '127.0.0.1')
@@ -47,6 +49,7 @@ test('preview publication and routing require the listener to belong to the auth
       ],
       { cwd: directory, detached: true, stdio: ['pipe', 'pipe', 'inherit'] },
     )
+
     children.push(app)
     await once(app.stdout, 'data')
     const published = await previews.publish('fixture', app.pid)
@@ -65,16 +68,19 @@ test('preview publication and routing require the listener to belong to the auth
     assert.equal(previews.get('fixture').pid, app.pid)
   } finally {
     previews?.close()
+
     for (const child of children) {
       if (child.exitCode !== null || child.signalCode !== null) continue
       const exited = once(child, 'exit')
       process.kill(-child.pid, 'SIGTERM')
       await exited
     }
+
     if (server.listening) {
       server.closeAllConnections()
       await new Promise((resolve) => server.close(resolve))
     }
+
     store.close()
     fs.rmSync(directory, { recursive: true, force: true })
   }

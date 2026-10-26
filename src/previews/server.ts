@@ -7,6 +7,7 @@ export async function startPreviewServer(core: Core) {
   if (!core.config.previews) return
   const previews = new Previews(core.store, core.config.previews)
   const http = httpLifecycle(createPreviewHttp(previews))
+
   try {
     await http.listen(core.config.previews.listen_port)
     previews.start()
@@ -16,6 +17,7 @@ export async function startPreviewServer(core: Core) {
     await http.close()
     throw error
   }
+
   return async () => {
     previews.close()
     core.previews = undefined

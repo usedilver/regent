@@ -16,8 +16,10 @@ for (const [text, intent] of [
   ['Como puedo crear un proyecto?', 'ask'],
   ['Investiga este bug, no hagas cambios', 'ask'],
   ['/project retoma los requerimientos adjuntos', 'project'],
-])
+]) {
   assert.equal(routeIntent(text).intent, intent, text)
+}
+
 assert.equal(routeIntent('dale', 'project').intent, 'project')
 assert.equal(routeIntent('continua', 'patch').intent, 'patch')
 assert.equal(routeIntent('explica como funciona', 'project').intent, 'ask')
@@ -30,8 +32,8 @@ const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-inten
 const repo = path.join(root, 'new-app')
 fs.mkdirSync(repo)
 fs.mkdirSync(path.join(repo, '.git'))
-const store = new Store(':memory:'),
-  starts = []
+const store = new Store(':memory:')
+const starts = []
 const config = ConfigSchema.parse({
   auth: { mode: 'indie' },
   repos: { path: root, default_repo: 'new-app' },
@@ -50,6 +52,7 @@ const core = new Core({
     const done = new Promise((resolve) => {
       finish = () => resolve({ state: 'completed', text: 'ok', error: '', cost: 0, usage: {} })
     })
+
     starts.push({ opts, finish })
     return { done, cancel: finish }
   },
@@ -64,13 +67,16 @@ const inbound = (id, text) => ({
   team: 'T1',
   text,
 })
+
 const until = async (predicate) => {
   for (let i = 0; i < 1000; i++) {
     if (predicate()) return
     await new Promise((r) => setTimeout(r, 2))
   }
+
   throw new Error('Timed out')
 }
+
 try {
   await core.submit({ ...inbound('create', 'crea un proyecto de gastos'), intent: 'task' })
   await until(() => starts.length === 1)

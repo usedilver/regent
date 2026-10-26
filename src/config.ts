@@ -2,8 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import YAML from 'yaml'
 import { z } from 'zod'
-import { REGENT_DIR } from './env.ts'
-import { projectRoot } from './core/repository.ts'
+import { expandHome, REGENT_DIR } from './env.ts'
+import { isInside, projectRoot } from './core/repository.ts'
 
 const positive = z.number().positive().finite()
 const authUrl = z
@@ -20,13 +20,14 @@ const authUrl = z
         (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)))
     )
   }, 'Usa HTTPS o HTTP loopback, sin credenciales, query ni fragmento.')
+
 export const ConfigSchema = z
   .object({
     name: z.string().min(1).default('Regent'),
     access_policy_file: z.string().trim().min(1).nullable().default(null),
     auth: z.object({ mode: z.enum(['indie', 'team']) }),
-    // bypass skips native permission rules; hooks are not a filesystem sandbox.
-    // native: respeta allow/ask/deny del repo — en headless lo no permitido se auto-deniega.
+    // bypass skips the native permission rules; hooks are not a filesystem sandbox.
+    // native honors the repo's allow/ask/deny; headless runs auto-deny anything not allowed.
     permission_mode: z.enum(['bypass', 'native']).default('bypass'),
     communication: z
       .object({
@@ -164,10 +165,13 @@ export function authNotice(
   env: NodeJS.ProcessEnv = process.env,
   users: readonly string[] = config.slack.allowed_users,
 ): string {
-  if (config.auth.mode === 'team')
+  if (config.auth.mode === 'team') {
     return 'Modo equipo (team): usa ANTHROPIC_API_KEY, con facturacion por consumo.'
+  }
+
   const sharedAudience = new Set(users).size !== 1
-  if (sharedAudience)
+
+  if (sharedAudience) {
     return [
       '------------------------------------------------------------',
       'ADVERTENCIA: ACCESO AMPLIADO EN MODO INDIVIDUAL',
@@ -183,6 +187,8 @@ export function authNotice(
         : []),
       '------------------------------------------------------------',
     ].join('\n')
+  }
+
   return [
     'Modo individual (indie): tu propio login en el binario oficial Claude Code con Pro/Max; un solo humano autorizado.',
     ...(env.ANTHROPIC_API_KEY?.trim()
@@ -194,36 +200,37 @@ export function authNotice(
 }
 
 export function assertAuth(config: Config, env: NodeJS.ProcessEnv = process.env): void {
-  if (config.auth.mode === 'team' && !env.ANTHROPIC_API_KEY?.trim())
+  if (config.auth.mode === 'team' && !env.ANTHROPIC_API_KEY?.trim()) {
     throw new Error('auth.mode team requiere ANTHROPIC_API_KEY en el servidor.')
+  }
 }
 
 export function loadConfig(
   file = process.env.REGENT_CONFIG ?? path.join(REGENT_DIR, 'config/regent.yaml'),
 ): Config {
-  if (!fs.existsSync(file))
+  if (!fs.existsSync(file)) {
     throw new Error(
       `No existe ${file}. Ejecuta pnpm regent setup --repo <ruta> --team <ID> --user <ID>.`,
     )
+  }
+
   return ConfigSchema.parse(YAML.parse(fs.readFileSync(file, 'utf8')))
 }
 
 export function workspaceDir(config: Config): string {
-  const root = fs.realpathSync(config.repos.path.replace(/^~(?=$|\/)/, process.env.HOME ?? ''))
+  const root = fs.realpathSync(expandHome(config.repos.path))
   const dir = fs.realpathSync(path.resolve(root, config.repos.workspace_root ?? '.'))
-  const relative = path.relative(root, dir)
-  if (
-    relative === '..' ||
-    relative.startsWith(`..${path.sep}`) ||
-    path.isAbsolute(relative) ||
-    !fs.statSync(dir).isDirectory()
-  )
+
+  if (!isInside(root, dir) || !fs.statSync(dir).isDirectory()) {
     throw new Error('workspace_root debe ser una carpeta dentro de repos.path.')
+  }
+
   return dir
 }
 
 export function defaultRepoDir(config: Config, workspace: string): string {
   if (!config.repos.default_repo) return workspace
+
   try {
     return projectRoot(workspace, config.repos.default_repo)
   } catch (cause) {

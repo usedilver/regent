@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { slackImageLoader, imageReference } from '../src/adapters/slack/images.ts'
 import { prepareImages, IMAGE_BYTES } from '../src/core/images.ts'
-import { gatherHistory } from '../src/adapters/slack/adapter.ts'
+import { gatherHistory } from '../src/adapters/slack/history.ts'
 import { History } from '../src/core/history.ts'
 import { Store } from '../src/storage/store.ts'
 import { runnerInput, runnerArgs, startRunner } from '../src/execution/runner.ts'
@@ -17,8 +17,8 @@ const png = Buffer.from(
 )
 const reference = { id: 'F123', name: 'capture.png' }
 const signal = new AbortController().signal
-let requests = 0,
-  body = png
+let requests = 0
+let body = png
 let file = {
   ...reference,
   mimetype: 'image/png',
@@ -39,10 +39,12 @@ const loader = slackImageLoader(
     return new Response(body, { headers: { 'content-type': 'application/octet-stream' } })
   },
 )
+
 assert.deepEqual(imageReference(file), reference)
 assert.equal(imageReference({ id: 'F2', mimetype: 'application/pdf' }), undefined)
 assert.equal((await loader(reference, signal)).mediaType, 'image/png')
 assert.equal((await loader(reference, signal)).data, png.toString('base64'))
+
 for (const url of [
   'https://example.com/a.png',
   'http://files.slack.com/a.png',
@@ -54,6 +56,7 @@ for (const url of [
   await assert.rejects(loader(reference, signal), /autorizado/)
   assert.equal(requests, before)
 }
+
 file.url_private = 'https://files.slack.com/a.png'
 body = Buffer.from('<html>login</html>')
 await assert.rejects(loader(reference, signal), /invalida/)
@@ -71,12 +74,14 @@ const redirect = slackImageLoader(
   'token',
   async () => new Response(null, { status: 302 }),
 )
+
 await assert.rejects(redirect(reference, signal), /HTTP 302/)
 const forbidden = slackImageLoader(
   async () => ({ file }),
   'token',
   async () => new Response(null, { status: 403 }),
 )
+
 await assert.rejects(forbidden(reference, signal), /HTTP 403/)
 
 const image = { mediaType: 'image/png', data: png.toString('base64') }
@@ -94,6 +99,7 @@ const limited = await prepareImages(
   },
   signal,
 )
+
 assert.equal(limited.images.length, 5)
 assert.equal(loads, 5)
 assert.equal(limited.skipped.size, 2)
@@ -106,6 +112,7 @@ const duplicate = await prepareImages(
   },
   signal,
 )
+
 assert.equal(loads, 1)
 assert.equal(duplicate.images.length, 1)
 assert.equal((await prepareImages([items[0]], undefined, signal)).skipped.size, 1)
@@ -114,6 +121,7 @@ const budget = await prepareImages(
   async () => ({ mediaType: 'image/png', data: Buffer.alloc(IMAGE_BYTES).toString('base64') }),
   signal,
 )
+
 assert.equal(budget.images.length, 3)
 assert.equal(budget.skipped.size, 1)
 file.is_external = true
@@ -143,6 +151,7 @@ const gathered = await gatherHistory(
   'BOT',
   async () => 'text file',
 )
+
 assert.equal(gathered.filter((m) => m.image).length, 2)
 assert.match(gathered.find((m) => m.image?.id === 'F123').text, /@U1/)
 const dm = await gatherHistory(
@@ -151,6 +160,7 @@ const dm = await gatherHistory(
   'BOT',
   async () => '',
 )
+
 assert.equal(dm[0].image.id, 'F123')
 const methods = []
 await gatherHistory(
@@ -184,6 +194,7 @@ const inbound = (id) => ({
   text: 'compare',
   history: { channel: 'C1', thread: '1', latest: '2', trigger: 'C1:2' },
 })
+
 try {
   const first = store.accept(inbound('one'), root, 24)
   let prepared = await new History(store).prepare(first.runId, key, null, async () => gathered)
@@ -191,6 +202,7 @@ try {
   const snapshot = store.db
     .prepare('SELECT snapshot FROM run_history WHERE run_id=?')
     .get(first.runId).snapshot
+
   assert.ok(
     !snapshot.includes('url_private') &&
       !snapshot.includes(image.data) &&
@@ -210,6 +222,7 @@ try {
     'session',
     async () => gathered,
   )
+
   assert.deepEqual(
     pending.images.map((i) => i.reference.id),
     ['F123'],
@@ -247,6 +260,7 @@ try {
     command: process.execPath,
     prefixArgs: ['-e', script, '--'],
   }).done
+
   assert.equal(result.state, 'completed')
   assert.equal(result.text, 'image/png')
 
@@ -272,6 +286,7 @@ try {
       }
     },
   })
+
   try {
     core.historyLoader = async () => gathered
     core.imageLoader = async () => image
@@ -288,6 +303,7 @@ try {
   store.close()
   fs.rmSync(root, { recursive: true, force: true })
 }
+
 console.log(
   'Images: Slack thread/DM/channel, authenticated bounds, snapshots, dedupe, retry, core and CLI input passed',
 )
