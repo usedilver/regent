@@ -166,6 +166,7 @@ export class ExternalMcp {
 
   private runSummary(run: Run) {
     const delivery = this.core.store.lastEvent<ReviewDelivery>(run.id, 'delivery_review')
+    const cleanup = this.core.store.lastEvent(run.id, 'worktree_cleanup')
     const failure = ['failed', 'interrupted'].includes(run.state)
       ? this.core.store.lastEvent<ExecutionFailure>(run.id, 'execution_failure')
       : undefined
@@ -178,6 +179,7 @@ export class ExternalMcp {
       error: run.error,
       cost_usd: run.cost,
       ...(delivery ? { delivery } : {}),
+      ...(cleanup ? { cleanup } : {}),
       ...(failure ? { failure: publicFailure(failure) } : {}),
     }
   }
@@ -326,7 +328,7 @@ export class ExternalMcp {
   server(author: string): McpServer {
     const title = this.core.config.name
     const server = new McpServer(
-      { name: 'regent', title, version: '0.3.3' },
+      { name: 'regent', title, version: '0.3.4' },
       { instructions: this.instructions() },
     )
 

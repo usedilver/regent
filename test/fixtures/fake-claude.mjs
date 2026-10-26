@@ -45,6 +45,7 @@ if (scenario === 'hang' || scenario === 'ignore-signals') {
       JSON.stringify([
         'regent_ask_human',
         'regent_cancel',
+        'regent_cleanup_worktree',
         'regent_create_room',
         'regent_git_read',
         'regent_read_history',

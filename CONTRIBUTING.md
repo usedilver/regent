@@ -34,6 +34,10 @@ an occupied listener. It uses a temporary SQLite database, preserves source file
 the native Stop hook and removes its preview/process/files after checking the public page.
 It does not validate business data or an authenticated application session.
 Simulated tests are the default in CI.
+`REGENT_SMOKE=1 node test/smoke/worktree-cleanup.mjs` checks the real CLI and MCP
+preserve a worktree after a merge-only message, then remove it only after an explicit
+cleanup request. It uses a temporary repository, local bare remote and SQLite file,
+preserves source/history, and never reads authentication files.
 Set `REGENT_USER_ID` for local CLI attribution if the instance has no single allowed Slack user.
 A simulated test does not establish production or provider compatibility.
 

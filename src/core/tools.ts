@@ -339,6 +339,22 @@ async function cancel({ active, input }: ToolCall) {
   return { cancelled: true }
 }
 
+async function cleanupWorktree({ core, active, input }: ToolCall) {
+  if (active.readOnly) throw new Error('Query mode cannot remove a worktree.')
+  if (active.moving || active.contextChanged || active.waiting)
+    throw new Error('Termina el traslado o la espera antes de pedir limpieza.')
+  const args = ToolSchemas.regent_cleanup_worktree.parse(input)
+  active.worktreeRemoval = args.pull_requests
+  core.store.event(active.run.id, 'worktree_cleanup_requested', {
+    pull_requests: args.pull_requests,
+  })
+  return {
+    state: 'requested',
+    instruction:
+      'Termina el turno ahora. No ejecutes mas comandos, no borres desde Bash ni afirmes que ya se elimino: Regent comprueba y limpia despues de que salga el CLI, y entrega el resultado real. Conserva el historial, las ramas y commits remotos. No requiere preview.',
+  }
+}
+
 /** The tools the agent reaches through Regent's own MCP server, by their public names. */
 export const CORE_TOOLS: Record<ToolName, Handler> = {
   regent_read_history: readHistory,
@@ -349,6 +365,7 @@ export const CORE_TOOLS: Record<ToolName, Handler> = {
   regent_status: status,
   regent_ask_human: askHuman,
   regent_cancel: cancel,
+  regent_cleanup_worktree: cleanupWorktree,
 }
 
 export function isToolName(name: string): name is ToolName {

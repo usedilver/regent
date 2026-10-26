@@ -176,6 +176,21 @@ the executor verifies the public route and preserves application authentication 
 `preview_available` reports gateway configuration separately from preview readiness; internal
 status reports `not_reserved` and the next allowed action when no preview exists yet.
 
+An explicit worktree-removal request uses `regent_cleanup_worktree`, scoped to the
+active conversation. It defers execution until the official CLI exits; core performs
+cleanup from the shared checkout, not from the directory being deleted. It inventories
+registered nested checkouts, requires clean tracked/untracked state and verifies HEAD
+against freshly fetched remote refs. Explicitly supplied PR refs support squash merges
+whose source branches were removed; they are fetched once, without PR polling.
+Unknown locks, live CLI/processes, unique local commits, unavailable remotes and unsafe
+paths block cleanup. Only stale recognized native locks are released. The owned preview
+is stopped after preflight; registered nested checkouts are removed before the parent.
+Success clears the CLI session pointer while preserving the conversation, history,
+branches and remote commits. MCP returns additive `run.cleanup`, and the runtime supplies
+the actual cleanup result as final text. Cancellation/shutdown abort cleanup. A partial
+I/O failure stays pending and can be retried. Merge/PR closure, reset, idle time and run
+completion alone never trigger removal. No watcher or scheduled cleanup is installed.
+
 ## Configuration and runtime resources
 
 `access_policy_file` optionally selects a separate, strictly validated `config/access.yaml`.

@@ -35,7 +35,14 @@ export async function reviewDelivery(
   core: Core,
   active: Active,
 ): Promise<ReviewDelivery | undefined> {
-  if (active.readOnly || !core.previews || active.waiting || active.contextChanged) return
+  if (
+    active.readOnly ||
+    !core.previews ||
+    active.waiting ||
+    active.contextChanged ||
+    active.worktreeRemoval !== undefined
+  )
+    return
   const assessment = active.review
   if (!assessment) return { state: 'missing', reason: 'Falta evaluar la revision visual.' }
   if (assessment.kind === 'not_applicable') {

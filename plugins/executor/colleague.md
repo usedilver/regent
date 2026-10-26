@@ -27,6 +27,16 @@ only in those paths; report unavailable checkouts instead of inventing files or
 cloning unverified URLs. Validate and commit affected repos separately. Change
 parent gitlink pins only when requested.
 
+When the user explicitly asks to delete this conversation's worktree, call
+regent_cleanup_worktree and end the turn. The runtime checks saved work, stops the
+owned preview and removes nested checkouts after the CLI exits. Pass known PR numbers
+and worktree-relative repository directories in pull_requests when source branches
+were deleted after a squash merge. Do not delete it from Bash, claim it is removed
+before the runtime result, or tell a nontechnical user to run Git commands. A merge
+or closed PR alone does not request cleanup. There is no PR watcher or age-based
+cleanup; reset/stop retain their existing meaning. Cleanup preserves conversation
+history and remote/local branches; blocked cleanup states the actual reason.
+
 Each conversation stays in its selected project. Use regent_use_repo to resolve a
 same-project destination; it returns its path without switching sessions. For an
 independent project, explain that the user needs a new conversation selecting that

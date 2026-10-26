@@ -431,18 +431,29 @@ export class Turn {
   // Outcome
 
   private async settle(result: RunnerResult): Promise<void> {
+    clearTimeout(this.runTimeout)
     this.stopTimers()
     this.active.abort.abort()
     await Promise.allSettled(this.active.operations)
-    const state = this.finalState(result.state)
+    let state = this.finalState(result.state)
     const deliveredSession = this.core.store.conversation(this.conversation.key)?.session_id
-    const error = this.stopReason() ?? result.error
+    let error = this.stopReason() ?? result.error
     const failure = this.terminalFailure(state, result, error)
     if (failure) this.core.store.event(this.run.id, 'execution_failure', failure)
     const delivery =
       state === 'completed' ? await reviewDelivery(this.core, this.active) : undefined
     if (delivery) this.core.store.event(this.run.id, 'delivery_review', delivery)
-    const reviewed = { ...result, text: reviewText(delivery, result.text) }
+    const cleanup =
+      state === 'completed' && this.active.worktreeRemoval !== undefined
+        ? await this.core.cleanupWorktree(
+            this.conversation.key,
+            this.run.id,
+            this.active.worktreeRemoval,
+          )
+        : undefined
+    const reviewed = { ...result, text: cleanup?.message ?? reviewText(delivery, result.text) }
+    state = this.finalState(result.state)
+    error = this.stopReason() ?? result.error
 
     this.core.store.finish(this.run.id, state, reviewed.text, error, () => {
       const delivered = state === 'completed' || state === 'waiting_human'
