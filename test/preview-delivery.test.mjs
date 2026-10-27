@@ -15,7 +15,7 @@ import { createHttp } from '../src/adapters/http.ts'
 import { ExternalMcp } from '../src/adapters/mcp/server.ts'
 import { mcpOutput } from '../src/adapters/mcp/output.ts'
 
-test('MCP returns the current published preview independently of agent prose and hides unavailable URLs', async () => {
+test('MCP distinguishes published processes from verified previews and hides unavailable URLs', async () => {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-preview-delivery-')))
   const store = new Store(':memory:')
   const token = 'p'.repeat(48)
@@ -103,30 +103,92 @@ test('MCP returns the current published preview independently of agent prose and
     const reserved = await previews.reserve('mcp:alice:preview', root)
     assert.deepEqual((await status()).preview, {
       ready: false,
+      process_ready: false,
+      verified: false,
       url: null,
       expires_at: reserved.expires_at,
     })
     app.listen(port, '127.0.0.1')
     await once(app, 'listening')
     const published = await previews.publish('mcp:alice:preview', 42)
+    assert.equal((await status()).preview.url, null)
+    const registered = previews.get('mcp:alice:preview')
+    store.event(runId, 'preview_verification', {
+      id: registered.id,
+      pid: registered.pid,
+      process_start: registered.process_start,
+      delivery: {
+        state: 'reported',
+        verification: 'executor',
+        url: published.url + '/checked',
+        reason: 'Fixture executor checked requested route',
+      },
+    })
     const ready = await status()
     assert.deepEqual(ready.preview, {
       ready: true,
-      url: published.url,
+      process_ready: true,
+      verified: true,
+      url: published.url + '/checked',
       expires_at: published.expires_at,
     })
     assert.equal(ready.run.result, 'El agente omitio el enlace.')
-    assert.deepEqual(Object.keys(ready.preview).sort(), ['expires_at', 'ready', 'url'])
+    assert.deepEqual(Object.keys(ready.preview).sort(), [
+      'expires_at',
+      'process_ready',
+      'ready',
+      'url',
+      'verified',
+    ])
     assert.equal((await status(otherRunId)).preview, null)
     assert.throws(() => gateway.status('mcp:bob', runId), /no autorizada/)
 
+    const query = store.accept(
+      {
+        adapter: 'mcp',
+        eventId: 'query',
+        key: 'mcp:alice:preview',
+        author: 'mcp:alice',
+        channel: 'mcp:alice:preview',
+        text: 'What is the existing review URL?',
+        intent: 'ask',
+      },
+      root,
+      24,
+    )
+    store.finish(query.runId, 'completed', 'Existing preview status.', '')
+    assert.equal(
+      (await status(query.runId)).preview.url,
+      published.url + '/checked',
+      'read-only follow-ups retain unchanged evidence',
+    )
+
     previews.close()
     core.previews = previews = manager()
-    assert.equal((await status()).preview.url, published.url)
+    assert.equal((await status()).preview.url, published.url + '/checked')
     listening = false
     assert.equal((await status()).preview.ready, false)
     assert.equal((await status()).preview.url, null)
     listening = true
+    const edit = store.accept(
+      {
+        adapter: 'mcp',
+        eventId: 'edit',
+        key: 'mcp:alice:preview',
+        author: 'mcp:alice',
+        channel: 'mcp:alice:preview',
+        text: 'Change another part of the app',
+        intent: 'patch',
+      },
+      root,
+      24,
+    )
+    store.finish(edit.runId, 'completed', 'Unverified new work.', '')
+    assert.equal(
+      (await status(edit.runId)).preview.url,
+      null,
+      'new operational/editing work cannot reuse earlier proof implicitly',
+    )
     now += 6 * 60 * 1000
     assert.equal((await status()).preview.ready, false)
     assert.equal((await status()).preview.url, null)

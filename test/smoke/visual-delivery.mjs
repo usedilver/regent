@@ -35,7 +35,7 @@ try {
   fs.writeFileSync(path.join(repo, '.gitignore'), '.claude/worktrees/\npreview.log\n')
   fs.writeFileSync(
     path.join(repo, 'CLAUDE.md'),
-    'This is an isolated synthetic frontend fixture. Use only this repository and its built-in Node app. No subagents, commits, PRs, package installation or external services. The development command is node server.mjs --port PORT. Use managed start when available; do not use temporary Bash background tasks for delivery. Readiness checks must be bounded. The navigation in index.html and the /d/match/registros handler in server.mjs are independent; remove both when deleting that screen. Other pages must keep working.\n',
+    'This is an isolated synthetic frontend fixture. Use only this repository and its built-in Node app. No subagents, commits, PRs, package installation or external services. The development command is node server.mjs --port PORT. Use managed start when available; do not use temporary Bash background tasks for delivery. Readiness checks must be bounded. The navigation in index.html and the /d/match/registros handler in server.mjs are independent; remove both when deleting that screen. Other pages must keep working. This project requires a review preview for visible changes, without a separate request. After checking the public HTML and routes, record regent_status review kind verified with path / and the actual verification evidence. This is a static synthetic fixture, so HTTP HTML inspection is sufficient.\n',
   )
   const original =
     '<!doctype html><html><body><nav><a href="/">Inicio</a><a href="/d/match/registros">Match</a></nav><h1>Inicio</h1></body></html>\n'
@@ -131,10 +131,11 @@ try {
     }),
   )
   assert.equal(run.state, 'completed', run.error || run.result)
-  assert.equal(run.delivery?.state, 'ready', run.result)
+  assert.equal(run.delivery?.state, 'reported', run.result)
+  assert.equal(run.delivery?.verification, 'executor')
   assert.ok(run.result.includes(run.delivery.url), 'MCP result must contain the link')
-  assert.equal(assessment.kind, 'required')
-  assert.ok(checks > 0, 'The real official CLI must execute the native Stop hook')
+  assert.equal(assessment.kind, 'verified')
+  assert.equal(checks, 0, 'No global completion gate should run')
   assert.ok(retries <= 2, 'Corrective continuations must be bounded')
   const response = await fetch(run.delivery.url)
   assert.equal(response.status, 200)

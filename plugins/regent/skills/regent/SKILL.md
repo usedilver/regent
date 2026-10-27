@@ -18,7 +18,11 @@ already answers a simple question, respond without starting a run.
 
 Call `regent_start` with the original request, its business context, the selected
 repository when applicable and a new UUID in `request_id`. Reuse that UUID only
-to retry the same submission. Use `intent: ask` for read-only investigation.
+to retry the same submission. Use `intent: ask` for read-only investigation or finding an
+existing application URL. Follow project guidance to choose an existing deployment or a
+review runtime; requesting a link does not by itself require starting a server. Use
+`intent: task` only when the requested work requires runtime operations, preserving
+restrictions on source changes.
 Preserve the user's authorized scope for edits, validation, PRs and deployments;
 do not add an approval process or expand the task.
 
@@ -43,6 +47,10 @@ not repeated status messages or internal tool activity.
 Open `regent_show_progress` only when the user requests a visual panel, once per
 conversation. Reuse the panel instead of creating cards on each status call. If
 the client interrupts the turn, retain the IDs and explain how to resume.
+
+Project instructions own preview requirements and collaboration policy. A running process
+is not a verified application; preserve verification limits rather than claiming success
+from an HTTP response or login page.
 
 Report the confirmed result, where to review changes, validation and remaining
 limitations in proportion to the request. Do not repeat the executor's full

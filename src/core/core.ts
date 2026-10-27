@@ -81,9 +81,6 @@ export interface Active {
   workspace?: ProjectWorkspace
   workspacePreparation?: Promise<ProjectWorkspace>
   review?: ReviewAssessment
-  reviewRetries?: number
-  previewAttempted?: boolean
-  previewPublished?: boolean
   worktreeRemoval?: CleanupPullRequest[]
   cleanupAbort?: AbortController
 }

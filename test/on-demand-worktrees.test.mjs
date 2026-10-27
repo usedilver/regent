@@ -127,7 +127,7 @@ for (const adapter of ['slack', 'mcp']) {
     f.core.previews = { get: () => undefined }
     const edit = await f.submit('Cambia el texto del boton Guardar')
     assert.equal(f.store.latestRun('conversation').intent, 'patch')
-    assert.equal(state(edit).preview_policy, 'visual_changes')
+    assert.equal(state(edit).preview_policy, 'available')
     assert.equal(edit.opts.readOnly, false)
     assert.equal(edit.opts.worktreeName, unavailable.opts.worktreeName)
     await f.finish()

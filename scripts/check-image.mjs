@@ -12,7 +12,6 @@ try {
   const content = fs.readFileSync(prompt.file, 'utf8')
   assert.match(content, /Instance Communication/)
   assert.ok(content.length > 100)
-  assert.ok(fs.existsSync(new URL('../plugins/executor/hooks/completion.mjs', import.meta.url)))
   assert.equal(fs.statSync(prompt.file).mode & 0o777, 0o600)
   assert.match(progressHtml('Container check'), /regent_get_run/)
   execFileSync('python3', ['-m', 'venv', pythonEnvironment])

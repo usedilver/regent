@@ -7,6 +7,7 @@ import { agentEnvironment } from './agent-env.ts'
 import { redact } from '../storage/redact.ts'
 import type { Active, Core } from './core.ts'
 import { History } from './history.ts'
+import { verifyPreview, verifiedPreview } from './review.ts'
 import type { Intent } from './intent.ts'
 import { queryGit } from './query-git.ts'
 import {
@@ -71,7 +72,13 @@ async function preview(call: ToolCall) {
 
   if (args.action === 'status') {
     const current = previews.get(key)
-    if (current) return { available: true, ...previews.result(current), pid: current.pid }
+    if (current)
+      return {
+        available: true,
+        ...previews.result(current),
+        pid: current.pid,
+        verification: verifiedPreview(core, active.run) ?? null,
+      }
     return {
       available: true,
       ready: false,
@@ -88,7 +95,6 @@ async function preview(call: ToolCall) {
         'Native mode requires starting the app through Bash with repository permissions, then publish. Managed start is available only in bypass mode.',
       )
     }
-    active.previewAttempted = true
     if (!args.command)
       throw new Error('Indica command como una lista de ejecutable y argumentos, sin shell.')
     const root = isolationFor(conversation.cwd, key).dir
@@ -119,18 +125,15 @@ async function preview(call: ToolCall) {
       env,
       active.abort.signal,
     )
-    active.previewPublished = published.ready
     return published
   }
 
   if (args.action === 'publish') {
-    active.previewAttempted = true
     if (!args.pid) {
       throw new Error('Indica el PID del proceso independiente que iniciaste en el worktree.')
     }
 
     const published = await previews.publish(key, args.pid)
-    active.previewPublished = published.ready
     return published
   }
 
@@ -138,18 +141,12 @@ async function preview(call: ToolCall) {
   if (reason) throw new Error(reason)
   const directory = isolationFor(conversation.cwd, key).dir
 
-  let reservation
-  try {
-    reservation = await previews.reserve(key, directory)
-  } catch (error) {
-    active.previewAttempted = true
-    throw error
-  }
+  const reservation = await previews.reserve(key, directory)
   return {
     ...reservation,
     managed_start: core.config.permission_mode === 'bypass',
     instruction:
-      'Inicia la app en este worktree usando el puerto reservado y bind 127.0.0.1. Si managed_start=true usa action=start con directory relativo al worktree y command como lista de ejecutable y argumentos, por ejemplo ["pnpm","dev","--port","PUERTO","--hostname","127.0.0.1"]. Regent inicia, conserva el proceso y publica al estar listo; no depende de tareas temporales de Bash. Usa el comando real del proyecto. Si managed_start=false usa Bash con los permisos nativos del repo y luego publish con un PID independiente; no evadas denegaciones. Conserva el login y los permisos de la app; el proxy no agrega autenticacion. Configura cookies, redirecciones y origenes permitidos para el host de preview segun las instrucciones del proyecto. Comparte el URL solo cuando start o publish confirme ready.',
+      'Use the reserved loopback port and this worktree. The project defines the startup command and runtime environment. managed_start=true allows action=start with directory relative to the worktree and command as an executable/argument array. Otherwise use repository-authorized Bash and publish an independent PID. start/publish check process ownership and transport only. Follow project guidance to verify the requested application path, authentication and data before recording review kind verified. Preserve app login and permissions.',
   }
 }
 
@@ -288,18 +285,21 @@ async function status({ core, active, conversation, input }: ToolCall) {
     if (active.readOnly) throw new Error('Query mode cannot declare an editing review.')
     active.review = { ...args.review, reason: redact(args.review.reason) }
     core.store.event(active.run.id, 'review_assessment', active.review)
+    if (active.review.kind === 'verified') await verifyPreview(core, active)
+    else core.store.event(active.run.id, 'preview_verification', null)
   }
+  const review = args.review ? verifiedPreview(core, active.run) : undefined
   const text = redact(args.text ?? args.status!)
   const phaseChanged = args.phase !== undefined && args.phase !== active.lastPhase
 
   if (!phaseChanged && Date.now() - active.lastStatusAt < STATUS_THROTTLE_MS) {
-    return { throttled: true }
+    return { throttled: true, ...(review ? { review } : {}) }
   }
 
   await core.output.notice(conversation, text)
   if (args.phase) active.lastPhase = args.phase
   active.lastStatusAt = Date.now()
-  return { ok: true }
+  return { ok: true, ...(review ? { review } : {}) }
 }
 
 async function askHuman({ core, active, conversation, input }: ToolCall) {
