@@ -6,7 +6,6 @@ import { ExternalMcp } from './adapters/mcp/server.ts'
 import { DurableOutput } from './storage/delivery.ts'
 import { mcpOutput, routeMcpOutput } from './adapters/mcp/output.ts'
 import { createHttp } from './adapters/http.ts'
-import { startPreviewServer } from './previews/server.ts'
 import { httpLifecycle } from './adapters/http-lifecycle.ts'
 import { REGENT_DIR } from './env.ts'
 import { authNotice, workspaceDir, type Config } from './config.ts'
@@ -31,7 +30,7 @@ export interface RuntimeOptions {
 const DEFAULT_PORT = 8788
 const closingError = () => new Error('El runtime se esta cerrando.')
 
-export function runtimePort(value: string | undefined, previews: Config['previews']): number {
+export function runtimePort(value: string | undefined): number {
   const port = value === undefined ? DEFAULT_PORT : Number(value)
 
   if (
@@ -41,13 +40,6 @@ export function runtimePort(value: string | undefined, previews: Config['preview
     port > 65535
   ) {
     throw new Error('REGENT_PORT debe ser un puerto entre 1 y 65535.')
-  }
-
-  if (
-    previews &&
-    (port === previews.listen_port || (port >= previews.port_min && port <= previews.port_max))
-  ) {
-    throw new Error('REGENT_PORT no puede coincidir con el gateway o los puertos de previews.')
   }
 
   return port
@@ -124,7 +116,7 @@ async function closeAll(steps: Array<() => unknown>): Promise<void> {
 }
 
 export function createRuntime(config: Config, options: RuntimeOptions) {
-  const port = options.port ?? runtimePort(process.env.REGENT_PORT, config.previews)
+  const port = options.port ?? runtimePort(process.env.REGENT_PORT)
   const host = options.host ?? process.env.REGENT_HOST ?? '127.0.0.1'
   const cwd = workspaceDir(config)
   const access = loadAccess(config)
@@ -156,7 +148,6 @@ export function createRuntime(config: Config, options: RuntimeOptions) {
       external,
     )
     const http = httpLifecycle(server)
-    let stopPreviews: (() => Promise<void>) | undefined
     let closing: Promise<void> | undefined
 
     const close = (): Promise<void> => {
@@ -164,7 +155,6 @@ export function createRuntime(config: Config, options: RuntimeOptions) {
         process.removeListener('SIGHUP', reload.onSignal)
         await closeAll([
           () => core.close(),
-          () => stopPreviews?.(),
           () => durable?.close(),
           () => slack?.stop(),
           () => http.close(),
@@ -178,13 +168,6 @@ export function createRuntime(config: Config, options: RuntimeOptions) {
     const start = async (): Promise<void> => {
       try {
         process.on('SIGHUP', reload.onSignal)
-        stopPreviews = await startPreviewServer(core)
-
-        if (core.stopping) {
-          await stopPreviews?.()
-          throw closingError()
-        }
-
         await http.listen(port, host)
         if (core.stopping) throw closingError()
         const address = server.address()

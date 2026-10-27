@@ -3,7 +3,7 @@ import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { setTimeout as delay } from 'node:timers/promises'
-import { inspectProcess } from '../previews/process.ts'
+import { inspectProcess } from './process.ts'
 import { isInside, isolationFor } from './repository.ts'
 
 const execute = promisify(execFile)
@@ -64,7 +64,7 @@ function inventory(text: string): Array<{ directory: string; branch?: string; lo
   return rows
 }
 
-/** Discover registered checkouts, including nested submodules and preview worktrees. */
+/** Discover registered checkouts, including nested submodules and additional worktrees. */
 export async function cleanupPlan(
   project: string,
   key: string,
@@ -228,22 +228,19 @@ async function processesInside(root: string): Promise<boolean> {
 export async function removeConversationWorktree(
   project: string,
   key: string,
-  stopPreview: () => void,
   pullRequests: CleanupPullRequest[] = [],
   signal?: AbortSignal,
 ): Promise<CleanupResult> {
   const root = isolationFor(project, key).dir
   const plan = await cleanupPlan(project, key, signal)
   if (!plan.length) {
-    stopPreview()
     return {
       state: 'absent',
       message: 'El worktree ya no existe; no hay nada pendiente de borrar.',
     }
   }
-  // Complete preflight before stopping a review or removing any checkout.
+  // Complete preflight before removing any checkout.
   for (const checkout of plan) await assertSaved(checkout, pullRequests, root, signal)
-  stopPreview()
   const deadline = Date.now() + 6500
   while (await processesInside(root)) {
     signal?.throwIfAborted()
@@ -276,6 +273,6 @@ export async function removeConversationWorktree(
     state: 'removed',
     removed,
     message:
-      'Worktree y checkouts anidados eliminados; preview detenido. Los commits remotos y el historial de la conversacion se conservan.',
+      'Worktree y checkouts anidados eliminados. Los commits remotos y el historial de la conversacion se conservan.',
   }
 }

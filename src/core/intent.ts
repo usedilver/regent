@@ -32,11 +32,6 @@ const EDIT =
 const PROJECT_NOUN =
   /\b(?:proyecto|app|aplicacion|dashboard|sitio|website|landing|repositorio|project)\b/
 const DEPLOY = /\b(?:despliega\w*|publica\w*|deploy|clona\w*|ejecuta\w*)\b/
-const PREVIEW_REQUEST_ES =
-  /^(?:(?:puedes|podrias|me puedes)\s+)?(?:dame|danos|muestra(?:me|nos)?|mostrar(?:me|nos)|prepara\w*|genera\w*|levanta\w*|inicia\w*|abre|abrir|crea\w*|necesito|quiero(?: ver)?)\s+(?:(?:un|una|el|la)\s+)?(?:preview|vista previa)\b/
-const PREVIEW_REQUEST_EN =
-  /^(?:(?:can|could|would) you\s+)?(?:give me|show me|start|launch|open|prepare|generate|create|i (?:want|need)(?: to see)?)\s+(?:(?:a|an|the)\s+)?(?:live\s+)?preview\b/
-
 /** Lowercase, accent-free text without a leading "¿", "¡" or "por favor". */
 function normalize(text: string): string {
   return text
@@ -66,9 +61,6 @@ export function routeIntent(text: string, previous?: Intent): { intent: Intent; 
   if (READ_ONLY_ES.test(value)) return { intent: 'ask', text }
   if (INVESTIGATE_THEN_FIX.test(value)) return { intent: 'patch', text }
   if (READ_ONLY_EN.test(value)) return { intent: 'ask', text }
-  if (PREVIEW_REQUEST_ES.test(value) || PREVIEW_REQUEST_EN.test(value)) {
-    return { intent: 'task', text }
-  }
 
   const asksAQuestion =
     QUESTION.test(value) || WANTS_TO_KNOW_ES.test(value) || WANTS_TO_KNOW_EN.test(value)

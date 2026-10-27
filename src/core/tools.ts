@@ -1,13 +1,9 @@
 import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import fs from 'node:fs'
-import { quote } from 'shell-quote'
-import { launchPreview } from '../previews/launch.ts'
-import { agentEnvironment } from './agent-env.ts'
 import { redact } from '../storage/redact.ts'
 import type { Active, Core } from './core.ts'
 import { History } from './history.ts'
-import { verifyPreview, verifiedPreview } from './review.ts'
 import type { Intent } from './intent.ts'
 import { queryGit } from './query-git.ts'
 import {
@@ -53,101 +49,6 @@ async function gitRead({ active, conversation, input }: ToolCall) {
     args.directory,
     active.abort.signal,
   )
-}
-
-async function preview(call: ToolCall) {
-  const { core, active, conversation } = call
-  const previews = core.previews
-  if (!previews) throw new Error('Los previews remotos no estan configurados en esta instancia.')
-  const args = ToolSchemas.regent_preview.parse(call.input)
-
-  if (active.readOnly && args.action !== 'status') {
-    throw new Error(
-      'Query mode can inspect preview status, but cannot start or change project processes.',
-    )
-  }
-
-  const key = conversation.key
-  if (args.action === 'stop') return previews.stop(key)
-
-  if (args.action === 'status') {
-    const current = previews.get(key)
-    if (current)
-      return {
-        available: true,
-        ...previews.result(current),
-        pid: current.pid,
-        verification: verifiedPreview(core, active.run) ?? null,
-      }
-    return {
-      available: true,
-      ready: false,
-      state: 'not_reserved',
-      next_action: active.readOnly ? 'none' : 'reserve',
-    }
-  }
-
-  core.store.event(active.run.id, 'preview_attempt', { action: args.action })
-
-  if (args.action === 'start') {
-    if (core.config.permission_mode === 'native') {
-      throw new Error(
-        'Native mode requires starting the app through Bash with repository permissions, then publish. Managed start is available only in bypass mode.',
-      )
-    }
-    if (!args.command)
-      throw new Error('Indica command como una lista de ejecutable y argumentos, sin shell.')
-    const root = isolationFor(conversation.cwd, key).dir
-    const directory = fs.realpathSync(path.resolve(root, args.directory))
-    if (!isInside(root, directory))
-      throw new Error('Inicia la app dentro del worktree de esta conversacion.')
-    const denial = core.permission(call.token, {
-      tool_name: 'Bash',
-      cwd: directory,
-      tool_input: { command: quote(args.command) },
-    })
-    if (denial) throw new Error(denial)
-    const env = agentEnvironment(core.config, core.secretKeys, conversation.cwd)
-    for (const name of Object.keys(env)) {
-      if (
-        name.startsWith('REGENT_') ||
-        name.startsWith('CLAUDE_') ||
-        name === 'ANTHROPIC_API_KEY' ||
-        name === 'WATCH_REPORT_DEPENDENCIES'
-      )
-        delete env[name]
-    }
-    const published = await launchPreview(
-      previews,
-      key,
-      directory,
-      args.command,
-      env,
-      active.abort.signal,
-    )
-    return published
-  }
-
-  if (args.action === 'publish') {
-    if (!args.pid) {
-      throw new Error('Indica el PID del proceso independiente que iniciaste en el worktree.')
-    }
-
-    const published = await previews.publish(key, args.pid)
-    return published
-  }
-
-  const reason = await core.prepareWorkspace(call.token)
-  if (reason) throw new Error(reason)
-  const directory = isolationFor(conversation.cwd, key).dir
-
-  const reservation = await previews.reserve(key, directory)
-  return {
-    ...reservation,
-    managed_start: core.config.permission_mode === 'bypass',
-    instruction:
-      'Use the reserved loopback port and this worktree. The project defines the startup command and runtime environment. managed_start=true allows action=start with directory relative to the worktree and command as an executable/argument array. Otherwise use repository-authorized Bash and publish an independent PID. start/publish check process ownership and transport only. Follow project guidance to verify the requested application path, authentication and data before recording review kind verified. Preserve app login and permissions.',
-  }
 }
 
 async function createRoom({ core, active, conversation, input }: ToolCall) {
@@ -281,25 +182,17 @@ function switchProject(
 
 async function status({ core, active, conversation, input }: ToolCall) {
   const args = ToolSchemas.regent_status.parse(input)
-  if (args.review) {
-    if (active.readOnly) throw new Error('Query mode cannot declare an editing review.')
-    active.review = { ...args.review, reason: redact(args.review.reason) }
-    core.store.event(active.run.id, 'review_assessment', active.review)
-    if (active.review.kind === 'verified') await verifyPreview(core, active)
-    else core.store.event(active.run.id, 'preview_verification', null)
-  }
-  const review = args.review ? verifiedPreview(core, active.run) : undefined
   const text = redact(args.text ?? args.status!)
   const phaseChanged = args.phase !== undefined && args.phase !== active.lastPhase
 
   if (!phaseChanged && Date.now() - active.lastStatusAt < STATUS_THROTTLE_MS) {
-    return { throttled: true, ...(review ? { review } : {}) }
+    return { throttled: true }
   }
 
   await core.output.notice(conversation, text)
   if (args.phase) active.lastPhase = args.phase
   active.lastStatusAt = Date.now()
-  return { ok: true, ...(review ? { review } : {}) }
+  return { ok: true }
 }
 
 async function askHuman({ core, active, conversation, input }: ToolCall) {
@@ -359,7 +252,6 @@ async function cleanupWorktree({ core, active, input }: ToolCall) {
 export const CORE_TOOLS: Record<ToolName, Handler> = {
   regent_read_history: readHistory,
   regent_git_read: gitRead,
-  regent_preview: preview,
   regent_create_room: createRoom,
   regent_use_repo: useRepo,
   regent_status: status,

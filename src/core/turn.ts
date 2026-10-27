@@ -16,7 +16,6 @@ import { prepareImages } from './images.ts'
 import { resolveIdentity, type Identity } from './identity.ts'
 import { failedText, interruptedText } from './progress.ts'
 import { isolationFor } from './repository.ts'
-import { reviewDelivery } from './review.ts'
 import { cleanupText } from './worktree-cleanup.ts'
 import type { Conversation, Run, RunState } from './types.ts'
 
@@ -226,19 +225,12 @@ export class Turn {
       default_repo: this.core.defaultCwd,
       context_repo: this.conversation.cwd,
       execution_mode: execution.readOnly ? 'query' : 'edit',
-      preview_policy: this.previewPolicy(execution),
       cwd: execution.directory,
       wrap_up_at: new Date(this.active.wrapUpAt!).toISOString(),
       timeout_ms: this.timeoutMs,
     }
 
     return `Core state: ${JSON.stringify(state)}\n\nMessage from ${this.run.author}:\n${this.run.prompt}`
-  }
-
-  private previewPolicy(execution: Execution): string {
-    if (!this.core.previews) return 'unavailable'
-    if (execution.readOnly) return 'status_only'
-    return 'available'
   }
 
   private fullPrompt(handoff: string, request: string): string {
@@ -441,9 +433,6 @@ export class Turn {
     let error = this.stopReason() ?? result.error
     const failure = this.terminalFailure(state, result, error)
     if (failure) this.core.store.event(this.run.id, 'execution_failure', failure)
-    const delivery =
-      state === 'completed' ? await reviewDelivery(this.core, this.active) : undefined
-    if (delivery) this.core.store.event(this.run.id, 'delivery_review', delivery)
     const cleanup =
       state === 'completed' && this.active.worktreeRemoval !== undefined
         ? await this.core.cleanupWorktree(

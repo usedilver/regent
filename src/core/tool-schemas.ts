@@ -1,7 +1,6 @@
 import { GitReadOperations } from './query-git.ts'
 import { z } from 'zod'
 import { RoomRequest } from './rooms.ts'
-import { PreviewRequest } from '../previews/manager.ts'
 import { StatusRequest } from './progress.ts'
 
 export const ToolSchemas = {
@@ -14,7 +13,6 @@ export const ToolSchemas = {
     args: z.array(z.string().max(2000)).max(80).default([]),
     directory: z.string().min(1).default('.'),
   }),
-  regent_preview: PreviewRequest,
   regent_cleanup_worktree: z.object({
     pull_requests: z
       .array(
