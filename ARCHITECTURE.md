@@ -170,7 +170,8 @@ until verification. Expiry, process replacement or new operational/editing work 
 strictly read-only follow-ups may retain the last unchanged verification.
 No schema migration, identity role inference or organization-specific routing is needed.
 The project's client and skills must preserve the requested outcome and its scope:
-starting a preview is operational even when source changes are prohibited.
+finding an existing deployment URL is read-only; starting a review runtime is operational,
+even when further source changes are prohibited.
 
 An explicit worktree-removal request uses `regent_cleanup_worktree`, scoped to the
 active conversation. It defers execution until the official CLI exits; core performs

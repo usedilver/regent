@@ -34,9 +34,11 @@ an occupied listener. It uses a temporary SQLite database, preserves source file
 an explicit executor verification of the requested path and removes its preview/process/files after checking the public page.
 It does not validate business data or an authenticated application session.
 `REGENT_SMOKE=1 REGENT_SMOKE_BROWSER_MODULE=/absolute/playwright/index.mjs node test/smoke/project-previews.mjs`
-checks preview-only tasks with the real CLI, MCP and Chromium against a synthetic app.
+checks existing-link lookup and pending-change previews with the real CLI, MCP and Chromium against a synthetic app.
 An optional `REGENT_SMOKE_CONTEXT` directory supplies project-owned instructions/skills.
-It checks a working view, a failed data source and a login-only view without changing
+It checks that the current unchanged app returns its documented production fixture URL
+without starting a server or worktree, then reviews pending changes in a working view,
+a failed data source and a login-only view without changing
 source or delivering incomplete previews as ready. It uses loopback URLs on the same
 machine and does not establish public TLS or production authentication.
 Simulated tests are the default in CI.

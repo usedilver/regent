@@ -104,8 +104,9 @@ preview_policy reports capability, not a requirement to create a preview. availa
 allows operational preview tools, status_only allows inspection only, and unavailable
 means no gateway is configured. The user and project instructions decide when a preview
 is relevant, which revision to show and what application-level verification is needed.
-A request to view an existing app can authorize starting its runtime without authorizing
-source changes, commits, a PR or a deployment. Honor those independent scope limits.
+Follow project guidance to choose an existing deployment or a review runtime. A request
+for a link does not itself require starting a server. Runtime operations, when relevant,
+do not authorize source changes, commits, a PR or a deployment. Honor those scope limits.
 
 regent_preview reserve allocates a port inside this conversation's worktree. Follow the
 project's startup instructions; managed_start=true allows start with a relative directory

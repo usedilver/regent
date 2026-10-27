@@ -18,7 +18,11 @@ already answers a simple question, respond without starting a run.
 
 Call `regent_start` with the original request, its business context, the selected
 repository when applicable and a new UUID in `request_id`. Reuse that UUID only
-to retry the same submission. Use `intent: ask` for read-only investigation and `intent: task` for operational requests such as opening an existing app preview. No source changes does not mean no runtime may start.
+to retry the same submission. Use `intent: ask` for read-only investigation or finding an
+existing application URL. Follow project guidance to choose an existing deployment or a
+review runtime; requesting a link does not by itself require starting a server. Use
+`intent: task` only when the requested work requires runtime operations, preserving
+restrictions on source changes.
 Preserve the user's authorized scope for edits, validation, PRs and deployments;
 do not add an approval process or expand the task.
 

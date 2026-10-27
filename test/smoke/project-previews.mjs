@@ -123,7 +123,7 @@ try {
     )
   fs.writeFileSync(
     path.join(repo, 'README.md'),
-    `# Synthetic existing app\n\nThis is an isolated static application, not a dashboard framework. Run node server.mjs --port PORT using the preview tool. These loopback review URLs are reachable on the same machine as this smoke client, so they are valid fixture links. No production services or real user sessions are involved.\n\nNavigation: Resumen is /views/summary, Datos incompletos is /views/broken, Privada is /private. The data status is rendered in the page after fetching its API. /private requires an authorized session; no such session is available in this fixture. Do not create or bypass one. Use the browser-probe MCP connection for actual Chromium inspection. Do not create commits, PRs, source changes or delegate.\n`,
+    `# Synthetic existing app\n\nThis is an isolated static application, not a dashboard framework. Its documented production origin is https://app.example.invalid (a fixture URL, not a real service). For a request to see the unchanged current app, return that origin plus the registered route; do not start a server. For pending changes on the review branch, run node server.mjs --port PORT using the preview tool. These loopback review URLs are reachable on the same machine as this smoke client, so they are valid fixture links. No production services or real user sessions are involved.\n\nNavigation: Resumen is /views/summary, Datos incompletos is /views/broken, Privada is /private. The data status is rendered in the page after fetching its API. /private requires an authorized session; no such session is available in this fixture. Do not create or bypass one. Use the browser-probe MCP connection for actual Chromium inspection of pending changes. Do not create commits, PRs, source changes or delegate.\n`,
   )
   fs.writeFileSync(
     path.join(repo, 'server.mjs'),
@@ -154,7 +154,7 @@ http.createServer((req,res)=>{
     '-m',
     'Fixture',
   )
-  const source = git('rev-parse', 'HEAD')
+  let source = git('rev-parse', 'HEAD')
   const probe = http.createServer()
   const probeURL = await listen(probe)
   const firstPort = Number(new URL(probeURL).port)
@@ -214,6 +214,44 @@ http.createServer((req,res)=>{
     assert.ok(!result.isError, JSON.stringify(result.content))
     return result.structuredContent ?? JSON.parse(result.content[0].text)
   }
+  const unchanged = await call('regent_start', {
+    request_id: randomUUID(),
+    intent: 'ask',
+    prompt: 'Dame un preview de Resumen, sin modificar código.',
+  })
+  keys.push(unchanged.conversation_id)
+  let current
+  do {
+    current = await call('regent_get_run', { run_id: unchanged.run_id, wait_ms: 20000 })
+  } while (['queued', 'running'].includes(current.latest_run.state))
+  assert.equal(current.latest_run.state, 'completed', current.latest_run.result)
+  assert.ok(current.latest_run.result.includes('https://app.example.invalid/views/summary'))
+  assert.equal(current.preview, null)
+  assert.equal(fs.existsSync(isolationFor(repo, unchanged.conversation_id).dir), false)
+  assert.equal(calls.length, 0, 'Finding the existing URL does not need browser/runtime setup')
+  assert.equal(git('rev-parse', 'HEAD'), source)
+  assert.equal(git('status', '--porcelain'), '')
+  console.log(
+    'PASS unchanged app: returned documented production fixture URL without a runtime/worktree.',
+  )
+
+  git('checkout', '-b', 'review/frontend-change')
+  const serverFile = path.join(repo, 'server.mjs')
+  fs.writeFileSync(
+    serverFile,
+    fs.readFileSync(serverFile, 'utf8').replace('<h1>Report</h1>', '<h1>Updated report</h1>'),
+  )
+  git('add', 'server.mjs')
+  git(
+    '-c',
+    'user.name=Fixture',
+    '-c',
+    'user.email=fixture@example.invalid',
+    'commit',
+    '-m',
+    'Change frontend heading for review',
+  )
+  source = git('rev-parse', 'HEAD')
   for (const scenario of [
     { view: 'Resumen', target: '/views/summary', success: true },
     { view: 'Datos incompletos', target: '/views/broken', success: false },
@@ -222,7 +260,7 @@ http.createServer((req,res)=>{
     const accepted = await call('regent_start', {
       request_id: randomUUID(),
       intent: 'task',
-      prompt: `Dame un preview de ${scenario.view}, sin modificar código. No hagas commits, PRs ni despliegues.`,
+      prompt: `Revisa los cambios pendientes de la rama actual en ${scenario.view} y dame un preview, sin nuevas modificaciones. No hagas commits, PRs ni despliegues.`,
     })
     keys.push(accepted.conversation_id)
     let result
@@ -269,7 +307,7 @@ http.createServer((req,res)=>{
     assert.equal(git('status', '--porcelain'), '')
   }
   console.log(
-    'PASS real CLI + MCP + Chromium: preview-only work preserved source; correct route/data were delivered; failed data and missing login were not delivered as ready. Loopback transport is simulated; this does not verify public TLS or production authentication.',
+    'PASS real CLI + MCP + Chromium: unchanged app returned its documented production fixture URL; pending-change reviews preserved source; correct route/data were delivered; failed data and missing login were not delivered as ready. Loopback transport is simulated; this does not verify public TLS or production authentication.',
   )
 } finally {
   await core?.close()
