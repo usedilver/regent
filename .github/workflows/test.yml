@@ -17,5 +17,5 @@ jobs:
       - uses: actions/checkout@v4
       - run: docker build -t regent-check .
       - run: docker run --rm --entrypoint node regent-check scripts/check-image.mjs
-      - run: docker run --rm --entrypoint node regent-check --test test/preview-process.test.mjs test/runtime.test.mjs
+      - run: docker run --rm --entrypoint node regent-check --test test/process.test.mjs test/runtime.test.mjs
       - run: docker run --rm -v "$PWD/examples/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2 caddy validate --config /etc/caddy/Caddyfile

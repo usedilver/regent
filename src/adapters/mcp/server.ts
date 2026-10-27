@@ -18,7 +18,6 @@ import { bearerToken, BodyTooLarge, InvalidJson, readJsonBody } from '../body.ts
 import { mcpActivities } from './activities.ts'
 import { OAuthServer } from './oauth.ts'
 import { PROGRESS_URI, registerProgressResource } from './progress.ts'
-import { verifiedPreview, type ReviewDelivery } from '../../core/review.ts'
 
 const MAX_BODY_BYTES = 1024 * 1024
 const MAX_RESULT_CHARS = 60000
@@ -31,7 +30,7 @@ const conversationId = z.string().min(1).max(200)
 const intent = z
   .enum(['ask', 'patch', 'task', 'project'])
   .describe(
-    'ask: read-only investigation; patch: code changes; task: runtime operations such as starting a review server; project: a new project. Preserve explicit user restrictions.',
+    'ask: read-only investigation; patch: code changes; task: runtime operations; project: a new project. Preserve explicit user restrictions.',
   )
   .optional()
 const digest = (value: string) => createHash('sha256').update(value).digest()
@@ -120,7 +119,7 @@ export class ExternalMcp {
   instructions(): string {
     const defaultRepo = this.defaultRepo()
     const name = this.core.config.name
-    return `${name} runs Claude Code with the selected project's instructions, skills and connections. Use it to investigate, change code or operate that project, including application review. The default repository is ${JSON.stringify(defaultRepo)}. regent_context discovers a destination; its inventory does not prove functionality or copy project skills into this chat. Preserve the original request, URL, scope and restrictions when delegating. Each conversation retains its project; start a new one with repo for an independent project. Projects own development, validation, previews and collaboration; the engine imposes no business workflow. Use intent: ask for read-only investigation or existing-link discovery. Follow project guidance to choose an existing deployment or a review runtime; requesting a link does not require a server. Use intent: task for runtime operations while preserving source-change limits. Do not replace a request with mocked screenshots or an unauthorized deployment. Missing host-chat connectors do not prove missing executor access. Poll regent_get_run with its default wait and continue with regent_continue. Report results and limitations in proportion to the request and in the user's language. preview.process_ready means a live process; preview.verified and its URL reflect an executor check of the requested route. Gateway availability, HTTP success or a login screen alone do not prove a usable application. Do not present an unverified preview as ready. run.delivery is optional executor-reported metadata, not a universal preview requirement. On failure report failure.message or error and distinguish partial results. Normal follow-up is text; use regent_show_progress only when a visual panel is requested. Do not create reminders or scheduled tasks. Claim actions only with evidence; presentation guidance never changes permissions.`
+    return `${name} runs Claude Code with the selected project's instructions, skills and connections. Use it to investigate, change code or operate that project, including application review. The default repository is ${JSON.stringify(defaultRepo)}. regent_context discovers a destination; its inventory does not prove functionality or copy project skills into this chat. Preserve the original request, URL, scope and restrictions when delegating. Each conversation retains its project; start a new one with repo for an independent project. Projects own development, validation, previews and collaboration; the engine imposes no business workflow. Use intent: ask for read-only investigation or existing-link discovery. Follow project guidance to find the native hosting preview; requesting a link does not require a server. Use intent: task for runtime operations while preserving source-change limits. Do not replace a request with mocked screenshots or an unauthorized deployment. Missing host-chat connectors do not prove missing executor access. Poll regent_get_run with its default wait and continue with regent_continue. Report results and limitations in proportion to the request and in the user's language. Use the project hosting provider for deployment previews. A successful build or login redirect does not verify an authenticated application. Regent does not host or proxy application previews. On failure report failure.message or error and distinguish partial results. Normal follow-up is text; use regent_show_progress only when a visual panel is requested. Do not create reminders or scheduled tasks. Claim actions only with evidence; presentation guidance never changes permissions.`
   }
 
   // Conversations
@@ -141,10 +140,6 @@ export class ExternalMcp {
     const conversation = this.conversation(author, run.conversation_key)
     const latest = this.core.store.latestRun(conversation.key)!
     const notice = this.core.store.lastEvent<{ text: string }>(latest.id, 'mcp_notice')
-    const current = this.core.previews?.get(conversation.key)
-    const preview = current ? this.core.previews!.result(current) : undefined
-    const verification = verifiedPreview(this.core, latest)
-
     return {
       conversation_id: conversation.key,
       conversation_state: conversation.state,
@@ -154,21 +149,10 @@ export class ExternalMcp {
       progress: notice?.text ?? null,
       activities: mcpActivities(this.core.store, latest),
       question: this.core.store.pendingQuestion(conversation.key) ?? null,
-      preview_available: Boolean(this.core.previews),
-      preview: preview
-        ? {
-            ready: Boolean(preview.ready && verification),
-            process_ready: preview.ready,
-            verified: Boolean(verification),
-            url: verification?.url ?? null,
-            expires_at: preview.expires_at,
-          }
-        : null,
     }
   }
 
   private runSummary(run: Run) {
-    const delivery = this.core.store.lastEvent<ReviewDelivery>(run.id, 'delivery_review')
     const cleanup = this.core.store.lastEvent(run.id, 'worktree_cleanup')
     const failure = ['failed', 'interrupted'].includes(run.state)
       ? this.core.store.lastEvent<ExecutionFailure>(run.id, 'execution_failure')
@@ -181,7 +165,6 @@ export class ExternalMcp {
       result_truncated: (run.result?.length ?? 0) > MAX_RESULT_CHARS,
       error: run.error,
       cost_usd: run.cost,
-      ...(delivery ? { delivery } : {}),
       ...(cleanup ? { cleanup } : {}),
       ...(failure ? { failure: publicFailure(failure) } : {}),
     }
@@ -269,7 +252,7 @@ export class ExternalMcp {
         name: 'regent_get_run',
         title: 'Get result',
         description:
-          'Read results without creating a panel. Waits up to 20 seconds by default while active; avoid immediate repeated polls and redundant progress. latest_run includes automatic continuations. Preserve reported limitations. A running process is not a verified view: present preview as usable only when preview.verified is true. delivery is optional and imposes no preview obligation on other tasks. Reply once with the supplied result, stop polling completed work and do not create scheduled tasks. Use wait_ms: 0 only for an immediate query or the panel.',
+          'Read results without creating a panel. Waits up to 20 seconds by default while active; avoid immediate repeated polls and redundant progress. latest_run includes automatic continuations. Preserve reported limitations. Deployment availability does not prove the requested application works; preserve the executor’s verification limits. Reply once with the supplied result, stop polling completed work and do not create scheduled tasks. Use wait_ms: 0 only for an immediate query or the panel.',
         input: {
           run_id: z.string().uuid(),
           wait_ms: z.number().int().min(0).max(20000).default(20000),

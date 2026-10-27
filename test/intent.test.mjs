@@ -8,35 +8,18 @@ import { Core } from '../src/core/core.ts'
 import { Store } from '../src/storage/store.ts'
 import { ConfigSchema } from '../src/config.ts'
 
-test('requests to run a preview use task while questions and explicit query limits stay read-only', () => {
+test('preview link requests follow normal read-only routing', () => {
   for (const text of [
-    'dame un preview para revisarlo antes de hacer PR',
-    'levanta un preview para revisarlo antes de hacer PR',
-    '¿Puedes mostrarme una vista previa de este cambio?',
-    'Quiero ver un preview del dashboard',
-    'Por favor, prepara una vista previa',
-    'Can you show me a preview before opening the PR?',
-    'Start a live preview of these changes',
-  ]) {
-    assert.equal(routeIntent(text, 'patch').intent, 'task', text)
-  }
-
-  for (const text of [
-    'Explica cómo funciona el preview',
-    'Revisa por qué falló el preview',
-    '¿Cómo puedo levantar un preview?',
-    '¿Puedes revisar el preview?',
+    'Dame un preview para revisarlo antes de hacer PR',
+    'Show me a preview before opening the PR',
     'Dame el enlace del preview existente',
-    'No levantes un preview',
+    'Explica cómo funciona el preview',
     'Dame un preview, solo lectura',
-    'Show me a preview, do not edit files',
     '/ask levanta un preview',
   ]) {
     assert.equal(routeIntent(text, 'patch').intent, 'ask', text)
   }
-
-  assert.equal(routeIntent('/patch dame un preview').intent, 'patch')
-  assert.equal(routeIntent('Crea una app con preview').intent, 'project')
+  assert.equal(routeIntent('/task despliega la rama').intent, 'task')
   assert.equal(routeIntent('Corrige el preview').intent, 'patch')
 })
 

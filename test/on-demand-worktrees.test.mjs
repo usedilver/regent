@@ -116,42 +116,14 @@ function fixture(t, adapter = 'slack') {
 }
 
 for (const adapter of ['slack', 'mcp']) {
-  test(`${adapter}: visual preview policy reaches edits without a preview request and preserves query permissions`, async (t) => {
-    const f = fixture(t, adapter)
-    const state = (controller) =>
-      JSON.parse(controller.opts.prompt.split('Core state: ')[1].split('\n')[0])
-    const unavailable = await f.submit('Quita el filtro de Origen de la lista')
-    assert.equal(state(unavailable).preview_policy, 'unavailable')
-    await f.finish()
-
-    f.core.previews = { get: () => undefined }
-    const edit = await f.submit('Cambia el texto del boton Guardar')
-    assert.equal(f.store.latestRun('conversation').intent, 'patch')
-    assert.equal(state(edit).preview_policy, 'available')
-    assert.equal(edit.opts.readOnly, false)
-    assert.equal(edit.opts.worktreeName, unavailable.opts.worktreeName)
-    await f.finish()
-
-    const query = await f.submit('Explica como funciona el boton')
-    assert.equal(state(query).preview_policy, 'status_only')
-    assert.equal(query.opts.readOnly, true)
-    const active = [...f.core.active.values()][0]
-    await assert.rejects(
-      () => f.core.tool(active.token, 'regent_preview', { action: 'reserve' }),
-      /Query mode/,
-    )
-    await f.finish()
-    f.core.previews = undefined
-  })
-
   test(`${adapter}: preview requests reuse edited work and later questions retain query restrictions`, async (t) => {
     const f = fixture(t, adapter)
     const edit = await f.submit('Corrige el texto del archivo')
     await f.finish()
     const session = f.store.conversation('conversation').session_id
     const preview = await f.submit('Dame un preview para revisarlo antes de hacer PR')
-    assert.equal(f.store.latestRun('conversation').intent, 'task')
-    assert.equal(preview.opts.readOnly, false)
+    assert.equal(f.store.latestRun('conversation').intent, 'ask')
+    assert.equal(preview.opts.readOnly, true)
     assert.equal(preview.opts.sessionId, session)
     assert.equal(preview.opts.worktreeName, edit.opts.worktreeName)
     await f.finish()
@@ -327,29 +299,10 @@ test('query permission hooks reject writers, interpreters, delegation, preview a
       }),
     /cannot promote/,
   )
-  f.core.previews = {
-    get() {
-      return undefined
-    },
-  }
-  assert.deepEqual(await f.core.tool(active.token, 'regent_preview', { action: 'status' }), {
-    available: true,
-    ready: false,
-    state: 'not_reserved',
-    next_action: 'none',
-  })
-  assert.equal(
-    f.core.permission(active.token, {
-      tool_name: 'mcp__regent__regent_preview',
-      tool_input: { action: 'status' },
-    }),
-    null,
-  )
   await assert.rejects(
-    () => f.core.tool(active.token, 'regent_preview', { action: 'reserve' }),
-    /Query mode/,
+    () => f.core.tool(active.token, 'regent_preview', { action: 'status' }),
+    /Tool desconocida/,
   )
-  f.core.previews = undefined
   assert.equal(fs.existsSync(path.join(f.repo, '.claude/worktrees')), false)
   await f.finish()
 })
@@ -474,14 +427,6 @@ test('resumed submodules receive newly provisioned ignored setup files without o
   const active = await prepare()
   assert.equal(fs.readFileSync(path.join(isolated, 'web/.env'), 'utf8'), 'RUNTIME=provisioned\n')
   assert.equal(fs.statSync(path.join(isolated, 'web/.env')).mode & 0o777, 0o600)
-  f.core.previews = { get: () => undefined }
-  assert.deepEqual(await f.core.tool(active.token, 'regent_preview', { action: 'status' }), {
-    available: true,
-    ready: false,
-    state: 'not_reserved',
-    next_action: 'reserve',
-  })
-  f.core.previews = undefined
   fs.writeFileSync(path.join(isolated, 'web/.env'), 'RUNTIME=conversation-specific\n')
   await f.finish()
   fs.writeFileSync(path.join(f.repo, 'web/.env'), 'RUNTIME=source-updated\n')

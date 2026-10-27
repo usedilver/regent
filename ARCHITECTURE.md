@@ -17,7 +17,6 @@ flowchart LR
     CLI[CLI] --> Core
     Core --> Runner[Official Claude CLI]
     Core --> Store[SQLite store]
-    Core --> Previews[Preview manager]
     Runner --> Project[Source checkout or worktree and project MCPs]
 ```
 
@@ -38,7 +37,6 @@ Transport-specific checks coexist with core authorization and validated tool arg
 | `src/adapters/mcp/`                                | External MCP tools, OAuth, client bridge and progress resources.                      |
 | `src/adapters/http*.ts`                            | Loopback HTTP transport and connection lifecycle.                                     |
 | `src/storage/`                                     | SQLite state, durable deliveries and shared redaction.                                |
-| `src/previews/`                                    | Allocation, process/listener ownership, expiration and HTTP/WebSocket proxy.          |
 | `plugins/executor/`                                | Executor protocol, default communication policy and permission hooks.                 |
 | `plugins/regent/`                                  | Generic client manifest, delegation skill and installation guide.                     |
 
@@ -52,8 +50,7 @@ writer. CLI checks alongside a running server use a separate `REGENT_DB`.
 Slack and MCP server modes share `createRuntime`. Startup acquires the SQLite runtime claim,
 starts configured listeners and adapters, then recovers interrupted work. Failed startup
 cleans up resources already created. The access-policy SIGHUP handler belongs to this runtime and is removed first, including failed startup.
-Idempotent shutdown cancels work, closes preview
-connections, drains durable output, stops Slack, closes HTTP and finally closes SQLite.
+Idempotent shutdown cancels work, drains durable output, stops Slack, closes HTTP and finally closes SQLite.
 WebSocket upgrades are closed too; HTTP server close alone is insufficient.
 
 Preserve `log/v2.sqlite`: its historical filename is part of deployed instance configuration.
@@ -103,7 +100,7 @@ a terminal failure. Tests simulate these conditions and do not claim to exhaust 
 provider context window or subscription quota.
 
 Query mode limits native built-ins to readers, skill loading and MCP discovery. Core/hook
-policy denies shell execution, writers, delegation, preview mutations and self-promotion, and constrains
+policy denies shell execution, writers, delegation and self-promotion, and constrains
 MCP operations to query conventions. `regent_git_read` executes bounded read-only Git argv
 without a shell, disabling executable Git filters, fsmonitor and external diff/textconv.
 It receives a minimal environment, not transport credentials. Trusted project hooks and MCP
@@ -138,40 +135,13 @@ command summaries; raw tool arguments and results are not retained. Structured s
 text patterns are redacted before persistence. Arbitrary unlabelled prose is not guaranteed to
 be secret-free, so avoid collecting unnecessary content.
 
-Previews preserve application-owned login and authorization. Publication and routing verify
-that the listening socket belongs to the authorized process group in the worktree. Linux uses
-`/proc`; macOS uses `lsof`/`ps`. Lookup failures deny routing. Expiry terminates only the owned
-process group. Closing the gateway preserves preview records/processes for restart recovery.
-In bypass mode, the internal preview `start` action launches an argv command from a real
-directory inside the reserved worktree, with the existing Bash credential/worktree checks
-and a filtered repository environment. The runtime owns the detached group rather than
-the CLI's temporary Bash task. Startup is bounded and cancellation/failure cleans up the
-owned group. Native mode rejects managed start and retains Bash permissions plus `publish`.
-The external reverse proxy publishes only MCP/OAuth routes; internal tool and health routes stay local.
-The core supplies preview capability (`available`, `status_only`, `unavailable`), not a
-preview delivery policy. Projects own whether a review is appropriate, what it must
-check and how collaborators are involved. There is no completion hook forcing UI work
-or operational tasks through a preview workflow. The authenticated `/completion-check`
-endpoint remains an allow-only compatibility endpoint for older executors.
-
-Internal preview readiness describes an owned process/listener. It is not proof of an
-application route, authenticated access or healthy data. After project-level checks,
-the executor can attest `regent_status.review` with kind `verified`, a path on the
-reserved host and evidence in reason. Regent probes that exact path without following
-redirects, rejects HTTP errors, and ties the evidence to the process ID/start identity.
-The result is explicitly executor-reported; a redirect does not independently verify
-an authenticated app. Failed rechecks invalidate earlier evidence for that run.
-
-`run.delivery` is optional metadata; legacy assessments remain accepted without
-corrective continuations or automatic rewriting of final prose. MCP `preview.ready`
-and `preview.verified` require evidence from the latest run and a matching live process.
-`process_ready` exposes infrastructure separately; the public review URL stays null
-until verification. Expiry, process replacement or new operational/editing work hide the previous URL;
-strictly read-only follow-ups may retain the last unchanged verification.
-No schema migration, identity role inference or organization-specific routing is needed.
-The project's client and skills must preserve the requested outcome and its scope:
-finding an existing deployment URL is read-only; starting a review runtime is operational,
-even when further source changes are prohibited.
+Repositories own application previews through their hosting provider, including deployment,
+authentication and verification. Regent supplies no preview gateway or process manager.
+A provider's ready deployment does not establish that a protected view or its data works;
+the executor follows project guidance and reports actual evidence and access limitations.
+The external reverse proxy publishes only MCP/OAuth routes; internal tool and health
+routes stay local. The authenticated `/completion-check` remains an allow-only
+compatibility endpoint for older executors.
 
 An explicit worktree-removal request uses `regent_cleanup_worktree`, scoped to the
 active conversation. It defers execution until the official CLI exits; core performs
@@ -181,8 +151,7 @@ against freshly fetched remote refs. Unchanged pinned submodule baselines retain
 existing local branches without requiring a current remote branch to contain old history. Explicitly supplied PR refs support squash merges
 whose source branches were removed; they are fetched once, without PR polling.
 Unknown locks, live CLI/processes, unique local commits, unavailable remotes and unsafe
-paths block cleanup. Only stale recognized native locks are released. The owned preview
-is stopped after preflight; registered nested checkouts are removed before the parent.
+paths block cleanup. Only stale recognized native locks are released. Registered nested checkouts are removed before the parent.
 Success clears the CLI session pointer while preserving the conversation, history,
 branches and remote commits. MCP returns additive `run.cleanup`, and the runtime supplies
 the actual cleanup result alongside the executor report, preserving outcomes of other

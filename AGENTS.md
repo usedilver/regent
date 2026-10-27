@@ -10,7 +10,6 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) and [CONTRIBUTING.md](CONTRIBUTING.md) b
 - `src/execution/`: official CLI subprocess, prompts and native repository settings.
 - `src/adapters/`: Slack, MCP and loopback HTTP. Core/storage do not import adapter SDKs.
 - `src/storage/`: SQLite, durable output and redaction. Preserve migrations and restart behavior.
-- `src/previews/`: owned listeners/processes and application-authenticated preview proxy.
 - `src/runtime.ts`: shared server lifecycle. Add cleanup here, including failed startup.
 - `src/server.ts`, `src/mcp-server.ts`, `src/cli.ts`, `src/mcp-client.ts`: stable entrypoints.
 - `plugins/executor/`: internal protocol, default communication policy and hooks.

@@ -52,39 +52,25 @@ test('explicit cleanup removes only its registered worktree, preserves source/br
   const sibling = path.join(f.root, 'sibling')
   git(f.repo, 'worktree', 'add', '-b', 'sibling', sibling)
   fs.writeFileSync(path.join(f.isolated, '.env'), 'FIXTURE=ignored-copy\n')
-  let stops = 0
-  const result = await removeConversationWorktree(f.repo, f.key, () => stops++)
+  const result = await removeConversationWorktree(f.repo, f.key)
   assert.equal(result.state, 'removed')
-  assert.equal(stops, 1)
   assert.ok(!fs.existsSync(f.isolated))
   assert.ok(fs.existsSync(sibling))
   assert.equal(fs.readFileSync(path.join(f.repo, 'file.txt'), 'utf8'), 'original\n')
   assert.equal(git(f.repo, 'show', 'conversation:file.txt'), 'original')
-  assert.equal((await removeConversationWorktree(f.repo, f.key, () => stops++)).state, 'absent')
-  assert.equal(stops, 2)
+  assert.equal((await removeConversationWorktree(f.repo, f.key)).state, 'absent')
 })
 
-test('tracked, untracked and unpublished changes block before stopping preview or deleting files', async (t) => {
+test('tracked, untracked and unpublished changes block before deleting files', async (t) => {
   const f = fixture(t)
-  let stops = 0
   fs.writeFileSync(path.join(f.isolated, 'untracked.txt'), 'keep')
-  await assert.rejects(
-    removeConversationWorktree(f.repo, f.key, () => stops++),
-    /sin commit/,
-  )
+  await assert.rejects(removeConversationWorktree(f.repo, f.key), /sin commit/)
   fs.rmSync(path.join(f.isolated, 'untracked.txt'))
   fs.appendFileSync(path.join(f.isolated, 'file.txt'), 'local\n')
-  await assert.rejects(
-    removeConversationWorktree(f.repo, f.key, () => stops++),
-    /sin commit/,
-  )
+  await assert.rejects(removeConversationWorktree(f.repo, f.key), /sin commit/)
   git(f.isolated, 'add', 'file.txt')
   git(f.isolated, 'commit', '-m', 'Local work')
-  await assert.rejects(
-    removeConversationWorktree(f.repo, f.key, () => stops++),
-    /sin respaldo/,
-  )
-  assert.equal(stops, 0)
+  await assert.rejects(removeConversationWorktree(f.repo, f.key), /sin respaldo/)
   assert.ok(fs.existsSync(f.isolated))
 })
 
@@ -93,9 +79,7 @@ test('an explicitly identified remote PR ref protects squash-merged work after s
   fs.appendFileSync(path.join(f.isolated, 'file.txt'), 'pr work\n')
   git(f.isolated, 'commit', '-am', 'PR work')
   git(f.isolated, 'push', 'origin', 'HEAD:refs/pull/9/head')
-  const result = await removeConversationWorktree(f.repo, f.key, () => {}, [
-    { directory: '.', number: 9 },
-  ])
+  const result = await removeConversationWorktree(f.repo, f.key, [{ directory: '.', number: 9 }])
   assert.equal(result.state, 'removed')
   assert.equal(git(f.repo, 'show', 'refs/regent/cleanup/pr-9:file.txt'), 'original\npr work')
 })
@@ -103,10 +87,7 @@ test('an explicitly identified remote PR ref protects squash-merged work after s
 test('manual locks and symlinks fail closed; a recognized stale native lock can be released', async (t) => {
   const f = fixture(t)
   git(f.repo, 'worktree', 'lock', '--reason', 'manual maintenance', f.isolated)
-  await assert.rejects(
-    removeConversationWorktree(f.repo, f.key, () => {}),
-    /bloqueo manual/,
-  )
+  await assert.rejects(removeConversationWorktree(f.repo, f.key), /bloqueo manual/)
   git(f.repo, 'worktree', 'unlock', f.isolated)
   git(
     f.repo,
@@ -116,7 +97,7 @@ test('manual locks and symlinks fail closed; a recognized stale native lock can 
     `claude session ${isolationFor(f.repo, f.key).name} (pid 99999999 start 1)`,
     f.isolated,
   )
-  assert.equal((await removeConversationWorktree(f.repo, f.key, () => {})).state, 'removed')
+  assert.equal((await removeConversationWorktree(f.repo, f.key)).state, 'removed')
   fs.symlinkSync(f.repo, f.isolated)
   await assert.rejects(cleanupPlan(f.repo, f.key), /enlace simbolico/)
 })
@@ -136,7 +117,7 @@ test('registered submodule and nested preview checkouts are removed before their
   await prepareProjectWorkspace(f.root, f.repo, f.isolated, f.key)
   const extra = path.join(f.isolated, '.claude/worktrees/preview')
   git(path.join(f.repo, 'services/child'), 'worktree', 'add', '--detach', extra)
-  const result = await removeConversationWorktree(f.repo, f.key, () => {})
+  const result = await removeConversationWorktree(f.repo, f.key)
   assert.equal(result.state, 'removed')
   assert.equal(result.removed.length, 3)
   assert.equal(result.removed.at(-1), f.isolated)
@@ -164,10 +145,7 @@ test('unchanged pinned submodule history is retained locally even if origin rewr
   const baseline = git(isolatedChild, 'rev-parse', 'HEAD')
   fs.writeFileSync(path.join(isolatedChild, 'child.txt'), 'new local work')
   git(isolatedChild, 'commit', '-am', 'Unpublished work')
-  await assert.rejects(
-    removeConversationWorktree(f.repo, f.key, () => {}),
-    /sin respaldo/,
-  )
+  await assert.rejects(removeConversationWorktree(f.repo, f.key), /sin respaldo/)
   git(isolatedChild, 'reset', '--hard', baseline)
   git(child, 'checkout', '--orphan', 'replacement')
   git(child, 'commit', '-m', 'Replacement history')
@@ -186,7 +164,7 @@ test('unchanged pinned submodule history is retained locally even if origin rewr
     ),
     '',
   )
-  const result = await removeConversationWorktree(f.repo, f.key, () => {})
+  const result = await removeConversationWorktree(f.repo, f.key)
   assert.equal(result.state, 'removed')
   assert.ok(
     git(sourceChild, 'for-each-ref', '--format=%(refname)', '--contains', baseline, 'refs/heads'),
@@ -269,7 +247,7 @@ test('core defers removal until executor exit, reports actual result, detaches s
         .startsWith(
           blocked
             ? 'Limpieza del worktree pendiente:'
-            : 'Worktree y checkouts anidados eliminados;',
+            : 'Worktree y checkouts anidados eliminados.',
         ),
     )
     assert.equal(fs.existsSync(f.isolated), blocked)

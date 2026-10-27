@@ -81,11 +81,10 @@ function sqlArgumentDenial(root, sqlExecutor, sqlTool) {
 export function queryDenial(input) {
   const name = input.tool_name ?? ''
   if (readers.has(name)) return null
-  if (name === `${REGENT_PREFIX}preview` && input.tool_input?.action === 'status') return null
 
   if (name.startsWith(REGENT_PREFIX)) {
     if (internal.has(name.slice(REGENT_PREFIX.length))) return null
-    return 'Query mode cannot change files or start previews.'
+    return 'Query mode cannot change files or start processes.'
   }
 
   if (!name.startsWith('mcp__')) {

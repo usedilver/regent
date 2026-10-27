@@ -11,30 +11,20 @@ import { ConfigSchema } from '../src/config.ts'
 import { createRuntime, runtimePort } from '../src/runtime.ts'
 import { httpLifecycle } from '../src/adapters/http-lifecycle.ts'
 
-async function freePort() {
-  const server = net.createServer().listen(0, '127.0.0.1')
-  await once(server, 'listening')
-  const port = server.address().port
-  await new Promise((resolve) => server.close(resolve))
-  return port
-}
-
 const directory = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-runtime-')))
 const output = { async notice() {}, async status() {}, async delta() {}, async finish() {} }
-const config = (previewPort) =>
+const config = () =>
   ConfigSchema.parse({
     auth: { mode: 'indie' },
     repos: { path: directory },
     slack: { workspace_team_id: 'T1', allowed_users: ['U1'] },
     mcp: { enabled: true, principals: [{ id: 'fixture', token_env: 'REGENT_MCP_TOKEN_FIXTURE' }] },
-    previews: { domain: 'preview.example.invalid', listen_port: previewPort },
   })
 
 process.env.REGENT_MCP_TOKEN_FIXTURE = 'fixture-token-'.repeat(4)
 
 for (const mode of ['slack', 'mcp']) {
-  test(`${mode} runtime closes HTTP, preview gateway and SQLite exactly once`, async () => {
-    const previewPort = await freePort()
+  test(`${mode} runtime closes HTTP and SQLite exactly once`, async () => {
     const calls = []
     const store = new Store(':memory:')
     const slack =
@@ -50,7 +40,7 @@ for (const mode of ['slack', 'mcp']) {
             },
           }
         : undefined
-    const runtime = createRuntime(config(previewPort), {
+    const runtime = createRuntime(config(), {
       store,
       slack,
       port: 0,
@@ -60,25 +50,20 @@ for (const mode of ['slack', 'mcp']) {
     await runtime.start()
     const main = runtime.core.toolsUrl.replace('/tools', '/healthz')
     assert.equal((await (await fetch(main)).json()).db_ok, true)
-    const gateway = `http://127.0.0.1:${previewPort}/`
-    assert.equal((await fetch(gateway)).status, 404)
     const closing = runtime.close()
     assert.equal(runtime.close(), closing)
     await closing
     assert.equal(runtime.core.stopping, true)
-    assert.equal(runtime.core.previews, undefined)
     await assert.rejects(fetch(main))
-    await assert.rejects(fetch(gateway))
     assert.throws(() => store.db.prepare('SELECT 1'), /not open|closed/)
     assert.deepEqual(calls, mode === 'slack' ? ['start', 'stop'] : [])
   })
 }
 
 test('failed Slack startup closes all resources and preserves the startup error', async () => {
-  const previewPort = await freePort()
   const store = new Store(':memory:')
   let stops = 0
-  const runtime = createRuntime(config(previewPort), {
+  const runtime = createRuntime(config(), {
     store,
     port: 0,
     claudeVersion: 'fixture',
@@ -98,14 +83,12 @@ test('failed Slack startup closes all resources and preserves the startup error'
   await runtime.close()
   assert.equal(stops, 1)
   assert.equal(runtime.server.listening, false)
-  await assert.rejects(fetch(`http://127.0.0.1:${previewPort}/`))
   assert.throws(() => store.db.prepare('SELECT 1'), /not open|closed/)
 })
 
 test('failed Slack shutdown still closes the other resources', async () => {
-  const previewPort = await freePort()
   const store = new Store(':memory:')
-  const runtime = createRuntime(config(previewPort), {
+  const runtime = createRuntime(config(), {
     store,
     port: 0,
     claudeVersion: 'fixture',
@@ -122,7 +105,6 @@ test('failed Slack shutdown still closes the other resources', async () => {
   await runtime.start()
   await assert.rejects(runtime.close(), AggregateError)
   assert.equal(runtime.server.listening, false)
-  await assert.rejects(fetch(`http://127.0.0.1:${previewPort}/`))
   assert.throws(() => store.db.prepare('SELECT 1'), /not open|closed/)
 })
 
@@ -159,7 +141,7 @@ test('invalid MCP configuration releases the SQLite runtime claim', async () => 
 
   try {
     assert.throws(
-      () => createRuntime(config(8791), { store, port: 0, claudeVersion: 'fixture' }),
+      () => createRuntime(config(), { store, port: 0, claudeVersion: 'fixture' }),
       /REGENT_MCP_TOKEN_FIXTURE/,
     )
     assert.throws(() => store.db.prepare('SELECT 1'), /not open|closed/)
@@ -168,15 +150,14 @@ test('invalid MCP configuration releases the SQLite runtime claim', async () => 
   }
 })
 
-test('an occupied main port closes the preview gateway without affecting its listener', async () => {
+test('an occupied main port releases resources without affecting its listener', async () => {
   const foreign = http
     .createServer((req, res) => res.end('existing service'))
     .listen(0, '127.0.0.1')
 
   await once(foreign, 'listening')
-  const previewPort = await freePort()
   const store = new Store(':memory:')
-  const runtime = createRuntime(config(previewPort), {
+  const runtime = createRuntime(config(), {
     store,
     port: foreign.address().port,
     claudeVersion: 'fixture',
@@ -184,7 +165,6 @@ test('an occupied main port closes the preview gateway without affecting its lis
 
   try {
     await assert.rejects(runtime.start(), /EADDRINUSE/)
-    await assert.rejects(fetch(`http://127.0.0.1:${previewPort}/`))
     assert.equal(
       await (await fetch(`http://127.0.0.1:${foreign.address().port}/`)).text(),
       'existing service',
@@ -195,15 +175,14 @@ test('an occupied main port closes the preview gateway without affecting its lis
   }
 })
 
-test('main port validation rejects invalid ports and preview collisions', () => {
-  const previews = config(8791).previews
-  assert.equal(runtimePort(undefined, previews), 8788)
+test('main port validation rejects invalid ports', () => {
+  assert.equal(runtimePort(undefined), 8788)
 
-  for (const value of ['', '0', '-1', '65536', '1.2', 'abc', '8791', '32001']) {
-    assert.throws(() => runtimePort(value, previews), /REGENT_PORT/)
+  for (const value of ['', '0', '-1', '65536', '1.2', 'abc']) {
+    assert.throws(() => runtimePort(value), /REGENT_PORT/)
   }
 
-  assert.equal(runtimePort('9000', previews), 9000)
+  assert.equal(runtimePort('9000'), 9000)
 })
 
 process.on('exit', () => fs.rmSync(directory, { recursive: true, force: true }))

@@ -240,8 +240,7 @@ una versión antigua no puede abrir una base con esquema nuevo.
 Se conserva el `permission_mode` configurado (`native` o `bypass`); las restricciones
 de consulta se aplican en ambos modos. En consulta están disponibles lectores de archivos,
 skills, descubrimiento y consultas MCP; el agente usa `regent_git_read` para historial/diffs/estado. Se bloquean Bash,
-intérpretes, herramientas de escritura, subagentes y el arranque/modificación de previews.
-Consultar el estado de un preview existente sigue permitido. Los MCPs siguen cargándose
+intérpretes, herramientas de escritura y subagentes. Los MCPs siguen cargándose
 desde el proyecto; sus operaciones deben cumplir las convenciones de consulta y sus
 credenciales deben limitar los datos en la fuente. Estas restricciones no son un sandbox
 para código de configuración o servidores MCP confiables. La selección de herramientas
@@ -315,54 +314,6 @@ la segunda verifica skills/MCP de raíz y dos submódulos. Ninguna sustituye pro
 instalación real en Slack o Desktop. Al migrar, elimina campos retirados que rechace
 el esquema y usa la plantilla actual; no borres el historial SQLite.
 
-## Previews temporales
-
-`previews: null` los deshabilita. Configurarlos habilita `regent_preview` en el
-agente de Slack/MCP: reserva puerto, inicia la app con Bash en su worktree y publica
-con el PID de un grupo de procesos independiente. No ejecuta comandos por fuera de
-los permisos del repositorio. Se conserva un preview por conversación, incluso al
-reiniciar Regent, hasta detenerlo o vencer su plazo.
-
-```yaml
-previews:
-  domain: preview.example.com
-  listen_port: 8791
-  port_min: 32000
-  port_max: 32009
-  max_active: 3
-  ttl_minutes: 120
-```
-
-La autenticación y los permisos pertenecen a cada aplicación. El proxy reenvía sus
-cookies, Authorization, respuestas de login y Set-Cookie sin añadir otro control
-de acceso. Cada proyecto configura su API, cookies, redirecciones y orígenes
-permitidos para el host de preview. Para migrar desde la configuración anterior,
-retira `previews.auth` y `previews.forward_cookie_names`.
-
-El gateway escucha solo en loopback. Caddy publica HTTPS para el dominio y
-`*.preview.example.com`, enviándolo al gateway. Para certificados por host con
-On-Demand TLS, configura `ask http://127.0.0.1:8791/_regent/tls`; solo autoriza
-hostnames registrados, publicados y vigentes. DNS wildcard no proporciona por sí
-solo un certificado wildcard: el modo por host está sujeto a límites de la CA.
-
-El puerto de la app permanece interno. HTTP y WebSocket llegan a la aplicación,
-que decide qué acceso permite. No es un sandbox: aloja solo proyectos confiables,
-especialmente si comparten el dominio de cookies de una aplicación corporativa.
-
-Los previews son temporales y no reemplazan el despliegue del PR. En modo `bypass`,
-después de `reserve`, `start` recibe `directory` relativo al worktree y `command`
-como lista de ejecutable/argumentos, sin shell. Regent crea un grupo independiente,
-espera hasta 60 segundos y publica cuando la app responde. El proceso sobrevive al
-cierre del CLI; los logs privados quedan en el directorio temporal del operador.
-Conserva los controles de directorio y credenciales de Bash y excluye secretos de
-transporte y del proveedor del entorno de la app. No modifica el entorno del repo.
-En modo `native`, `start` se rechaza para conservar los permisos nativos: se mantiene
-el protocolo Bash y `publish`. Los procesos publicados deben tener su propio grupo.
-La limpieza
-solo termina grupos con PID, fecha de inicio y worktree verificados; no mata un PID
-reutilizado. El supervisor debe permitir que esos procesos sobrevivan al reinicio
-del runtime y Regent debe volver a arrancar para efectuar su limpieza pendiente.
-
 ## Proxy público
 
 [examples/Caddyfile](../examples/Caddyfile) publica sólo MCP y sus rutas OAuth. Sustituye
@@ -370,4 +321,6 @@ el hostname y, si cambias `REGENT_PORT`, el puerto loopback. Las rutas internas 
 herramientas, políticas, salud y métricas quedan sin publicar. El proxy y Regent deben
 compartir el host o namespace de red para usar `127.0.0.1`. Valida la configuración de
 tu proxy y comprueba que las rutas internas devuelvan 404 desde el dominio público.
-El proxy de previews se configura por separado y conserva la sesión de la aplicación.
+Los previews de aplicaciones pertenecen al proveedor de hosting de cada proyecto.
+Regent no aloja previews. Para actualizar una instancia anterior, elimina el bloque
+`previews` de su YAML y las rutas del proxy que apuntaban a su antiguo gateway.

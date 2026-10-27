@@ -7,7 +7,6 @@ access_policy_file: config/access.yaml # Copia access.example.yaml y configura l
 permission_mode: bypass
 communication:
   instructions_file: null # Usa la politica incluida en plugins/executor/communication.md; selecciona config/communication.md para personalizar.
-previews: null # Preview temporal; la app maneja su login. Configuracion en config/README.md.
 auth:
   # Pro/Max personal via Claude Code. Compartir la cuenta puede causar suspension/baneo.
   mode: indie

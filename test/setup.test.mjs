@@ -64,7 +64,6 @@ try {
   assert.equal(config.permission_mode, 'bypass')
   assert.equal(config.slack.progress_mode, 'auto')
   assert.deepEqual(config.communication, { instructions_file: null })
-  assert.equal(config.previews, null)
   assert.throws(() =>
     ConfigSchema.parse({ ...config, communication: { instructions_file: '   ' } }),
   )

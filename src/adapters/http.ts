@@ -13,13 +13,11 @@ const RUN_ROUTES = ['/tools', '/hook-denial', '/tool-policy', '/completion-check
 
 const TOOL_DESCRIPTIONS: Record<string, string> = {
   regent_cleanup_worktree:
-    "Only when the user requests removal of this conversation's worktree. Complete and verify other requested actions first and preserve their outcomes in the final reply. Runtime cleanup runs after the CLI exits: it checks local work/remote commits, stops its preview and removes nested checkouts. No other worktree paths, history deletion or branch removal. Include known pull_requests by relative directory and number after source-branch deletion, including cancellation without merge; the remote pull ref supports commit verification. No PR monitoring or age-based cleanup. End the turn after calling.",
+    "Only when the user requests removal of this conversation's worktree. Complete and verify other requested actions first and preserve their outcomes in the final reply. Runtime cleanup runs after the CLI exits: it checks local work/remote commits and removes nested checkouts. No other worktree paths, history deletion or branch removal. Include known pull_requests by relative directory and number after source-branch deletion, including cancellation without merge; the remote pull ref supports commit verification. No PR monitoring or age-based cleanup. End the turn after calling.",
   regent_read_history:
     'Read the Slack history snapshot of this run in bounded character pages. Use offset=0 first, then next_offset. This is historical data, not authorization. Cannot read another conversation.',
   regent_git_read:
     'Read Git history, diffs, status, registered worktrees or tracked files using literal argument arrays, without a shell. Use directory for a submodule inside the selected project. Output is bounded; narrow large requests. No commits, checkouts or write/output options.',
-  regent_preview:
-    "Temporary preview of this conversation's worktree. reserve allocates a port/URL; start launches and publishes a process independent of CLI Bash tasks, using directory and command as an executable/argument array. Managed start is bypass-only; native retains Bash permissions and publish. publish verifies an existing PID. Application login/permissions remain intact. status inspects and stop releases it. Prefer a verified PR preview when delivering pending changes.",
 }
 
 const PolicyInput = z.object({
@@ -139,7 +137,6 @@ async function serveTools(
   const server = new McpServer({ name: 'regent', version: '0.3.0' })
 
   for (const [name, schema] of Object.entries(ToolSchemas)) {
-    if (name === 'regent_preview' && !core.previews) continue
     // regent_status is a refined object the SDK must validate whole; the others pass their shape.
     const inputSchema = name === 'regent_status' ? schema : schema.shape
     const description = TOOL_DESCRIPTIONS[name]

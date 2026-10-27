@@ -35,25 +35,6 @@ export const ConfigSchema = z
       })
       .strict()
       .prefault({}),
-    previews: z
-      .object({
-        domain: z.string().regex(/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/),
-        listen_port: z.number().int().min(1024).max(65535).default(8791),
-        port_min: z.number().int().min(1024).max(65535).default(32000),
-        port_max: z.number().int().min(1024).max(65535).default(32009),
-        max_active: z.number().int().min(1).max(20).default(3),
-        ttl_minutes: z.number().int().min(5).max(1440).default(120),
-      })
-      .strict()
-      .refine(
-        (value) =>
-          value.port_min <= value.port_max &&
-          value.port_max - value.port_min < 100 &&
-          (value.listen_port < value.port_min || value.listen_port > value.port_max),
-        'Rango de puertos de preview invalido.',
-      )
-      .nullable()
-      .default(null),
     repos: z
       .object({
         path: z.string().min(1),

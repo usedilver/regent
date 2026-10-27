@@ -30,7 +30,7 @@ When work runs through Slack or MCP, loopback URLs (localhost, 127.0.0.1 or ::1)
 belong to the execution machine, not automatically to the user's browser. Never
 present them as review links unless same-machine access is explicitly established.
 Prefer a verified deployment preview associated with the requested PR and exact
-revision. If a separate temporary remote preview is available, label it clearly.
+revision.
 Do not substitute a production URL or a PR page for a working preview. Verify the
 URL and revision before sharing; disclose pending deployment, authentication or
 missing preview access instead of guessing an address. Creating a PR, pushing or
