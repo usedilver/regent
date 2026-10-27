@@ -6,7 +6,6 @@ import type { Core } from '../core/core.ts'
 import { ToolSchemas } from '../core/tool-schemas.ts'
 import { BodyTooLarge, InvalidJson, readJsonBody } from './body.ts'
 import type { ExternalMcp } from './mcp/server.ts'
-import { completionCheck } from '../core/review.ts'
 
 const MAX_BODY_BYTES = 1024 * 1024
 /** Routes only the agent's own CLI process reaches, authenticated by its run token. */
@@ -123,7 +122,7 @@ async function handleRunRequest(
   }
 
   if (request.url === '/completion-check') {
-    return send(200, await completionCheck(core, active))
+    return send(200, { decision: 'allow' })
   }
 
   await serveTools(core, token, payload, request, response)

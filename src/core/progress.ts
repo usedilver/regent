@@ -48,7 +48,7 @@ export type DevelopmentPhase = z.infer<typeof DevelopmentPhase>
 export const StatusRequest = z
   .object({
     review: ReviewAssessment.optional().describe(
-      'Visual delivery assessment for an editing run. Required includes UI removal; blocked requires an actual preview attempt. Never infer empty environment from redacted values.',
+      'Optional executor review. verified records a browser-checked path and evidence in reason; runtime checks transport only. Follow project guidance on relevance, authentication and data. Legacy assessment kinds remain accepted.',
     ),
     phase: DevelopmentPhase.optional().describe(
       'Development phase being started; not proof of completion.',

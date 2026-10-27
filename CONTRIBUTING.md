@@ -27,12 +27,18 @@ checks live in `test/smoke/` and require explicit opt-in and the operator's own 
 unmodified CLI, a temporary repository and a synthetic project MCP. It incurs normal provider
 usage, keeps source files unchanged and removes its temporary files; it never inspects or copies
 authentication files. `REGENT_SMOKE=1 REGENT_SMOKE_PREVIEW_DOMAIN=<domain> node test/smoke/visual-delivery.mjs`
-checks automatic visual delivery through MCP and the real CLI using a synthetic frontend.
+checks repository-directed visual delivery through MCP and the real CLI using a synthetic frontend.
 It requires an exclusively available preview gateway listener already routed through public
 HTTPS (default port 8791, override with `REGENT_SMOKE_GATEWAY_PORT`). Never run it against
 an occupied listener. It uses a temporary SQLite database, preserves source files, checks
-the native Stop hook and removes its preview/process/files after checking the public page.
+an explicit executor verification of the requested path and removes its preview/process/files after checking the public page.
 It does not validate business data or an authenticated application session.
+`REGENT_SMOKE=1 REGENT_SMOKE_BROWSER_MODULE=/absolute/playwright/index.mjs node test/smoke/project-previews.mjs`
+checks preview-only tasks with the real CLI, MCP and Chromium against a synthetic app.
+An optional `REGENT_SMOKE_CONTEXT` directory supplies project-owned instructions/skills.
+It checks a working view, a failed data source and a login-only view without changing
+source or delivering incomplete previews as ready. It uses loopback URLs on the same
+machine and does not establish public TLS or production authentication.
 Simulated tests are the default in CI.
 `REGENT_SMOKE=1 node test/smoke/worktree-cleanup.mjs` checks the real CLI and MCP
 preserve a worktree after a merge-only message, then remove it only after an explicit

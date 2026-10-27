@@ -16,7 +16,7 @@ import { prepareImages } from './images.ts'
 import { resolveIdentity, type Identity } from './identity.ts'
 import { failedText, interruptedText } from './progress.ts'
 import { isolationFor } from './repository.ts'
-import { reviewDelivery, reviewText } from './review.ts'
+import { reviewDelivery } from './review.ts'
 import { cleanupText } from './worktree-cleanup.ts'
 import type { Conversation, Run, RunState } from './types.ts'
 
@@ -238,7 +238,7 @@ export class Turn {
   private previewPolicy(execution: Execution): string {
     if (!this.core.previews) return 'unavailable'
     if (execution.readOnly) return 'status_only'
-    return 'visual_changes'
+    return 'available'
   }
 
   private fullPrompt(handoff: string, request: string): string {
@@ -454,7 +454,7 @@ export class Turn {
         : undefined
     const reviewed = {
       ...result,
-      text: cleanup ? cleanupText(cleanup, result.text) : reviewText(delivery, result.text),
+      text: cleanup ? cleanupText(cleanup, result.text) : result.text,
     }
     state = this.finalState(result.state)
     error = this.stopReason() ?? result.error

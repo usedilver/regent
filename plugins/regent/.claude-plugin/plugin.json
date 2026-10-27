@@ -1,7 +1,7 @@
 {
   "name": "regent",
   "displayName": "Regent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Investigate and change projects through a configured Regent instance and repository-owned instructions.",
   "author": {
     "name": "Regent contributors"

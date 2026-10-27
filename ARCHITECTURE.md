@@ -126,7 +126,7 @@ user starts a new conversation/thread for that project; MCP clients use `regent_
 with `repo`. Execution-profile changes within the selected project retain their normal
 handoff and authorization checks.
 
-Executor instructions guide code changes through investigation, implementation and validation.
+Repository instructions guide the development and validation appropriate to a request.
 The optional `regent_status.phase` labels transitions for immediate progress updates; repeated
 updates remain throttled. A phase label neither authorizes an action nor proves a check passed.
 It is presentation metadata for the active run, not a persisted workflow or approval gate.
@@ -148,33 +148,29 @@ and a filtered repository environment. The runtime owns the detached group rathe
 the CLI's temporary Bash task. Startup is bounded and cancellation/failure cleans up the
 owned group. Native mode rejects managed start and retains Bash permissions plus `publish`.
 The external reverse proxy publishes only MCP/OAuth routes; internal tool and health routes stay local.
-The core supplies `preview_policy` to the executor: `visual_changes` for editing with a
-configured gateway, `status_only` for queries with that gateway, otherwise `unavailable`.
-The executor includes a preview by default for user-visible or interactive changes unless
-the user opts out; project context determines relevance across frameworks. Internal-only
-changes do not require previews. The executor declares a typed visual assessment through
-`regent_status.review`. A native CLI Stop hook checks this contract over the authenticated
-loopback endpoint and allows at most two corrective continuations, within the existing deadline.
-It does not infer UI relevance from prose or filenames. Queries, cancellation, waiting and
-disabled previews do not enter this check. A claimed blocker requires a publication attempt
-or failed reservation; reserving a port alone is insufficient. Setup evidence contains only
-ignored environment file presence and key counts, never values.
-Core checks delivery again at settlement even if a hook fails. `run.delivery` records a ready,
-externally reported, not-applicable, blocked or missing review. Ready requires publication in
-this turn, owned listener/process and public HTTPS reachability; it does not prove authenticated
-UI correctness. External URLs remain explicitly agent-reported. Core inserts the known link
-into stored/final output or marks visual review pending, independently of the agent prose.
-The terminal run state still describes execution; clients must also report unresolved delivery.
-Blocked visual review remains explicit. This policy guides
-execution and does not relax query permissions or authorize production deployment.
-Explicit requests to run a preview use the operational `task` profile; questions about previews
-and explicit query limits remain read-only. MCP status includes an additive `preview` field for
-the current conversation, independently of the agent's final prose. It exposes only readiness,
-expiry and a URL while the published process/listener is still owned and live. It is not a
-snapshot of the requested run's revision or proof that a specific application route works;
-the executor verifies the public route and preserves application authentication before delivery.
-`preview_available` reports gateway configuration separately from preview readiness; internal
-status reports `not_reserved` and the next allowed action when no preview exists yet.
+The core supplies preview capability (`available`, `status_only`, `unavailable`), not a
+preview delivery policy. Projects own whether a review is appropriate, what it must
+check and how collaborators are involved. There is no completion hook forcing UI work
+or operational tasks through a preview workflow. The authenticated `/completion-check`
+endpoint remains an allow-only compatibility endpoint for older executors.
+
+Internal preview readiness describes an owned process/listener. It is not proof of an
+application route, authenticated access or healthy data. After project-level checks,
+the executor can attest `regent_status.review` with kind `verified`, a path on the
+reserved host and evidence in reason. Regent probes that exact path without following
+redirects, rejects HTTP errors, and ties the evidence to the process ID/start identity.
+The result is explicitly executor-reported; a redirect does not independently verify
+an authenticated app. Failed rechecks invalidate earlier evidence for that run.
+
+`run.delivery` is optional metadata; legacy assessments remain accepted without
+corrective continuations or automatic rewriting of final prose. MCP `preview.ready`
+and `preview.verified` require evidence from the latest run and a matching live process.
+`process_ready` exposes infrastructure separately; the public review URL stays null
+until verification. Expiry, process replacement or new operational/editing work hide the previous URL;
+strictly read-only follow-ups may retain the last unchanged verification.
+No schema migration, identity role inference or organization-specific routing is needed.
+The project's client and skills must preserve the requested outcome and its scope:
+starting a preview is operational even when source changes are prohibited.
 
 An explicit worktree-removal request uses `regent_cleanup_worktree`, scoped to the
 active conversation. It defers execution until the official CLI exits; core performs

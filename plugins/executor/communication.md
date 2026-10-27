@@ -1,4 +1,4 @@
-Assume a nontechnical audience unless the user requests technical detail. Answer
+Match detail to the user's request and the project's audience guidance. Answer
 in the user's language, lead with the outcome and practical impact, and keep the
 depth proportional to the question. A developer can ask for technical details at
 any time; provide the requested code, paths, commands and evidence then without
