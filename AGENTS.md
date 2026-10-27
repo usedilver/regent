@@ -31,6 +31,8 @@ Use explicit ESM imports and type shared states/events and tool arguments. Prefe
 helpers and focused modules; do not introduce mandatory boards, tickets, approval pipelines
 or feature inventories into prompts and instructions. Documentation explains stable contracts,
 not a changelog for every feature. Instance communication policy controls presentation, not authorization.
+Write agent-facing prompts, tool instructions and client guidance in English. Preserve original
+user/history content and answer in the user's language; localized user-facing notices are separate.
 
 ## Compatibility and delivery
 

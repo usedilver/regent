@@ -93,7 +93,7 @@ function pack(pending: HashedMessage[], trigger: string | undefined): Packed {
     }
 
     omitted++
-    const reference = `[${message.id}] Contenido no incluido; consulta regent_read_history. ${message.text.slice(0, REFERENCE_PREVIEW_CHARS)}`
+    const reference = `[${message.id}] Content omitted; consult regent_read_history. ${message.text.slice(0, REFERENCE_PREVIEW_CHARS)}`
 
     if (reference.length + 2 <= remaining) {
       parts.unshift(reference)
@@ -102,7 +102,7 @@ function pack(pending: HashedMessage[], trigger: string | undefined): Packed {
   }
 
   const notice = omitted
-    ? `Historial parcial: ${omitted} mensaje(s) pendiente(s) no se incluyeron completos. El historial de esta solicitud sigue disponible con regent_read_history (offset y max_chars). Consulta lo necesario antes de asumir requisitos.\n\n`
+    ? `Partial history: ${omitted} pending message(s) were not included in full. Read this request's history with regent_read_history (offset and max_chars) as needed before assuming requirements.\n\n`
     : ''
 
   return { text: notice + parts.join('\n\n'), omitted, delivered }

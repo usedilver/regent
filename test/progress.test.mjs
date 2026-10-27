@@ -213,7 +213,7 @@ try {
   }
 
   assert.equal(calls.length, count)
-  await assert.rejects(() => core.tool(active.token, 'regent_status', {}), /Mensaje de progreso/)
+  await assert.rejects(() => core.tool(active.token, 'regent_status', {}), /Progress message/)
   await new Promise((resolve) => server.close(resolve))
   server = undefined
   calls.length = 0

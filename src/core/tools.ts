@@ -187,7 +187,7 @@ async function createRoom({ core, active, conversation, input }: ToolCall) {
       url: `slack://channel?team=${conversation.team}&id=${transfer.channel}`,
       moved: true,
       instruction:
-        'La misma sesion continua en la sala. No reinicies el repo ni el worktree, no crees una tarea.',
+        'The same session continues in this room. Do not restart the repository/worktree or create a task.',
     }
   } finally {
     active.moving = false
@@ -217,7 +217,7 @@ async function useRepo(call: ToolCall) {
       cwd: path.join(active.executionDir ?? target, path.relative(target, requested)),
       unchanged: true,
       instruction:
-        'Mismo proyecto y sesion. Navega al destino indicado, lee sus instrucciones y conserva el contexto compartido y el modo de ejecucion.',
+        'Same project and session. Navigate to the supplied destination, read its instructions and preserve shared context and execution mode.',
     }
   }
 
@@ -235,7 +235,7 @@ async function useRepo(call: ToolCall) {
     repo: target,
     switching: true,
     instruction:
-      'Termina el turno. Regent continuara con una sesion nueva y el entorno del repositorio seleccionado.',
+      'End the turn. Regent will continue in a fresh session with the selected repository environment.',
   }
 }
 
@@ -326,7 +326,7 @@ async function askHuman({ core, active, conversation, input }: ToolCall) {
 
   return {
     waiting_human: true,
-    instruction: 'Termina el turno; la respuesta humana reanudara esta sesion.',
+    instruction: 'End the turn; the human answer will resume this session.',
   }
 }
 
@@ -351,7 +351,7 @@ async function cleanupWorktree({ core, active, input }: ToolCall) {
   return {
     state: 'requested',
     instruction:
-      'Termina el turno ahora. No ejecutes mas comandos, no borres desde Bash ni afirmes que ya se elimino: Regent comprueba y limpia despues de que salga el CLI, y entrega el resultado real. Conserva el historial, las ramas y commits remotos. No requiere preview.',
+      'End the turn now. Run no more commands and do not delete from Bash or claim removal: Regent checks and cleans up after the CLI exits, then reports the actual outcome. Preserve history, branches and remote commits. No preview is required.',
   }
 }
 

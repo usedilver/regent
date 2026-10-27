@@ -144,7 +144,7 @@ try {
   }
 
   for (let i = 0; i < 2; i++) {
-    const state = JSON.parse(prompts[i].split('Estado del core: ')[1].split('\n')[0])
+    const state = JSON.parse(prompts[i].split('Core state: ')[1].split('\n')[0])
     assert.equal(state.author.id, `U${i + 1}`)
     assert.equal(state.author.email, `U${i + 1}@example.com`)
     assert.equal(state.author.team_id, 'T1')

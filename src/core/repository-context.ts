@@ -120,6 +120,6 @@ export function repositoryContext(workspace: string, selected: string) {
     relative_repo: path.relative(root, repo) || '.',
     instruction_directories: inventory,
     inventory_only: true,
-    note: 'Son archivos y conexiones declaradas; el agente carga las instrucciones y verifica las fuentes al ejecutar. El cliente de chat no recibe automaticamente las skills ni las conexiones del repo.',
+    note: 'These are declared files and connections. The executor loads instructions and verifies sources during execution; the host chat does not automatically receive repository skills or connections.',
   }
 }
