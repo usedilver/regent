@@ -288,8 +288,11 @@ http.createServer((req,res)=>{
       assert.equal(new URL(result.preview.url).pathname, scenario.target)
       assert.ok(run.result.includes(result.preview.url))
       assert.ok(calls.some((c) => c.body.includes('Loaded: Alpha, Beta')))
+      assert.ok(calls.some((c) => c.body.includes('Updated report')))
     } else {
-      assert.equal(result.preview?.url, null)
+      assert.equal(result.preview?.url ?? null, null)
+      assert.ok(!run.result.includes('http://127.0.0.1:'), run.result)
+      assert.ok(!run.result.includes('https://app.example.invalid'), run.result)
       if (allocated)
         assert.ok(
           !run.result.includes(previews.result(allocated).url),
