@@ -59,9 +59,9 @@ export const StatusRequest = z
       .min(1)
       .max(2000)
       .optional()
-      .describe('Mensaje breve de progreso para el usuario.'),
-    status: z.string().trim().min(1).max(2000).optional().describe('Alias de text.'),
+      .describe('Brief progress message for the user.'),
+    status: z.string().trim().min(1).max(2000).optional().describe('Alias of text.'),
   })
   .refine((args) => args.text !== undefined || args.status !== undefined, {
-    message: 'Usa regent_status con { "text": "Mensaje de progreso" } (status tambien es valido).',
+    message: 'Use regent_status with { "text": "Progress message" } (status is also accepted).',
   })

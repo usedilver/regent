@@ -119,7 +119,7 @@ for (const adapter of ['slack', 'mcp']) {
   test(`${adapter}: visual preview policy reaches edits without a preview request and preserves query permissions`, async (t) => {
     const f = fixture(t, adapter)
     const state = (controller) =>
-      JSON.parse(controller.opts.prompt.split('Estado del core: ')[1].split('\n')[0])
+      JSON.parse(controller.opts.prompt.split('Core state: ')[1].split('\n')[0])
     const unavailable = await f.submit('Quita el filtro de Origen de la lista')
     assert.equal(state(unavailable).preview_policy, 'unavailable')
     await f.finish()

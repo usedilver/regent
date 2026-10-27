@@ -285,7 +285,7 @@ try {
         assert.match(client.getInstructions(), /regent_context/)
         assert.match(
           (await client.listTools()).tools.find((tool) => tool.name === 'regent_start').description,
-          /Repositorio predeterminado: dashboard\./,
+          /Default repository: dashboard\./,
         )
         const request_id = randomUUID()
         const [one, retry] = await Promise.all([
@@ -947,12 +947,12 @@ try {
         assert.deepEqual(client.getServerVersion(), {
           name: 'regent',
           title: 'Example Code',
-          version: '0.4.0',
+          version: '0.4.1',
         })
         assert.equal((await client.listTools()).tools.length, 6)
         assert.equal(
           (await client.listTools()).tools.find((t) => t.name === 'regent_start').title,
-          'Example Code · Iniciar trabajo',
+          'Example Code · Start work',
         )
         assert.equal(client.getInstructions(), f.gateway.instructions())
         assert.match(client.getInstructions(), /Example Code/)

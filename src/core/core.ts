@@ -209,7 +209,7 @@ export class Core {
 
     if (target && project && target !== project) {
       const submodule = JSON.stringify(path.relative(project, target))
-      text = `Trabaja en el submodulo ${submodule} del proyecto ${JSON.stringify(project)}. Conserva el contexto compartido del proyecto y lee las instrucciones especificas del destino.\nSolicitud:\n${text}`
+      text = `Work in submodule ${submodule} of project ${JSON.stringify(project)}. Preserve shared project context and read destination-specific instructions.\nRequest:\n${text}`
     }
 
     return { input: { ...input, text }, cwd: project ?? this.defaultCwd }

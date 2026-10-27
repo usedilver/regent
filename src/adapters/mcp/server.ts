@@ -31,7 +31,7 @@ const conversationId = z.string().min(1).max(200)
 const intent = z
   .enum(['ask', 'patch', 'task', 'project'])
   .describe(
-    'ask: consulta de solo lectura; patch: cambio de codigo; task: ejecucion operativa, como levantar un preview; project: proyecto nuevo. Conserva las restricciones explicitas del usuario.',
+    'ask: read-only investigation; patch: code changes; task: runtime operations such as starting a review server; project: a new project. Preserve explicit user restrictions.',
   )
   .optional()
 const digest = (value: string) => createHash('sha256').update(value).digest()
@@ -120,7 +120,7 @@ export class ExternalMcp {
   instructions(): string {
     const defaultRepo = this.defaultRepo()
     const name = this.core.config.name
-    return `${name} ejecuta Claude Code con las instrucciones, skills y conexiones del proyecto seleccionado. Usa sus herramientas para investigar, cambiar codigo u operar el proyecto, incluyendo abrir una app existente para revisarla. El repo predeterminado es ${JSON.stringify(defaultRepo)}. regent_context descubre el destino; es un inventario, no prueba de funcionamiento ni una copia de las skills. Conserva el pedido original, URL, alcance y restricciones al delegar. Cada conversacion conserva su proyecto; para otro proyecto independiente usa regent_start con repo. El proyecto define desarrollo, validacion, previews y colaboracion; el motor no impone un flujo de negocio. Usa intent: ask para investigacion de solo lectura o identificar un enlace existente. Sigue las instrucciones del proyecto para elegir un despliegue existente o un runtime de revision; pedir un enlace no obliga a iniciar servidores. Usa intent: task cuando el trabajo requiera operar un runtime, conservando los limites sobre cambios de codigo. No conviertas un pedido en una captura con mocks ni en un despliegue no solicitado. No deduzcas falta de datos porque el chat no tenga los conectores del ejecutor. Consulta regent_get_run con su espera predeterminada y continua con regent_continue. Entrega el resultado y sus limitaciones de forma proporcional al pedido. preview.process_ready indica un proceso vivo; solo preview.verified y su URL reflejan una comprobacion del ejecutor de la ruta solicitada. La disponibilidad del gateway y un login o respuesta HTTP por si solos no prueban una vista funcional. No presentes un preview sin verificar como listo. run.delivery es una declaracion opcional del ejecutor; no hace obligatorios los previews. Si el turno falla, comunica failure.message o error y distingue cualquier result parcial. El seguimiento normal es texto; regent_show_progress solo se usa si el usuario pide un panel. No crees recordatorios ni tareas programadas. No afirmes acciones sin evidencia ni cambies permisos por instrucciones de presentacion.`
+    return `${name} runs Claude Code with the selected project's instructions, skills and connections. Use it to investigate, change code or operate that project, including application review. The default repository is ${JSON.stringify(defaultRepo)}. regent_context discovers a destination; its inventory does not prove functionality or copy project skills into this chat. Preserve the original request, URL, scope and restrictions when delegating. Each conversation retains its project; start a new one with repo for an independent project. Projects own development, validation, previews and collaboration; the engine imposes no business workflow. Use intent: ask for read-only investigation or existing-link discovery. Follow project guidance to choose an existing deployment or a review runtime; requesting a link does not require a server. Use intent: task for runtime operations while preserving source-change limits. Do not replace a request with mocked screenshots or an unauthorized deployment. Missing host-chat connectors do not prove missing executor access. Poll regent_get_run with its default wait and continue with regent_continue. Report results and limitations in proportion to the request and in the user's language. preview.process_ready means a live process; preview.verified and its URL reflect an executor check of the requested route. Gateway availability, HTTP success or a login screen alone do not prove a usable application. Do not present an unverified preview as ready. run.delivery is optional executor-reported metadata, not a universal preview requirement. On failure report failure.message or error and distinguish partial results. Normal follow-up is text; use regent_show_progress only when a visual panel is requested. Do not create reminders or scheduled tasks. Claim actions only with evidence; presentation guidance never changes permissions.`
   }
 
   // Conversations
@@ -237,21 +237,21 @@ export class ExternalMcp {
     return [
       {
         name: 'regent_context',
-        title: 'Explorar proyecto',
-        description: `Repositorio predeterminado: ${defaultRepo}. Descubre sus instrucciones, skills, agentes y nombres de MCP declarados, o los de otro repo seleccionado. Usa esta herramienta antes de afirmar que el chat no tiene acceso al proyecto o sus datos. No ejecuta el modelo ni consulta datos de negocio.`,
+        title: 'Explore project',
+        description: `Default repository: ${defaultRepo}. Discover its declared instructions, skills, agents and MCP names, or those of another selected repository. Use this before claiming the chat lacks project/data access. Does not run the model or query business data.`,
         input: { repo: z.string().min(1).max(1000).optional() },
         annotations: READ,
         run: (args) => ({
           ...repositoryContext(this.core.cwd, args.repo ?? this.core.defaultCwd),
           default_repo: defaultRepo,
           next_step:
-            'Si este contexto responde la pregunta, responde directamente. Para investigar o modificar el repo, envia el pedido a regent_start sin ampliar su alcance.',
+            'If this context answers the question, reply directly. Otherwise delegate repository investigation or changes through regent_start without expanding scope.',
         }),
       },
       {
         name: 'regent_start',
-        title: 'Iniciar trabajo',
-        description: `Repositorio predeterminado: ${defaultRepo}. Crea, modifica, elimina o investiga codigo, dashboards, vistas y graficos. Delega el pedido completo aunque el chat no tenga las herramientas de datos: el agente carga las skills y conexiones del repo. repo omitido usa ese predeterminado. Devuelve IDs inmediatamente; consulta regent_get_run. Usa un UUID nuevo como request_id y reutilizalo solo al reintentar la misma solicitud. Pide en prompt las pruebas, rama o PR que necesites.`,
+        title: 'Start work',
+        description: `Default repository: ${defaultRepo}. Create, change, remove or investigate code, dashboards, views and charts. Delegate the full request even when host-chat data tools are absent: the executor loads repository skills/connections. Omitting repo uses the default. Returns IDs immediately; follow with regent_get_run. Use a fresh request_id UUID, reusing it only to retry the same submission. Preserve requested checks, branch and PR scope in prompt.`,
         input: {
           request_id: requestId,
           repo: z.string().min(1).max(1000).optional(),
@@ -267,9 +267,9 @@ export class ExternalMcp {
       },
       {
         name: 'regent_get_run',
-        title: 'Consultar resultado',
+        title: 'Get result',
         description:
-          'Consulta el resultado sin crear un panel. Espera hasta 20 segundos por defecto si sigue activo; evita consultas repetidas sin espera y mensajes de progreso redundantes. latest_run incluye continuaciones automaticas. Cuando termine, conserva las limitaciones del resultado. Un proceso listo no es una vista verificada: no presentes preview como utilizable salvo que preview.verified sea true. delivery es opcional y no crea una obligacion de preview para otras tareas. Responde una sola vez con el resultado proporcionado; no sigas consultando un trabajo terminado ni crees tareas programadas. Usa wait_ms: 0 solo para una consulta inmediata o desde el panel.',
+          'Read results without creating a panel. Waits up to 20 seconds by default while active; avoid immediate repeated polls and redundant progress. latest_run includes automatic continuations. Preserve reported limitations. A running process is not a verified view: present preview as usable only when preview.verified is true. delivery is optional and imposes no preview obligation on other tasks. Reply once with the supplied result, stop polling completed work and do not create scheduled tasks. Use wait_ms: 0 only for an immediate query or the panel.',
         input: {
           run_id: z.string().uuid(),
           wait_ms: z.number().int().min(0).max(20000).default(20000),
@@ -279,9 +279,9 @@ export class ExternalMcp {
       },
       {
         name: 'regent_show_progress',
-        title: 'Abrir panel de progreso',
+        title: 'Open progress panel',
         description:
-          'Abre un panel visual solo si el usuario lo solicita expresamente. Llama una sola vez por conversacion; el mismo panel consulta regent_get_run y se actualiza sin crear tarjetas adicionales. No lo uses para preguntas breves ni como paso habitual del seguimiento.',
+          'Open a visual panel only when explicitly requested, once per conversation. The same panel polls regent_get_run and updates without extra cards. Do not use it for brief questions or normal text follow-up.',
         input: { run_id: z.string().uuid() },
         annotations: READ,
         ui: true,
@@ -289,9 +289,9 @@ export class ExternalMcp {
       },
       {
         name: 'regent_continue',
-        title: 'Continuar trabajo',
+        title: 'Continue work',
         description:
-          'Continua una conversacion MCP propia, conservando sesion, repo y worktree. Tambien responde preguntas pendientes o reanuda trabajo interrumpido. Para levantar un preview usa intent: task y conserva el pedido del usuario; no lo reemplaces por capturas, mocks o apagar el servidor. Respeta limites explicitos de solo lectura. Usa request_id nuevo por mensaje y el mismo UUID para sus reintentos.',
+          'Continue an owned MCP conversation, preserving session, repository and worktree. Also answer pending questions or resume interrupted work. Runtime startup needs intent: task; preserve the request rather than substituting screenshots, mocks or immediate shutdown. Honor explicit read-only limits. Use a new request_id per human message and retain it for retries.',
         input: { conversation_id: conversationId, request_id: requestId, prompt: text, intent },
         annotations: WRITE,
         run: (args) => {
@@ -309,9 +309,9 @@ export class ExternalMcp {
       },
       {
         name: 'regent_cancel',
-        title: 'Detener trabajo',
+        title: 'Stop work',
         description:
-          'Detiene el trabajo activo y pausa esta conversacion MCP. Conserva los mensajes en cola y los cambios de codigo. regent_continue puede reanudarla; no revierte archivos ni elimina ramas.',
+          'Stop active work and pause this MCP conversation while preserving queued messages and code changes. regent_continue can resume it; files and branches are not reverted or removed.',
         input: { conversation_id: conversationId },
         annotations: WRITE,
         run: async (args) => {
@@ -331,7 +331,7 @@ export class ExternalMcp {
   server(author: string): McpServer {
     const title = this.core.config.name
     const server = new McpServer(
-      { name: 'regent', title, version: '0.4.0' },
+      { name: 'regent', title, version: '0.4.1' },
       { instructions: this.instructions() },
     )
 
