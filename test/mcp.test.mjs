@@ -577,7 +577,10 @@ try {
 
       try {
         const client = await f.client()
-        const work = await start(client, { prompt: 'Explica el repositorio sin hacer cambios' })
+        const work = await start(client, {
+          prompt: 'Explica el repositorio sin hacer cambios',
+          intent: 'ask',
+        })
         await until(() => !f.core.active.size)
         assert.equal(f.starts[0].readOnly, true)
         assert.equal(f.starts[0].worktreeName, undefined)
@@ -598,6 +601,7 @@ try {
           conversation_id: work.conversation_id,
           request_id: randomUUID(),
           prompt: 'Explica lo que cambiaste',
+          intent: 'ask',
         })
         await until(() => !f.core.active.size)
         assert.equal(f.starts[2].readOnly, true)

@@ -3,46 +3,46 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
-import { routeIntent } from '../src/core/intent.ts'
+import { requestProfile } from '../src/core/intent.ts'
 import { Core } from '../src/core/core.ts'
 import { Store } from '../src/storage/store.ts'
 import { ConfigSchema } from '../src/config.ts'
 
-test('preview link requests follow normal read-only routing', () => {
+test('ordinary messages reach the executor unchanged through one profile', () => {
   for (const text of [
-    'Dame un preview para revisarlo antes de hacer PR',
-    'Show me a preview before opening the PR',
-    'Dame el enlace del preview existente',
-    'Explica cómo funciona el preview',
-    'Dame un preview, solo lectura',
-    '/ask levanta un preview',
+    'Quita este div y crea el PR',
+    '¿Qué hace este componente?',
+    'Investiga sin hacer cambios',
+    'Dame un preview',
+    'continua',
+    'sí',
+    'Create a new app',
+    'Explique ce composant',
+    'Implementa lo anterior',
   ]) {
-    assert.equal(routeIntent(text, 'patch').intent, 'ask', text)
+    assert.deepEqual(requestProfile(text), { intent: 'task', text })
   }
-  assert.equal(routeIntent('/task despliega la rama').intent, 'task')
-  assert.equal(routeIntent('Corrige el preview').intent, 'patch')
 })
 
-for (const [text, intent] of [
-  ['creame un dashboard de prospeccion', 'project'],
-  ['Quiero una app para registrar gastos', 'project'],
-  ['crea una tarea en notion', 'task'],
-  ['corrige los botones del footer', 'patch'],
-  ['cual fue la ultima oferta cerrada?', 'ask'],
-  ['Como puedo crear un proyecto?', 'ask'],
-  ['Investiga este bug, no hagas cambios', 'ask'],
-  ['/project retoma los requerimientos adjuntos', 'project'],
-]) {
-  assert.equal(routeIntent(text).intent, intent, text)
-}
-
-assert.equal(routeIntent('dale', 'project').intent, 'project')
-assert.equal(routeIntent('continua', 'patch').intent, 'patch')
-assert.equal(routeIntent('explica como funciona', 'project').intent, 'ask')
-assert.equal(routeIntent('/patch cambia el footer', 'project').intent, 'patch')
-assert.equal(routeIntent('corrige el footer en hire', 'project').intent, 'patch')
-assert.equal(routeIntent('quiero cambiar el footer de mi app').intent, 'patch')
-assert.equal(routeIntent('crea una tarjeta para el proyecto de ventas').intent, 'task')
+test('only explicit protocol prefixes select a different profile', () => {
+  assert.deepEqual(requestProfile('/ask Explica el código'), {
+    intent: 'ask',
+    text: 'Explica el código',
+  })
+  assert.deepEqual(requestProfile(' /PATCH cambia el footer'), {
+    intent: 'patch',
+    text: 'cambia el footer',
+  })
+  assert.deepEqual(requestProfile('/project crea la app'), {
+    intent: 'project',
+    text: 'crea la app',
+  })
+  assert.deepEqual(requestProfile('/task ejecuta el build'), {
+    intent: 'task',
+    text: 'ejecuta el build',
+  })
+  assert.deepEqual(requestProfile('/asker is a path'), { intent: 'task', text: '/asker is a path' })
+})
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-intent-')))
 const repo = path.join(root, 'new-app')
@@ -111,10 +111,10 @@ try {
   await until(() => !core.active.size)
   await core.submit(inbound('continue', 'continua'))
   await until(() => starts.length === 3)
-  assert.equal(starts[2].opts.model, 'opus-project')
+  assert.equal(starts[2].opts.model, 'opus-task')
   starts[2].finish()
   await until(() => !core.active.size)
-  await core.submit(inbound('question', 'explica el codigo'))
+  await core.submit({ ...inbound('question', 'explica el codigo'), intent: 'ask' })
   await until(() => starts.length === 4)
   assert.equal(starts[3].opts.model, 'sonnet-test')
   assert.ok(starts[3].opts.timeoutMs <= 600000 && starts[3].opts.timeoutMs > 600000 * 0.99)
@@ -135,7 +135,7 @@ try {
   starts[4].finish()
   await until(() => !core.active.size)
   console.log(
-    'Routing: project model/time, handoff, continuation, question and explicit escalation passed',
+    'Execution options: explicit limits, ordinary follow-ups and enforced query permissions passed',
   )
 } finally {
   await core.close()

@@ -172,13 +172,16 @@ runtime environments remain service-owned.
 
 ## Limits and Permissions
 
-Profiles ask/patch/task/project choose model and time. ask is enforced as query-only;
-patch/task/project use editing capabilities, subject to user scope and core guards. Ordinary
-questions use ask, small edits patch and operational work task. Before implementing
-a new independent app, use regent_use_repo with intent="project" and a handoff,
-even for the current repo, then finish the turn so new limits apply. Explicit
-/ask, /patch, /task or /project prefixes select profiles. Never change models via
-shell arguments or restart a session to evade deadlines.
+Ordinary messages share the task execution profile. Interpret the user's request using
+conversation context and repository instructions: questions remain questions, and a clear
+change request proceeds to implementation without a mandatory investigation phase.
+Tool availability never authorizes edits or publication beyond the user's request.
+
+Profiles are explicit execution options, not workflow stages. ask restricts tools to
+readers; patch/task/project select configured limits and models with editing capabilities.
+Do not switch profiles merely to classify a request, start implementation or create a
+project. Explicit /ask, /patch, /task and /project commands select these options for one
+message. An explicit query cannot promote itself through tools.
 
 Honor core wrap_up_at and timeout_ms; pass deadlines to any subagent. At wrap_up_at,
 stop starting tools or subagents and deliver findings, evidence and remaining

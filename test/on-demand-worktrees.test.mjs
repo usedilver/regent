@@ -11,7 +11,6 @@ import { ConfigSchema } from '../src/config.ts'
 import { isolationFor } from '../src/core/repository.ts'
 import { queryGit } from '../src/core/query-git.ts'
 import { runnerArgs } from '../src/execution/runner.ts'
-import { routeIntent } from '../src/core/intent.ts'
 import { queryDenial } from '../plugins/executor/hooks/query.mjs'
 import { denial } from '../plugins/executor/hooks/policy.mjs'
 import { createHttp } from '../src/adapters/http.ts'
@@ -121,14 +120,14 @@ for (const adapter of ['slack', 'mcp']) {
     const edit = await f.submit('Corrige el texto del archivo')
     await f.finish()
     const session = f.store.conversation('conversation').session_id
-    const preview = await f.submit('Dame un preview para revisarlo antes de hacer PR')
+    const preview = await f.submit('/ask Dame un preview para revisarlo antes de hacer PR')
     assert.equal(f.store.latestRun('conversation').intent, 'ask')
     assert.equal(preview.opts.readOnly, true)
     assert.equal(preview.opts.sessionId, session)
     assert.equal(preview.opts.worktreeName, edit.opts.worktreeName)
     await f.finish()
 
-    const query = await f.submit('Explica por qué falló el preview')
+    const query = await f.submit('/ask Explica por qué falló el preview')
     assert.equal(query.opts.readOnly, true)
     assert.equal(query.opts.sessionId, session)
     assert.equal(query.opts.worktreeName, edit.opts.worktreeName)
@@ -143,7 +142,7 @@ for (const adapter of ['slack', 'mcp']) {
 
   test(`${adapter}: query, edit and later query share the conversation without unnecessary worktrees`, async (t) => {
     const f = fixture(t, adapter)
-    const first = await f.submit('Explica cómo funciona este código')
+    const first = await f.submit('/ask Explica cómo funciona este código')
     assert.ok(first.opts.readOnly)
     assert.equal(first.opts.worktreeName, undefined)
     assert.equal(first.opts.cwd, f.repo)
@@ -162,7 +161,7 @@ for (const adapter of ['slack', 'mcp']) {
     assert.equal((inventory.output.match(/^worktree /gm) ?? []).length, 1)
     const session = f.store.conversation('conversation').session_id
     await f.finish('Investigated evidence: answer.txt contains original.')
-    const continued = await f.submit('Continua con la investigación')
+    const continued = await f.submit('/ask Continua con la investigación')
     assert.equal(continued.opts.sessionId, session)
     assert.equal(continued.opts.worktreeName, undefined)
     await f.finish('The investigation recommends changing answer.txt.')
@@ -194,7 +193,7 @@ for (const adapter of ['slack', 'mcp']) {
     )
     fs.writeFileSync(path.join(dir, 'answer.txt'), 'edited\n')
     await f.finish('Change completed in the isolated worktree.')
-    const follow = await f.submit('Explica qué cambiaste')
+    const follow = await f.submit('/ask Explica qué cambiaste')
     assert.equal(follow.opts.readOnly, true)
     assert.equal(follow.opts.worktreeName, edit.opts.worktreeName)
     assert.equal(follow.opts.sessionId, editSession)
@@ -225,7 +224,7 @@ test('editing first creates isolation immediately, while another query conversat
   const edit = await f.submit('Corrige el texto del archivo')
   assert.ok(edit.opts.worktreeName)
   await f.finish()
-  const query = await f.submit('Dime cuántos archivos hay', 'independent-query')
+  const query = await f.submit('/ask Dime cuántos archivos hay', 'independent-query')
   assert.equal(query.opts.worktreeName, undefined)
   assert.equal(query.opts.readOnly, true)
   await f.finish()
@@ -237,7 +236,7 @@ test('editing first creates isolation immediately, while another query conversat
 
 test('query permission hooks reject writers, interpreters, delegation, preview and automatic promotion', async (t) => {
   const f = fixture(t)
-  await f.submit('Investiga el repositorio sin hacer cambios')
+  await f.submit('/ask Investiga el repositorio sin hacer cambios')
   const active = [...f.core.active.values()][0]
   const server = createHttp(f.core, () => ({}))
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -349,7 +348,7 @@ test('independent queries use a new conversation and load only their own environ
 
   init(other)
   fs.writeFileSync(path.join(other, '.env'), 'OTHER_ROOT_VALUE=independent\n')
-  await f.submit('Investiga el proyecto')
+  await f.submit('/ask Investiga el proyecto')
   const active = [...f.core.active.values()][0]
   await assert.rejects(
     () =>
@@ -362,6 +361,7 @@ test('independent queries use a new conversation and load only their own environ
   await f.finish()
   await f.core.submit({
     ...f.input('Investiga este proyecto', 'other-project'),
+    intent: 'ask',
     repo: other,
   })
   await until(() => f.starts.length === 2)
@@ -382,7 +382,7 @@ test('submodule investigation uses source; preparing an edit creates only then t
   init(child)
   git(f.repo, '-c', 'protocol.file.allow=always', 'submodule', 'add', child, 'backend/api')
   git(f.repo, 'commit', '-am', 'Submodule')
-  await f.submit('Investiga el backend del proyecto')
+  await f.submit('/ask Investiga el backend del proyecto')
   let active = [...f.core.active.values()][0]
   assert.equal(await f.core.prepareWorkspace(active.token, 'Read'), null)
   const read = await f.core.tool(active.token, 'regent_git_read', {
@@ -445,12 +445,12 @@ test('legacy sessions reuse their existing worktree, and removed worktrees do no
   const isolated = isolationFor(f.repo, 'conversation')
   git(f.repo, 'worktree', 'add', '-b', isolated.name, isolated.dir, 'HEAD')
   f.store.session('conversation', 'legacy-session')
-  await f.submit('Explica el código')
+  await f.submit('/ask Explica el código')
   assert.equal(f.starts.at(-1).opts.sessionId, 'legacy-session')
   assert.equal(f.starts.at(-1).opts.worktreeName, isolated.name)
   await f.finish()
   git(f.repo, 'worktree', 'remove', isolated.dir)
-  const query = await f.submit('Dime cómo funciona')
+  const query = await f.submit('/ask Dime cómo funciona')
   assert.equal(query.opts.worktreeName, undefined)
   assert.equal(query.opts.sessionId, null)
   assert.match(query.opts.prompt, /Prior conversation handoff/)
@@ -458,35 +458,7 @@ test('legacy sessions reuse their existing worktree, and removed worktrees do no
   await f.finish()
 })
 
-test('explicit implementation after research promotes, acknowledgements and continued research remain query', () => {
-  for (const text of ['implementalo', 'dale implementalo', 'ok procede', 'aplícalo', 'hazlo']) {
-    assert.notEqual(routeIntent(text, 'ask').intent, 'ask', text)
-  }
-
-  for (const text of [
-    'continua',
-    'dale',
-    'ok',
-    'sí',
-    '¿Cómo implementarías este cambio?',
-    'Review the code without making changes',
-    'Quiero saber cómo crear un dashboard',
-    'Necesito revisar el código que crea ofertas',
-    'Ayúdame a entender cómo cambiar el footer',
-    '¿Me puedes explicar cómo crear una app?',
-    'Necesito que me expliques cómo se actualiza una oferta',
-    'Could you explain how to change the footer?',
-    'Please review how create and delete are handled',
-    'Explica cómo el código crea y borra usuarios',
-    'Investiga cómo crea y cambia registros',
-  ]) {
-    assert.equal(routeIntent(text, 'ask').intent, 'ask', text)
-  }
-
-  assert.equal(routeIntent('Cambia answer.txt y no hagas otros cambios').intent, 'patch')
-  assert.equal(routeIntent('Investiga y corrige el error').intent, 'patch')
-  assert.equal(routeIntent('Haz los cambios investigados').intent, 'patch')
-
+test('configured read-only MCPs retain their reader contracts in both execution modes', () => {
   for (const [name, tool_input] of [
     ['execute_sql', { query: 'SELECT id FROM candidates LIMIT 1' }],
     ['mixpanel_query', { project: 'match', type: 'segmentation' }],

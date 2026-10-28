@@ -216,7 +216,7 @@ try {
   })
 
   await core.submit(input('default', 'Investigate this URL https://example.org'))
-  await core.submit(input('explicit', 'repo: other repo\nReview this'))
+  await core.submit(input('explicit', 'repo: other repo\nReview this', { intent: 'ask' }))
   await core.submit(input('cli', 'Review this', { adapter: 'cli', repo: 'other repo' }))
   assert.equal(starts[0].cwd, repo)
   assert.ok(

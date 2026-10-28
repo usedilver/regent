@@ -18,13 +18,10 @@ already answers a simple question, respond without starting a run.
 
 Call `regent_start` with the original request, its business context, the selected
 repository when applicable and a new UUID in `request_id`. Reuse that UUID only
-to retry the same submission. Use `intent: ask` for read-only investigation or finding an
-existing application URL. Follow project guidance to choose an existing deployment or a
-review runtime; requesting a link does not by itself require starting a server. Use
-`intent: task` only when the requested work requires runtime operations, preserving
-restrictions on source changes.
-Preserve the user's authorized scope for edits, validation, PRs and deployments;
-do not add an approval process or expand the task.
+to retry the same submission. Delegate the complete request without assigning workflow
+stages; the server-side agent uses conversation and repository instructions to choose the
+necessary work. Omit intent for ordinary requests. Use ask only when explicitly selecting
+enforced read-only execution. Preserve the user's scope for edits, checks, PRs and deployment.
 
 The executor checks its own connections. Missing tools in this chat do not prove
 that the server cannot query data or edit the project. Do not substitute another

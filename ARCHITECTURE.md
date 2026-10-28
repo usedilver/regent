@@ -61,6 +61,14 @@ newer live database or restore an old snapshot over newly accepted work.
 
 ## Execution and data boundaries
 
+Regent does not classify natural-language requests. Ordinary messages use the same task
+profile and reach Claude unchanged, apart from explicit repository selection. Claude uses
+conversation and repository instructions to decide whether to answer, investigate,
+implement or validate. Investigation is not a prerequisite for an edit. Optional MCP intent
+arguments and slash prefixes select execution constraints for that message only; they do
+not infer authorization or carry over from an earlier message. Explicit ask remains an
+enforced read-only mode. Existing stored profiles and public tools remain compatible.
+
 The runner launches the unmodified official CLI. Query runs start in the selected source
 checkout without allocating a worktree; editing runs create/reuse the conversation worktree.
 Queries after an edit read that existing worktree. `src/core/execution-context.ts` selects the

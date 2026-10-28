@@ -342,7 +342,7 @@ try {
       return { done, cancel: () => finish() }
     },
   })
-  await core.submit(input)
+  await core.submit({ ...input, intent: 'ask' })
   await until(() => options)
   const closing = core.active.get(input.key)
   assert.match(options.prompt, /wrap_up_at/)
