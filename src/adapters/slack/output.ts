@@ -1,5 +1,5 @@
 import type { Conversation, Output, Run } from '../../core/types.ts'
-import type { RunnerEvent } from '../../execution/runner.ts'
+import type { ActivityEvent } from '../../core/activities.ts'
 import { redact } from '../../storage/redact.ts'
 import type { Store } from '../../storage/store.ts'
 import type { SlackActivities } from './activities.ts'
@@ -55,7 +55,7 @@ export class SlackOutput implements Output {
     this.receipts = value ? new StoredReceipts(value) : new MemoryReceipts()
   }
 
-  activity(c: Conversation, run: Run, event: RunnerEvent): void {
+  activity(c: Conversation, run: Run, event: ActivityEvent): void {
     this.activities?.event(c, run, event)
   }
 

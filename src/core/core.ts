@@ -7,6 +7,7 @@ import { startRunner, type RunnerOptions } from '../execution/runner.ts'
 import { redact } from '../storage/redact.ts'
 import type { Accepted, Store } from '../storage/store.ts'
 import { AccessPolicy, legacyAccess } from './access-policy.ts'
+import type { WorkspaceActivity } from './activities.ts'
 import { isStopCommand, type ControlCommand } from './commands.ts'
 import { errorMessage } from './errors.ts'
 import type { HistoryLoader } from './history.ts'
@@ -535,24 +536,25 @@ export class Core {
     if (!hasSubmodules(cwd, isolation.dir)) return null
 
     if (!active.workspacePreparation) {
-      this.publish(active, () =>
-        this.output.notice(
-          active.conversation!,
-          'Preparando los submodulos en el espacio aislado de esta conversacion.',
-        ),
-      )
+      this.workspaceActivity(active, 'running')
       active.workspacePreparation = prepareProjectWorkspace(
         this.cwd,
         cwd,
         isolation.dir,
         active.run.conversation_key,
         active.abort.signal,
-      ).then((result) => {
-        active.abort.signal.throwIfAborted()
-        active.workspace = result
-        this.store.event(active.run.id, 'project_workspace', result)
-        return result
-      })
+      )
+        .then((result) => {
+          active.abort.signal.throwIfAborted()
+          active.workspace = result
+          this.store.event(active.run.id, 'project_workspace', result)
+          this.workspaceActivity(active, 'complete')
+          return result
+        })
+        .catch((error) => {
+          this.workspaceActivity(active, 'error')
+          throw error
+        })
     }
 
     try {
@@ -561,6 +563,14 @@ export class Core {
     } catch (error) {
       return `No se pudo preparar el proyecto aislado: ${redact(errorMessage(error))}`
     }
+  }
+
+  private workspaceActivity(active: Active, status: WorkspaceActivity['status']): void {
+    const event: WorkspaceActivity = { kind: 'workspace_preparation', status }
+    this.store.event(active.run.id, event.kind, event)
+    this.publish(active, async () => {
+      this.output.activity?.(active.conversation!, active.run, event)
+    })
   }
 
   permission(token: string, input: PermissionInput): string | null {

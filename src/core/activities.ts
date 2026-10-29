@@ -1,6 +1,13 @@
 import { createHash } from 'node:crypto'
 import { redact } from '../storage/redact.ts'
 import { commandDisplay } from './command-display.ts'
+import type { RunnerEvent } from '../execution/runner.ts'
+
+export type WorkspaceActivity = {
+  kind: 'workspace_preparation'
+  status: 'running' | 'complete' | 'error'
+}
+export type ActivityEvent = RunnerEvent | WorkspaceActivity
 
 export type ActivityState = {
   calls: Record<
@@ -18,6 +25,7 @@ const titles: Record<string, string> = {
   skill: 'Aplicando instrucciones del repositorio',
   external: 'Consultando herramientas externas',
   other: 'Procesando la solicitud',
+  workspace: 'Preparando el espacio de trabajo',
 }
 
 const terminalTitles: Record<string, string> = {
@@ -63,9 +71,18 @@ function closeCall(state: ActivityState, id: string, event: any): boolean {
   return true
 }
 
-/** Folds a runner event into the state; true when the view changed. */
+/** Folds an activity event into the state; true when the view changed. */
 export function activityEvent(state: ActivityState, event: any): boolean {
-  if (state.terminal || !event.id) return false
+  if (state.terminal) return false
+  if (event.kind === 'workspace_preparation') {
+    if (!['running', 'complete', 'error'].includes(event.status)) return false
+    const previous = state.calls.workspace_preparation
+    if (previous && (previous.status !== 'running' || previous.status === event.status))
+      return false
+    state.calls.workspace_preparation = { group: 'workspace', status: event.status }
+    return true
+  }
+  if (!event.id) return false
   if (event.kind === 'tool_use') return openCall(state, callId(event), event)
   if (event.kind === 'tool_result') return closeCall(state, callId(event), event)
   return false

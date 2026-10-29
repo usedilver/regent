@@ -14,6 +14,10 @@ import { runnerArgs } from '../src/execution/runner.ts'
 import { queryDenial } from '../plugins/executor/hooks/query.mjs'
 import { denial } from '../plugins/executor/hooks/policy.mjs'
 import { createHttp } from '../src/adapters/http.ts'
+import { SlackOutput } from '../src/adapters/slack/output.ts'
+import { SlackActivities } from '../src/adapters/slack/activities.ts'
+import { DurableOutput } from '../src/storage/delivery.ts'
+import { mcpActivities } from '../src/adapters/mcp/activities.ts'
 
 const git = (cwd, ...args) =>
   execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -403,6 +407,81 @@ test('submodule investigation uses source; preparing an edit creates only then t
   assert.equal(f.starts.at(-1).opts.env.DEMAND_ROOT_VALUE, 'source-context')
   await f.finish()
 })
+
+for (const blocked of [false, true]) {
+  test(`workspace preparation ${blocked ? 'failure' : 'success'} updates the existing activity card without a Slack notice`, async (t) => {
+    const f = fixture(t)
+    const child = path.join(f.root, 'child')
+    init(child)
+    git(f.repo, '-c', 'protocol.file.allow=always', 'submodule', 'add', child, 'backend/api')
+    git(f.repo, 'commit', '-am', 'Submodule')
+    const calls = []
+    const slack = new SlackOutput(async (method, args) => {
+      calls.push({ method, args })
+      return { ts: 'activity-card' }
+    })
+    slack.activities = new SlackActivities(slack.api, f.store)
+    f.core.output = new DurableOutput(f.store, slack)
+    await f.core.submit({ ...f.input('Revisa el proyecto'), thread: '123.456' })
+    await until(() => f.core.active.size)
+    const active = [...f.core.active.values()][0]
+    const reading = { kind: 'tool_use', id: 'read-code', name: 'Grep' }
+    f.store.event(active.run.id, reading.kind, reading)
+    f.core.output.activity(active.conversation, active.run, reading)
+    await slack.activities.flush()
+    if (blocked) {
+      const destination = path.join(isolationFor(f.repo, 'conversation').dir, 'backend/api')
+      fs.mkdirSync(destination, { recursive: true })
+      fs.writeFileSync(path.join(destination, 'keep.txt'), 'existing local work')
+    }
+    const results = await Promise.all([
+      f.core.prepareWorkspace(active.token, 'Edit'),
+      f.core.prepareWorkspace(active.token, 'Read'),
+    ])
+    for (const result of results) {
+      if (blocked) assert.match(result, /contiene archivos/)
+      else assert.equal(result, null)
+    }
+    await active.output
+    assert.deepEqual(
+      f.store.db
+        .prepare(
+          "SELECT json_extract(data,'$.status') status FROM events WHERE run_id=? AND kind='workspace_preparation' ORDER BY id",
+        )
+        .all(active.run.id)
+        .map((row) => row.status),
+      ['running', blocked ? 'error' : 'complete'],
+    )
+    const reply = blocked ? 'Preparación bloqueada' : 'Revisión terminada'
+    await f.finish(reply)
+    await slack.activities.flush()
+    const workspace = mcpActivities(f.store, f.store.run(active.run.id)).tasks.find(
+      (task) => task.id === 'workspace',
+    )
+    assert.equal(workspace.status, blocked ? 'error' : 'complete')
+    assert.equal(calls.filter((call) => call.method === 'chat.startStream').length, 1)
+    assert.deepEqual(
+      calls.filter((call) => call.method === 'chat.postMessage').map((call) => call.args.text),
+      [reply],
+    )
+    const card = calls
+      .findLast((call) => call.method === 'chat.update')
+      .args.blocks.find((block) => block.task_id === 'workspace')
+    assert.equal(card.status, workspace.status)
+    assert.equal(
+      f.store.db.prepare("SELECT count(*) n FROM deliveries WHERE kind='notice'").get().n,
+      0,
+    )
+    if (blocked)
+      assert.equal(
+        fs.readFileSync(
+          path.join(isolationFor(f.repo, 'conversation').dir, 'backend/api/keep.txt'),
+          'utf8',
+        ),
+        'existing local work',
+      )
+  })
+}
 
 test('resumed submodules receive newly provisioned ignored setup files without overwriting their environment', async (t) => {
   const f = fixture(t)

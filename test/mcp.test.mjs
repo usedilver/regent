@@ -447,8 +447,13 @@ try {
           name: 'Bash',
           input: { command: 'pnpm test', ignored: 'private-fixture-secret' },
         })
+        f.store.event(work.run_id, 'workspace_preparation', { status: 'running' })
         const running = await call(client, 'regent_get_run', { run_id: work.run_id })
         assert.equal(running.activities.tasks.find((t) => t.id === 'read').status, 'complete')
+        assert.equal(
+          running.activities.tasks.find((t) => t.id === 'workspace').status,
+          'in_progress',
+        )
         assert.equal(running.activities.tasks.find((t) => t.id === 'command').status, 'in_progress')
         assert.match(
           running.activities.tasks.find((t) => t.id === 'command').title,
@@ -459,6 +464,7 @@ try {
           /private-fixture-secret|private-candidate-record/,
         )
         f.store.event(work.run_id, 'tool_result', { id: 'a', kind: 'tool_result', error: true })
+        f.store.event(work.run_id, 'workspace_preparation', { status: 'complete' })
         f.store.db.prepare("UPDATE runs SET state='failed' WHERE id=?").run(work.run_id)
         const reopened = new Store(path.join(root, 'activity.sqlite'))
 
@@ -475,6 +481,10 @@ try {
           ).status('mcp:alice', work.run_id)
 
           assert.equal(progress.activities.tasks.find((t) => t.id === 'command').status, 'error')
+          assert.equal(
+            progress.activities.tasks.find((t) => t.id === 'workspace').status,
+            'complete',
+          )
           assert.equal(progress.activities.title, 'Turno detenido')
         } finally {
           reopened.close()

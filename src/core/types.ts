@@ -1,4 +1,4 @@
-import type { RunnerEvent } from '../execution/runner.ts'
+import type { ActivityEvent } from './activities.ts'
 import type { HistorySource } from './history.ts'
 import type { Intent } from './intent.ts'
 
@@ -60,7 +60,7 @@ export interface Run {
 }
 
 export interface Output {
-  activity?(conversation: Conversation, run: Run, event: RunnerEvent): void
+  activity?(conversation: Conversation, run: Run, event: ActivityEvent): void
   /** True when the conversation shows a native "working…" indicator, which needs a thread
    * anchor; the core skips the periodic heartbeat there. Rooms converse at channel root without
    * an anchor, so they return false and rely on the progress message below. */

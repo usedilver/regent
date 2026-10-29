@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-24
+updated: 2026-10-29
 ---
 
 # Regent architecture
@@ -135,6 +135,9 @@ Repository instructions guide the development and validation appropriate to a re
 The optional `regent_status.phase` labels transitions for immediate progress updates; repeated
 updates remain throttled. A phase label neither authorizes an action nor proves a check passed.
 It is presentation metadata for the active run, not a persisted workflow or approval gate.
+Runtime workspace preparation uses the shared activity timeline, including success/failure;
+it does not post a separate conversational notice. Slack delivery and MCP replay use the
+same activity state, without publishing workspace paths or setup values.
 
 Prompts guide behavior; hooks and authorization enforce their documented checks. Hooks are
 not an operating-system sandbox. Never read or transfer Claude credentials. Keep runtime
