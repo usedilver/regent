@@ -1,5 +1,5 @@
 import type { Conversation, Output, Run } from '../../core/types.ts'
-import type { RunnerEvent } from '../../execution/runner.ts'
+import type { ActivityEvent } from '../../core/activities.ts'
 import { redact } from '../../storage/redact.ts'
 import type { Store } from '../../storage/store.ts'
 import type { SlackActivities } from './activities.ts'
@@ -7,42 +7,22 @@ import { isSlackError, slackErrorCode, type SlackApi } from './api.ts'
 import { replyPayloads } from './format.ts'
 import { MemoryReceipts, StoredReceipts, type Receipt, type Receipts } from './receipts.ts'
 
-// chat.update caps its text at 4000 chars (chat.postMessage does not); a bigger page can only
-// land as a fresh post. Kept under that with a margin for multibyte counting differences.
-const CHAT_UPDATE_LIMIT = 3800
-/** Redaction needs whole lines, so a flush takes the text up to the last newline near this size. */
-const STREAM_FLUSH_CHARS = 11000
 const PLAIN_SECTION_CHARS = 2800
 
 type Status = 'processing' | 'active' | 'suspended'
 
-type Stream = {
-  ts?: string
-  pending: string
-  sent: string
-  timer?: NodeJS.Timeout
-  chain: Promise<void>
-  failed?: boolean
-  channel: string
-  thread?: string
-}
-
-/** Where a final reply goes: the streamed placeholder when there is one, else the thread anchor. */
-type ReplyTarget = { channel: string; thread: string | null | undefined; placeholder?: string }
+type ReplyTarget = { channel: string; thread: string | null | undefined }
 
 export class SlackOutput implements Output {
   api: SlackApi
-  flushMs: number
   activities?: SlackActivities
-  streams = new Map<string, Stream>()
   nativeStatuses = new Set<string>()
   latestThread = new Map<string, string>()
   private attached?: Store
   private receipts: Receipts = new MemoryReceipts()
 
-  constructor(api: SlackApi, flushMs = 3000) {
+  constructor(api: SlackApi) {
     this.api = api
-    this.flushMs = flushMs
   }
 
   /** With a store attached, message receipts survive restarts; without one they live in memory. */
@@ -55,12 +35,11 @@ export class SlackOutput implements Output {
     this.receipts = value ? new StoredReceipts(value) : new MemoryReceipts()
   }
 
-  activity(c: Conversation, run: Run, event: RunnerEvent): void {
+  activity(c: Conversation, run: Run, event: ActivityEvent): void {
     this.activities?.event(c, run, event)
   }
 
-  /** The native "working…" indicator (agents.sessions.setStatus) needs a thread anchor. Rooms
-   * converse at channel root with no anchor, so the core falls back to the progress message. */
+  /** The native indicator requires a thread anchor; channel-root activity uses cards. */
   animates(c: Conversation): boolean {
     return this.nativeStatuses.has(JSON.stringify([c.channel, this.anchor(c)]))
   }
@@ -149,61 +128,11 @@ export class SlackOutput implements Output {
     }
   }
 
-  // Progress message
+  // Activity-only progress
 
-  /** When native activity is unavailable: post one "working…" message and refresh it in
-   * place on each tick, so there are no repeated posts. clearProgress removes it when done. */
   async progress(c: Conversation, run: Run, text: string): Promise<void> {
-    if (this.activityCardCovers(c, run)) {
-      await this.clearProgress(run)
-      return
-    }
-
-    let existing = this.progressMessage(run.id)
-
-    if (existing && existing.channel !== c.channel) {
-      await this.clearProgress(run)
-      if (this.progressMessage(run.id)) return
-      existing = undefined
-    }
-
-    try {
-      if (existing) {
-        await this.api('chat.update', {
-          channel: existing.channel,
-          ts: existing.ts,
-          text: redact(text),
-        })
-      } else {
-        await this.postProgress(c, run, text)
-      }
-    } catch (error) {
-      if (existing && isSlackError(error, 'message_not_found')) {
-        this.forgetProgress(run.id, existing.ts)
-      }
-
-      console.error(`[slack v2] progress: ${redact((error as Error).message)}`)
-    }
-  }
-
-  /** The activity card already shows live progress where this conversation is anchored. */
-  private activityCardCovers(c: Conversation, run: Run): boolean {
-    const activity = this.activities?.get(run.id)
-    if (!activity?.ts) return false
-    return (
-      activity.delivered?.channel === c.channel && activity.delivered?.thread === this.anchor(c)
-    )
-  }
-
-  private async postProgress(c: Conversation, run: Run, text: string): Promise<void> {
-    const result = await this.api('chat.postMessage', {
-      channel: c.channel,
-      thread_ts: this.anchor(c),
-      text: redact(text),
-      unfurl_links: false,
-    })
-
-    if (result.ts) this.receipts.saveProgress(run.id, { channel: c.channel, ts: result.ts })
+    await this.clearProgress(run)
+    this.activities?.event(c, run, { kind: 'progress', text })
   }
 
   /** Remove the run's progress message once the real reply lands (or the conversation moves). */
@@ -236,74 +165,8 @@ export class SlackOutput implements Output {
     for (const id of this.receipts.orphanedProgress()) await this.clearProgress({ id } as Run)
   }
 
-  // Streamed reply
-
-  async delta(c: Conversation, run: Run, text: string): Promise<void> {
-    const stream = this.streams.get(run.id) ?? this.openStream(c, run)
-    stream.pending += text
-    if (stream.timer) return
-
-    stream.timer = setTimeout(() => {
-      stream.timer = undefined
-      stream.chain = stream.chain
-        .then(() => this.flushStream(c, run, stream))
-        .catch(() => {
-          stream.failed = true
-        })
-    }, this.flushMs)
-  }
-
-  private openStream(c: Conversation, run: Run): Stream {
-    const stream: Stream = {
-      pending: '',
-      sent: '',
-      chain: Promise.resolve(),
-      channel: c.channel,
-      thread: this.anchor(c),
-    }
-
-    this.streams.set(run.id, stream)
-    return stream
-  }
-
-  private async flushStream(c: Conversation, run: Run, stream: Stream): Promise<void> {
-    if (!stream.pending || stream.failed) return
-    // Redact complete lines: token and key/value pairs can span many deltas.
-    const end = stream.pending.lastIndexOf('\n', STREAM_FLUSH_CHARS) + 1
-    if (!end) return
-    const raw = stream.pending.slice(0, end)
-    const text = redact(raw)
-
-    if (!stream.ts) {
-      const result = await this.api('chat.startStream', {
-        channel: stream.channel,
-        thread_ts: stream.thread,
-        recipient_user_id: run.author,
-        recipient_team_id: c.team,
-        markdown_text: text,
-      })
-
-      if (!result.ts) throw new Error('Slack no devolvio ts del stream.')
-      stream.ts = result.ts
-    } else {
-      await this.api('chat.appendStream', {
-        channel: stream.channel,
-        ts: stream.ts,
-        markdown_text: text,
-      })
-    }
-
-    stream.sent += text
-    stream.pending = stream.pending.slice(raw.length)
-  }
-
-  private async stopStream(channel: string, ts: string): Promise<void> {
-    try {
-      await this.api('chat.stopStream', { channel, ts })
-    } catch (error) {
-      if (!isSlackError(error, 'message_not_in_streaming_state')) throw error
-    }
-  }
+  // Intermediate model prose is not a Slack message; progress uses the activity timeline.
+  async delta(_c: Conversation, _run: Run, _text: string): Promise<void> {}
 
   // Final reply
 
@@ -314,20 +177,9 @@ export class SlackOutput implements Output {
   }
 
   async finishReply(c: Conversation, run: Run, text: string): Promise<void> {
-    const target = await this.replyTarget(c, run)
+    const target = { channel: c.channel, thread: this.anchor(c) ?? c.thread ?? null }
     await this.postPages(run, replyPayloads(redact(text)), target)
     this.receipts.clearFinishPages(run.id)
-    this.streams.delete(run.id)
-  }
-
-  private async replyTarget(c: Conversation, run: Run): Promise<ReplyTarget> {
-    const stream = this.streams.get(run.id)
-    if (!stream) return { channel: c.channel, thread: this.anchor(c) ?? c.thread ?? null }
-    clearTimeout(stream.timer)
-    await stream.chain
-    if (stream.ts) await this.stopStream(stream.channel, stream.ts)
-    // Page 0 replaces the streamed message; the authoritative result can differ from it.
-    return { channel: stream.channel, thread: stream.thread ?? null, placeholder: stream.ts }
   }
 
   /**
@@ -340,28 +192,10 @@ export class SlackOutput implements Output {
     pages: ReturnType<typeof replyPayloads>,
     target: ReplyTarget,
   ): Promise<void> {
-    let placeholder = target.placeholder
-
     for (let i = 0; i < pages.length; i++) {
       // Delivered on a prior attempt. The finish text does not change between retries,
       // and re-updating could exceed the chat.update limit.
       if (this.receipts.finishPage(run.id, i)) continue
-
-      if (i === 0 && placeholder && pages[i].text.length <= CHAT_UPDATE_LIMIT) {
-        await this.sendReply('chat.update', {
-          channel: target.channel,
-          ts: placeholder,
-          ...pages[i],
-        })
-        this.receipts.saveFinishPage(run.id, i, { channel: target.channel, ts: placeholder })
-        continue
-      }
-
-      if (i === 0 && placeholder) {
-        // The streamed placeholder cannot hold a reply above chat.update's limit; retire it and post fresh.
-        await this.api('chat.delete', { channel: target.channel, ts: placeholder }).catch(() => {})
-        placeholder = undefined
-      }
 
       const result = await this.sendReply('chat.postMessage', {
         channel: target.channel,
@@ -377,32 +211,10 @@ export class SlackOutput implements Output {
     }
   }
 
-  /** The conversation moved to its room: close the origin stream so the rest lands there. */
+  /** Subsequent activity and the final result follow the conversation to its room. */
   async moved(run: Run): Promise<void> {
     this.activities?.move(run)
     await this.clearProgress(run)
-    const stream = this.streams.get(run.id)
-    if (!stream) return
-    this.streams.delete(run.id)
-    clearTimeout(stream.timer)
-    await stream.chain.catch(() => {})
-    if (stream.failed || !stream.ts) return
-
-    try {
-      const tail = redact(stream.pending)
-
-      if (tail.trim()) {
-        await this.api('chat.appendStream', {
-          channel: stream.channel,
-          ts: stream.ts,
-          markdown_text: tail,
-        })
-      }
-
-      await this.api('chat.stopStream', { channel: stream.channel, ts: stream.ts })
-    } catch (error) {
-      console.error(`[slack v2] cierre de stream al mover: ${redact((error as Error).message)}`)
-    }
   }
 }
 

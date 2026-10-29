@@ -9,8 +9,8 @@ export function mcpActivities(store: Store, run: Run) {
       `SELECT kind, json_extract(data,'$.id') id,
     json_extract(data,'$.parentId') parentId, json_extract(data,'$.name') name,
     json_extract(data,'$.input.command') command, json_extract(data,'$.error') error,
-    json_extract(data,'$.background') background
-    FROM events WHERE run_id=? AND kind IN ('tool_use','tool_result') ORDER BY events.id`,
+    json_extract(data,'$.background') background, json_extract(data,'$.status') status, json_extract(data,'$.text') text
+    FROM events WHERE run_id=? AND kind IN ('tool_use','tool_result','workspace_preparation','progress') ORDER BY events.id`,
     )
     .all(run.id)
 

@@ -410,22 +410,18 @@ try {
   const run = { id: 'stream-run', author: 'U1' }
   const source = { key: 'stream-key', channel: 'CSOURCE', thread: '1', team: 'T1', author: 'U1' }
   await streams.delta(source, run, 'Before move\n')
-  await until(() => streamCalls.some((c) => c.method === 'chat.startStream'))
   await streams.moved(run)
   await streams.delta({ ...source, channel: 'CDEST', thread: null }, run, 'After move\n')
-  await until(() => streamCalls.filter((c) => c.method === 'chat.startStream').length === 2)
   await streams.finish({ ...source, channel: 'CDEST', thread: null }, run, 'Done')
   assert.deepEqual(
-    streamCalls.filter((c) => c.method === 'chat.startStream').map((c) => c.args.channel),
-    ['CSOURCE', 'CDEST'],
+    streamCalls
+      .filter((c) => c.method === 'chat.postMessage')
+      .map((c) => [c.args.channel, c.args.text]),
+    [['CDEST', 'Done']],
   )
-  assert.deepEqual(
-    streamCalls.filter((c) => c.method === 'chat.stopStream').map((c) => c.args.channel),
-    ['CSOURCE', 'CDEST'],
-  )
-  assert.equal(streamCalls.find((c) => c.method === 'chat.update').args.channel, 'CDEST')
+  assert.equal(streamCalls.filter((c) => c.method === 'chat.startStream').length, 0)
   console.log(
-    '  OK stream closes in origin and subsequent output/authoritative result stay in the room',
+    '  OK intermediate prose stays quiet across room moves; final reply follows the destination',
   )
 } finally {
   if (core && !core.stopping) await core.close()

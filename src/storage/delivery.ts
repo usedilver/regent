@@ -1,5 +1,5 @@
 import type { Conversation, Output, Run } from '../core/types.ts'
-import type { RunnerEvent } from '../execution/runner.ts'
+import type { ActivityEvent } from '../core/activities.ts'
 import { Store } from './store.ts'
 import { redact, redactDeep } from './redact.ts'
 
@@ -50,7 +50,7 @@ export class DurableOutput implements Output {
     return this.delegate.animates?.(c) ?? false
   }
 
-  activity(c: Conversation, run: Run, event: RunnerEvent) {
+  activity(c: Conversation, run: Run, event: ActivityEvent) {
     this.delegate.activity?.(c, run, event)
   }
 

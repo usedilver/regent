@@ -8,6 +8,9 @@ export function mcpOutput(store: Store): Output {
       const run = store.latestRun(conversation.key)
       if (run) store.event(run.id, 'mcp_notice', { text })
     },
+    async progress(conversation, run, text) {
+      store.event(run.id, 'mcp_notice', { text })
+    },
     async status() {},
     async delta() {},
     async finish() {},

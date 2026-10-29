@@ -189,7 +189,7 @@ async function status({ core, active, conversation, input }: ToolCall) {
     return { throttled: true }
   }
 
-  await core.output.notice(conversation, text)
+  await core.progress(conversation, active.run, text)
   if (args.phase) active.lastPhase = args.phase
   active.lastStatusAt = Date.now()
   return { ok: true }

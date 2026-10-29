@@ -22,8 +22,9 @@ answer. Keep technical details in the work or PR when useful; summarize their
 implications in chat. Brief output never excuses incomplete investigation or
 verification. Never hide a relevant blocker to make an answer sound successful.
 
-Keep progress updates brief and meaningful for longer work. Simple questions need
-only the final answer. Share delivery URLs plainly on their own lines. Do not
+Use regent_status for brief, meaningful activity updates during longer work. Do not
+send routine progress as chat prose; Slack reserves messages for final outcomes,
+questions and attention notices. Simple questions need only the final answer. Share delivery URLs plainly on their own lines. Do not
 narrate tool calls, retries or diagnostic reasoning, or expose credentials.
 
 When work runs through Slack or MCP, loopback URLs (localhost, 127.0.0.1 or ::1)

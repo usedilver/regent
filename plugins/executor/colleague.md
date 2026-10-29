@@ -75,7 +75,9 @@ The repository owns development procedures, delivery expectations and collaborat
 Load the relevant skill and follow its references rather than replacing it with a Regent
 workflow. Scope validation to the requested outcome. regent_status accepts an optional
 phase label for progress; a label is neither a required sequence nor proof of completion.
-For longer work send meaningful updates, not a report of every tool call. Keep verified
+For longer work send meaningful activity updates through regent_status. Do not narrate
+routine progress as conversational prose; Slack only publishes the final reply, questions
+and attention notices. Use regent_ask_human when input is required. Keep verified
 outcomes and unfinished work explicit in the final response. Review the committed diff
 before describing a PR as complete; checks on an uncommitted tree do not validate the PR.
 

@@ -7,6 +7,7 @@ import { startRunner, type RunnerOptions } from '../execution/runner.ts'
 import { redact } from '../storage/redact.ts'
 import type { Accepted, Store } from '../storage/store.ts'
 import { AccessPolicy, legacyAccess } from './access-policy.ts'
+import type { WorkspaceActivity } from './activities.ts'
 import { isStopCommand, type ControlCommand } from './commands.ts'
 import { errorMessage } from './errors.ts'
 import type { HistoryLoader } from './history.ts'
@@ -49,7 +50,6 @@ const DEADLINE_EXEMPT_TOOLS = new Set([
 const HANDOFF_RUNS = 8
 const HANDOFF_CHARS = 16000
 /** A native "working…" indicator refreshed this recently needs no heartbeat message. */
-const INDICATOR_FRESH_MS = 45000
 
 /** Everything the Core tracks about a run while it is executing. */
 export interface Active {
@@ -267,7 +267,7 @@ export class Core {
     this.preparing.add(id)
 
     try {
-      await this.announceAccepted(key, conversation)
+      await this.announceAccepted(id, key, conversation)
       const transcript = await prepare?.()
       if (transcript) this.store.setTranscript(id, redact(transcript))
     } catch (error) {
@@ -283,11 +283,11 @@ export class Core {
     }
   }
 
-  private announceAccepted(key: string, conversation: Conversation): Promise<void> {
+  private announceAccepted(id: string, key: string, conversation: Conversation): Promise<void> {
     const busy = this.active.has(key) || this.active.size >= this.config.limits.max_concurrent_runs
     if (!busy) return this.output.status(conversation, 'processing')
     const position = this.store.queueDepth()
-    return this.output.notice(conversation, `En cola (posicion ${position}); lo leo al terminar.`)
+    return this.progress(conversation, this.store.run(id)!, `En cola (posicion ${position})`)
   }
 
   // Queue
@@ -372,20 +372,27 @@ export class Core {
     })
   }
 
+  async progress(conversation: Conversation, run: Run, text: string): Promise<void> {
+    const safe = redact(text).trim().slice(0, 2000)
+    if (this.store.lastEvent<{ text: string }>(run.id, 'progress')?.text !== safe) {
+      this.store.event(run.id, 'progress', { text: safe })
+    }
+    await this.output.progress?.(conversation, run, safe)
+  }
+
   refreshProgress(active: Active, heartbeat = false): void {
     this.publish(active, async () => {
       if (active.waiting || active.cancelled || this.stopping || !active.conversation) return
       const c = active.conversation
-      const fresh = Date.now() - active.lastStatusAt < INDICATOR_FRESH_MS
-      if (this.output.animates?.(c) && (!heartbeat || fresh)) return
 
       const wrappingUp = active.wrapUpAt && Date.now() >= active.wrapUpAt
       const text = wrappingUp
         ? 'Queda poco tiempo en este turno; los resultados incompletos quedaran pendientes.'
-        : progressText(active.lastTool)
+        : ((heartbeat
+            ? this.store.lastEvent<{ text: string }>(active.run.id, 'progress')?.text
+            : undefined) ?? progressText(active.lastTool))
 
-      if (this.output.progress) await this.output.progress(c, active.run, text)
-      else await this.output.notice(c, text)
+      await this.progress(c, active.run, text)
     })
   }
 
@@ -535,24 +542,25 @@ export class Core {
     if (!hasSubmodules(cwd, isolation.dir)) return null
 
     if (!active.workspacePreparation) {
-      this.publish(active, () =>
-        this.output.notice(
-          active.conversation!,
-          'Preparando los submodulos en el espacio aislado de esta conversacion.',
-        ),
-      )
+      this.workspaceActivity(active, 'running')
       active.workspacePreparation = prepareProjectWorkspace(
         this.cwd,
         cwd,
         isolation.dir,
         active.run.conversation_key,
         active.abort.signal,
-      ).then((result) => {
-        active.abort.signal.throwIfAborted()
-        active.workspace = result
-        this.store.event(active.run.id, 'project_workspace', result)
-        return result
-      })
+      )
+        .then((result) => {
+          active.abort.signal.throwIfAborted()
+          active.workspace = result
+          this.store.event(active.run.id, 'project_workspace', result)
+          this.workspaceActivity(active, 'complete')
+          return result
+        })
+        .catch((error) => {
+          this.workspaceActivity(active, 'error')
+          throw error
+        })
     }
 
     try {
@@ -561,6 +569,14 @@ export class Core {
     } catch (error) {
       return `No se pudo preparar el proyecto aislado: ${redact(errorMessage(error))}`
     }
+  }
+
+  private workspaceActivity(active: Active, status: WorkspaceActivity['status']): void {
+    const event: WorkspaceActivity = { kind: 'workspace_preparation', status }
+    this.store.event(active.run.id, event.kind, event)
+    this.publish(active, async () => {
+      this.output.activity?.(active.conversation!, active.run, event)
+    })
   }
 
   permission(token: string, input: PermissionInput): string | null {

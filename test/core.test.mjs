@@ -81,7 +81,7 @@ function fixture(extra = {}) {
   const store = new Store(':memory:')
   const messages = []
   const output = Object.fromEntries(
-    ['notice', 'status', 'delta', 'finish'].map((kind) => [
+    ['notice', 'status', 'delta', 'finish', 'progress'].map((kind) => [
       kind,
       async (...args) => {
         messages.push({ kind, args })
@@ -557,7 +557,14 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
         f.store.db.prepare("SELECT COUNT(*) AS n FROM runs WHERE state='completed'").get().n,
         4,
       )
-      assert.ok(f.messages.some((m) => m.kind === 'notice' && m.args[1].includes('En cola')))
+      assert.ok(
+        f.store.db
+          .prepare(
+            "SELECT count(*) n FROM events WHERE kind='progress' AND json_extract(data,'$.text') LIKE 'En cola%'",
+          )
+          .get().n > 0,
+      )
+      assert.ok(!f.messages.some((m) => m.kind === 'notice' && m.args[1].includes('En cola')))
     } finally {
       await f.close()
     }
@@ -992,7 +999,7 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
       await until(() => !f.core.active.size)
       assert.equal(f.store.db.prepare('SELECT state FROM runs').get().state, 'completed')
       assert.ok(
-        f.messages.some((m) => m.kind === 'notice' && m.args[1] === 'Consultando el repositorio'),
+        f.messages.some((m) => m.kind === 'progress' && m.args[2] === 'Consultando el repositorio'),
       )
     } finally {
       await f.close()
@@ -1000,7 +1007,7 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
     }
   })
   await check(
-    'Slack fake HTTP: buffered stream, authoritative result, recipients and explicit active',
+    'Slack fake HTTP: intermediate prose stays quiet, final result and explicit active',
     async () => {
       const calls = []
       const server = http.createServer(async (req, res) => {
@@ -1029,72 +1036,53 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
 
         await output.status(c, 'processing')
         await output.delta(c, run, 'Leyendo el repo.\n')
-        await until(() => calls.some((c) => c.method === 'chat.startStream'))
         await output.delta(c, run, 'Verificando los datos.\n')
-        await until(() => calls.some((c) => c.method === 'chat.appendStream'))
+        assert.equal(calls.filter((c) => c.method.startsWith('chat.')).length, 0)
         await output.finish(c, run, 'Respuesta final')
         await output.status(c, 'active')
+        assert.equal(calls.filter((c) => c.method === 'chat.postMessage').length, 1)
         assert.equal(
-          calls.find((c) => c.method === 'chat.startStream').args.recipient_user_id,
-          'U1',
+          calls.find((c) => c.method === 'chat.postMessage').args.text,
+          'Respuesta final',
         )
-        assert.ok(calls.some((c) => c.method === 'chat.stopStream'))
-        assert.equal(calls.find((c) => c.method === 'chat.update').args.text, 'Respuesta final')
         assert.equal(calls.at(-1).args.status, 'active')
       } finally {
         await new Promise((resolve) => server.close(resolve))
       }
     },
   )
-  await check(
-    'Slack finalization retries a lost stop response and reconciles an already closed stream',
-    async () => {
-      const calls = []
-      let stopped = false
-      const output = new SlackOutput(async (method, args) => {
-        calls.push({ method, args })
-
-        if (method === 'chat.stopStream') {
-          if (!stopped) {
-            stopped = true
-            throw new Error('simulated lost HTTP response')
-          }
-
-          throw Object.assign(new Error('An API error occurred: message_not_in_streaming_state'), {
-            data: { error: 'message_not_in_streaming_state' },
-          })
-        }
-
-        return { ok: true, ts: '100' }
-      }, 5)
-      const store = new Store(':memory:')
-      const durable = new DurableOutput(store, output)
-      const c = { key: 'slack:C1:1', channel: 'C1', thread: '1', author: 'U1', team: 'T1' }
-      const run = { id: 'closed-stream', author: 'U1' }
-
-      try {
-        await output.delta(c, run, 'Trabajo en curso.\n')
-        await until(() => calls.some((c) => c.method === 'chat.startStream'))
-        await assert.rejects(durable.finish(c, run, 'Resultado verificado'), /lost HTTP/)
-        assert.ok(output.streams.has(run.id))
-        await durable.flush()
-        assert.equal(calls.filter((c) => c.method === 'chat.postMessage').length, 0)
-        assert.equal(calls.filter((c) => c.method === 'chat.update').length, 1)
-        assert.equal(
-          calls.find((c) => c.method === 'chat.update').args.text,
-          'Resultado verificado',
-        )
-        assert.equal(
-          store.db.prepare("SELECT state FROM deliveries WHERE kind='finish'").get().state,
-          'sent',
-        )
-        assert.equal(output.streams.has(run.id), false)
-      } finally {
-        await durable.close()
-        store.close()
+  await check('Slack final delivery retries a failed request without progress posts', async () => {
+    const calls = []
+    let fail = true
+    const output = new SlackOutput(async (method, args) => {
+      if (method === 'chat.postMessage' && fail) {
+        fail = false
+        throw new Error('network failure')
       }
-    },
-  )
+      calls.push({ method, args })
+      return { ts: '100' }
+    })
+    const store = new Store(':memory:')
+    const durable = new DurableOutput(store, output)
+    const c = { key: 'c', channel: 'C1', thread: '1', author: 'U1', team: 'T1' }
+    const run = { id: 'quiet-final', author: 'U1' }
+    try {
+      await output.delta(c, run, 'Trabajo en curso.\n')
+      await assert.rejects(durable.finish(c, run, 'Resultado verificado'), /network failure/)
+      await durable.flush()
+      assert.deepEqual(
+        calls.filter((c) => c.method === 'chat.postMessage').map((c) => c.args.text),
+        ['Resultado verificado'],
+      )
+      assert.equal(
+        store.db.prepare("SELECT state FROM deliveries WHERE kind='finish'").get().state,
+        'sent',
+      )
+    } finally {
+      await durable.close()
+      store.close()
+    }
+  })
   await check(
     'Slack history: pagination, app attachments, private-channel errors visible',
     async () => {
@@ -1193,7 +1181,7 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
     await output.close()
     store.close()
   })
-  await check('Slack streaming redacts secrets split across model deltas', async () => {
+  await check('Slack suppresses partial prose and redacts the final reply', async () => {
     const calls = []
     const output = new SlackOutput(async (method, args) => {
       calls.push({ method, args })
@@ -1206,8 +1194,8 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
     await new Promise((resolve) => setTimeout(resolve, 25))
     assert.equal(calls.length, 0)
     await output.delta(c, run, '-private-value\n')
-    await until(() => calls.length > 0)
-    await output.finish(c, run, 'Resultado sin secretos')
+    assert.equal(calls.length, 0)
+    await output.finish(c, run, 'Resultado con token sk-ant-super-private-value')
     assert.doesNotMatch(JSON.stringify(calls), /super|private-value/)
     assert.match(JSON.stringify(calls), /REDACTED/)
   })

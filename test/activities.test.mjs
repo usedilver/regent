@@ -191,7 +191,8 @@ try {
   activities.event(fallback, fallbackRun, use)
   await activities.flush()
   await flush(fallbackRun)
-  assert.equal(calls.at(-1).args.blocks[0].text.type, 'plain_text')
+  assert.equal(calls.length, 1, 'Unsupported cards do not fall back to plaintext progress')
+  assert.equal(activities.get(fallbackRun.id).sent, activities.get(fallbackRun.id).revision)
 
   calls = []
   const [moving, movingRun] = create('moving')
