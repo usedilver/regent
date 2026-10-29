@@ -72,8 +72,11 @@ try {
   assert.equal(slack.animates(c), false)
   await slack.progress(c, run, 'Working')
   await slack.progress(c, run, 'Still working')
-  assert.equal(calls.filter((c) => c.method === 'chat.postMessage').length, 1)
-  assert.equal(calls.filter((c) => c.method === 'chat.update').length, 1)
+  assert.equal(calls.filter((c) => c.method === 'chat.postMessage').length, 0)
+  assert.equal(calls.filter((c) => c.method === 'chat.update').length, 0)
+  store.db
+    .prepare('INSERT INTO slack_progress VALUES(?,?,?)')
+    .run(run.id, c.channel, 'legacy-heartbeat')
   failDelete = true
   await slack.clearProgress(run)
   assert.ok(slack.progressMessage(run.id))
@@ -93,16 +96,17 @@ try {
   assert.equal(slack.progressMessage(run.id), undefined)
   deleted = false
   await slack.progress(c, run, 'Recreated')
-  assert.ok(slack.progressMessage(run.id))
+  assert.equal(slack.progressMessage(run.id), undefined)
   await slack.recoverProgress()
   console.log(
-    '  OK confirmed native status, fallback updates, failed delete, restart cleanup and removed messages',
+    '  OK confirmed native status, silent progress without cards and legacy heartbeat cleanup',
   )
   store.close()
 
   store = new Store(':memory:')
   slack = new SlackOutput(api)
   slack.store = store
+  slack.activities = new SlackActivities(api, store)
   durable = new DurableOutput(store, slack)
   const config = ConfigSchema.parse({
     auth: { mode: 'indie' },
@@ -178,14 +182,14 @@ try {
     const result = await tool(args)
     assert.equal(result.error, undefined)
     assert.equal(result.result.isError, undefined)
-    assert.equal(calls.at(-1).args.text, args.text ?? args.status)
+    assert.equal(slack.activities.get(active.run.id).state.progress, args.text ?? args.status)
   }
 
   for (const phase of ['investigation', 'implementation', 'validation']) {
     const result = await tool({ phase, text: `Starting ${phase}` })
     assert.equal(result.result.isError, undefined)
     assert.doesNotMatch(JSON.stringify(result), /throttled/)
-    assert.equal(calls.at(-1).args.text, `Starting ${phase}`)
+    assert.equal(slack.activities.get(active.run.id).state.progress, `Starting ${phase}`)
     assert.equal(active.lastPhase, phase)
   }
 
@@ -220,63 +224,42 @@ try {
   // Native animation is not enough when the model posts no narrative updates.
   core.refreshProgress(active, true)
   await active.output
-  assert.equal(calls.length, 0, 'A recent status suppresses the heartbeat in animated threads')
+  assert.equal(
+    calls.filter((c) => c.method === 'chat.postMessage').length,
+    0,
+    'Heartbeat stays in the activity timeline',
+  )
   active.lastStatusAt = Date.now() - 46000
   core.refreshProgress(active, true)
   await active.output
-  assert.ok(slack.progressMessage(active.run.id))
-  const posts = calls.filter((c) => c.method === 'chat.postMessage').length
+  await slack.activities.flush()
+  assert.equal(slack.progressMessage(active.run.id), undefined)
+  assert.equal(calls.filter((c) => c.method === 'chat.postMessage').length, 0)
+  assert.ok(slack.activities.get(active.run.id).state.progress)
   core.refreshProgress(active, true)
   await active.output
-  assert.equal(
-    calls.filter((c) => c.method === 'chat.postMessage').length,
-    posts,
-    'Heartbeat updates one message',
-  )
+  assert.equal(calls.filter((c) => c.method === 'chat.postMessage').length, 0)
 
-  const activities = new SlackActivities(async () => {
+  const failedActivities = new SlackActivities(async () => {
     throw new Error('simulated transport failure')
   }, store)
-
-  slack.activities = activities
-  activities.event(active.conversation, active.run, {
-    kind: 'tool_use',
-    id: 'bash1',
-    name: 'Bash',
-    input: {},
-  })
-  await activities.flush()
-  await slack.recoverProgress()
-  assert.ok(
-    slack.progressMessage(active.run.id),
-    'An undelivered activity must not erase the fallback',
-  )
+  slack.activities = failedActivities
   core.refreshProgress(active, true)
   await active.output
-  assert.ok(slack.progressMessage(active.run.id))
-  const record = activities.get(active.run.id)
-  record.ts = 'delivered-activity'
-  record.delivered = record.desired
-  record.sent = record.revision
-  activities.save(active.run.id, record)
-  await slack.recoverProgress()
+  await failedActivities.flush()
   assert.equal(
     slack.progressMessage(active.run.id),
     undefined,
-    'Delivered activity replaces the fallback',
+    'Unavailable activity must not create a text fallback',
   )
-  slack.activities = undefined
-  store.db.prepare('DELETE FROM activity_progress').run()
   calls.length = 0
-  console.log(
-    '  OK MCP text/status alias, validation, throttling, native heartbeat and undelivered activity fallback',
-  )
   failStatus = true
   await slack.status(active.conversation, 'processing')
   core.refreshProgress(active)
   await active.output
-  assert.equal(calls.filter((c) => c.method === 'chat.postMessage').length, 1)
+  assert.equal(calls.filter((c) => c.method === 'chat.postMessage').length, 0)
   failStatus = false
+  slack.activities = new SlackActivities(api, store)
   core.rooms = {
     async validateUser() {},
     async find() {},
@@ -287,17 +270,7 @@ try {
   }
   await core.tool(active.token, 'regent_create_room', { name: 'review', summary: 'Continue here' })
   await active.output
-  assert.equal(slack.progressMessage(active.run.id).channel, 'CROOM')
-  const before = calls.filter(
-    (c) => c.method === 'chat.postMessage' && c.args.channel === 'CROOM',
-  ).length
-
-  core.refreshProgress(active)
-  await active.output
-  assert.equal(
-    calls.filter((c) => c.method === 'chat.postMessage' && c.args.channel === 'CROOM').length,
-    before,
-  )
+  assert.equal(slack.progressMessage(active.run.id), undefined)
   finish()
   await until(() => !core.active.size)
   assert.equal(slack.progressMessage(active.run.id), undefined)

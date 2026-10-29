@@ -157,12 +157,16 @@ export class SlackActivities {
   }
 
   private async deliver(id: string, record: Record) {
-    if (record.ts && !sameDestination(record)) await this.relocate(record)
-
     if (this.plain && record.mode !== 'plain') {
       await this.stop(record)
       record.mode = 'plain'
     }
+    // If native cards are unavailable, stay quiet instead of posting plaintext progress.
+    if (record.mode === 'plain') {
+      this.merge(id, record, true)
+      return
+    }
+    if (record.ts && !sameDestination(record)) await this.relocate(record)
 
     if (!record.ts) await this.post(id, record)
     else if (record.mode === 'stream' && !record.closed) await this.append(record)
@@ -291,13 +295,6 @@ export class SlackActivities {
       type: 'rich_text',
       elements: [{ type: 'rich_text_section', elements: [{ type: 'text', text }] }],
     })
-
-    if (record.mode === 'plain') {
-      return {
-        text: view.text,
-        blocks: [{ type: 'section', text: { type: 'plain_text', text: view.text } }],
-      }
-    }
 
     return {
       text: view.text,

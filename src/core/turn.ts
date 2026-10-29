@@ -304,7 +304,12 @@ export class Turn {
       const text = event.text
       this.core.publish(this.active, () => output.delta(this.conversation, this.run, text))
     } else if (event.kind === 'api_retry') {
-      this.notify(retryNotice(event.error))
+      const notice = retryNotice(event.error)
+      if (notice.attention) this.notify(notice.text)
+      else
+        this.core.publish(this.active, () =>
+          this.core.progress(this.conversation, this.run, notice.text),
+        )
     }
     // Tool failures remain in the event log and model context; the final reply
     // reports unresolved blockers instead of broadcasting every retry.
@@ -587,8 +592,8 @@ function mergedUsage(attempts: RunnerResult[]): Record<string, unknown> {
   }
 }
 
-function retryNotice(error: unknown): string {
+function retryNotice(error: unknown): { text: string; attention: boolean } {
   const failure = executionFailure(JSON.stringify(error))
-  if (failure?.code === 'usage_limit') return failureMessage(failure)
-  return 'Claude está reintentando una petición al proveedor por un fallo temporal; todavía no es un fallo definitivo del trabajo.'
+  if (failure?.code === 'usage_limit') return { text: failureMessage(failure), attention: true }
+  return { text: 'Reintentando la conexión con el proveedor', attention: false }
 }

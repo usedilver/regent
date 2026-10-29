@@ -61,7 +61,11 @@ assert.equal(calls[0].args.blocks[0].text, text)
 await output.delta(c, { id: 'stream', author: 'U1' }, 'Progreso\n')
 await new Promise((resolve) => setTimeout(resolve, 25))
 await output.finish(c, { id: 'stream' }, text)
-assert.equal(calls.find((c) => c.method === 'chat.update').args.blocks[0].text, text)
+assert.equal(calls.filter((c) => c.method === 'chat.postMessage').at(-1).args.blocks[0].text, text)
+assert.equal(
+  calls.some((c) => c.method === 'chat.startStream'),
+  false,
+)
 await output.finish(c, { id: 'email' }, `mailto:${address}`)
 assert.equal(calls.at(-1).args.blocks[0].text, link)
 
@@ -103,8 +107,7 @@ await retry.finish(c, { id: 'retry' }, big).catch(() => {})
 await retry.finish(c, { id: 'retry' }, big)
 assert.deepEqual(posted, bigPages)
 
-// A streamed reply above chat.update's 4000-char cap retires the placeholder and posts fresh,
-// instead of failing forever on chat.update (the msg_too_long dead-letter loop).
+// Long final replies are posted directly without a streamed placeholder or update limit.
 const wideCalls = []
 const wideOut = new SlackOutput(async (method, args) => {
   wideCalls.push({ method, args })
@@ -116,7 +119,10 @@ await new Promise((resolve) => setTimeout(resolve, 25))
 const wide = 'palabra '.repeat(700).trim()
 assert.ok(wide.length > 3800 && replyPayloads(wide).length === 1)
 await wideOut.finish(c, { id: 'wide' }, wide)
-assert.ok(wideCalls.some((k) => k.method === 'chat.delete' && k.args.ts === 'S1'))
+assert.equal(
+  wideCalls.some((k) => ['chat.startStream', 'chat.delete'].includes(k.method)),
+  false,
+)
 assert.ok(
   wideCalls.some(
     (k) =>
@@ -132,4 +138,6 @@ assert.ok(
   ),
 )
 
-console.log('Slack Markdown payloads, final stream updates and literal fallback passed')
+console.log(
+  'Slack Markdown payloads, quiet intermediate prose, paged finals and literal fallback passed',
+)

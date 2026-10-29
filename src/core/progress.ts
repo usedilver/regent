@@ -55,7 +55,9 @@ export const StatusRequest = z
       .min(1)
       .max(2000)
       .optional()
-      .describe('Brief progress message for the user.'),
+      .describe(
+        'Routine progress for the activity timeline only; no Slack message. Use regent_ask_human for questions or required user action, and the final reply for outcomes or blockers.',
+      ),
     status: z.string().trim().min(1).max(2000).optional().describe('Alias of text.'),
   })
   .refine((args) => args.text !== undefined || args.status !== undefined, {

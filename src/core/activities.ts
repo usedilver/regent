@@ -7,13 +7,15 @@ export type WorkspaceActivity = {
   kind: 'workspace_preparation'
   status: 'running' | 'complete' | 'error'
 }
-export type ActivityEvent = RunnerEvent | WorkspaceActivity
+export type ProgressActivity = { kind: 'progress'; text: string }
+export type ActivityEvent = RunnerEvent | WorkspaceActivity | ProgressActivity
 
 export type ActivityState = {
   calls: Record<
     string,
     { group: string; tool?: string; command?: string; status: 'running' | 'complete' | 'error' }
   >
+  progress?: string
   terminal?: string
 }
 
@@ -74,6 +76,13 @@ function closeCall(state: ActivityState, id: string, event: any): boolean {
 /** Folds an activity event into the state; true when the view changed. */
 export function activityEvent(state: ActivityState, event: any): boolean {
   if (state.terminal) return false
+  if (event.kind === 'progress') {
+    if (typeof event.text !== 'string') return false
+    const text = redact(event.text).trim().slice(0, 2000)
+    if (!text || text === state.progress) return false
+    state.progress = text
+    return true
+  }
   if (event.kind === 'workspace_preparation') {
     if (!['running', 'complete', 'error'].includes(event.status)) return false
     const previous = state.calls.workspace_preparation
@@ -123,5 +132,18 @@ export function activityView(state: ActivityState) {
     }
   })
 
+  if (state.progress) {
+    tasks.unshift({
+      id: 'progress',
+      title: state.progress.slice(0, 200),
+      details: state.progress,
+      status: state.terminal
+        ? state.terminal === 'completed'
+          ? 'complete'
+          : 'error'
+        : 'in_progress',
+      output: '',
+    })
+  }
   return { title, tasks, text: [title, ...tasks.map((t) => `${t.title}: ${t.output}`)].join('\n') }
 }

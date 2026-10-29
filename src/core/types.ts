@@ -61,9 +61,7 @@ export interface Run {
 
 export interface Output {
   activity?(conversation: Conversation, run: Run, event: ActivityEvent): void
-  /** True when the conversation shows a native "working…" indicator, which needs a thread
-   * anchor; the core skips the periodic heartbeat there. Rooms converse at channel root without
-   * an anchor, so they return false and rely on the progress message below. */
+  /** Whether the adapter has an active native working indicator. */
   animates?(conversation: Conversation): boolean
   question?(
     conversation: Conversation,
@@ -71,13 +69,12 @@ export interface Output {
   ): Promise<void>
   notice(conversation: Conversation, text: string): Promise<void>
   status(conversation: Conversation, status: 'processing' | 'active' | 'suspended'): Promise<void>
-  /** Periodic "still working" signal for surfaces without a native indicator: posts once, then
-   * updates the same message (no repeated posts). Cleared when the run finishes or moves. */
+  /** Non-notifying progress for the activity timeline, never a conversational notice. */
   progress?(conversation: Conversation, run: Run, text: string): Promise<void>
   recoverProgress?(): Promise<void>
   delta(conversation: Conversation, run: Run, text: string): Promise<void>
   finish(conversation: Conversation, run: Run, text: string): Promise<void>
-  /** The conversation re-anchored: close any in-flight stream where it was. */
+  /** The conversation re-anchored: subsequent activity follows its new destination. */
   moved?(run: Run): Promise<void>
   flush?(): Promise<void>
 }

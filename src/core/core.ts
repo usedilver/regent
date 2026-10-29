@@ -50,7 +50,6 @@ const DEADLINE_EXEMPT_TOOLS = new Set([
 const HANDOFF_RUNS = 8
 const HANDOFF_CHARS = 16000
 /** A native "working…" indicator refreshed this recently needs no heartbeat message. */
-const INDICATOR_FRESH_MS = 45000
 
 /** Everything the Core tracks about a run while it is executing. */
 export interface Active {
@@ -268,7 +267,7 @@ export class Core {
     this.preparing.add(id)
 
     try {
-      await this.announceAccepted(key, conversation)
+      await this.announceAccepted(id, key, conversation)
       const transcript = await prepare?.()
       if (transcript) this.store.setTranscript(id, redact(transcript))
     } catch (error) {
@@ -284,11 +283,11 @@ export class Core {
     }
   }
 
-  private announceAccepted(key: string, conversation: Conversation): Promise<void> {
+  private announceAccepted(id: string, key: string, conversation: Conversation): Promise<void> {
     const busy = this.active.has(key) || this.active.size >= this.config.limits.max_concurrent_runs
     if (!busy) return this.output.status(conversation, 'processing')
     const position = this.store.queueDepth()
-    return this.output.notice(conversation, `En cola (posicion ${position}); lo leo al terminar.`)
+    return this.progress(conversation, this.store.run(id)!, `En cola (posicion ${position})`)
   }
 
   // Queue
@@ -373,20 +372,27 @@ export class Core {
     })
   }
 
+  async progress(conversation: Conversation, run: Run, text: string): Promise<void> {
+    const safe = redact(text).trim().slice(0, 2000)
+    if (this.store.lastEvent<{ text: string }>(run.id, 'progress')?.text !== safe) {
+      this.store.event(run.id, 'progress', { text: safe })
+    }
+    await this.output.progress?.(conversation, run, safe)
+  }
+
   refreshProgress(active: Active, heartbeat = false): void {
     this.publish(active, async () => {
       if (active.waiting || active.cancelled || this.stopping || !active.conversation) return
       const c = active.conversation
-      const fresh = Date.now() - active.lastStatusAt < INDICATOR_FRESH_MS
-      if (this.output.animates?.(c) && (!heartbeat || fresh)) return
 
       const wrappingUp = active.wrapUpAt && Date.now() >= active.wrapUpAt
       const text = wrappingUp
         ? 'Queda poco tiempo en este turno; los resultados incompletos quedaran pendientes.'
-        : progressText(active.lastTool)
+        : ((heartbeat
+            ? this.store.lastEvent<{ text: string }>(active.run.id, 'progress')?.text
+            : undefined) ?? progressText(active.lastTool))
 
-      if (this.output.progress) await this.output.progress(c, active.run, text)
-      else await this.output.notice(c, text)
+      await this.progress(c, active.run, text)
     })
   }
 
