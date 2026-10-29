@@ -225,11 +225,11 @@ creados con un token no se reasignan al migrar esa persona a OAuth.
 
 ## Proyectos y ejecución
 
-Las consultas (`ask`) leen el repositorio existente, sin crear worktree. Una petición
-para implementar/corregir usa `patch`, `task` o `project` y crea/reutiliza el worktree.
-Si después vuelves a consultar, se lee ese mismo trabajo. Una aprobación explícita como
-«implementalo» o «procede» puede pasar de investigación a edición; «continúa investigando»
-y los acuses breves no se interpretan por sí solos como una petición de escribir.
+El modo explícito `ask` lee el repositorio existente sin crear worktree. Los mensajes
+normales (`task`) y las opciones `patch`/`project` crean o reutilizan el worktree aislado;
+el modelo interpreta el alcance del pedido con las instrucciones del proyecto. Una pregunta
+no autoriza escrituras aunque haya herramientas disponibles. Las consultas explícitas
+posteriores leen ese mismo trabajo; Regent no interpreta aprobaciones ni continuaciones.
 
 El hilo y su historial son independientes del directorio. Al pasar del checkout al
 worktree, una sesión CLI nueva recibe un resumen acotado de lo investigado; las sesiones
@@ -273,11 +273,14 @@ comparten contexto de canal, pero invitar a alguien no amplía `allowed_users`.
 En canales y salas se necesita @mención, salvo respuestas a una pregunta pendiente
 y comandos de control del autor. En DM no hace falta mencionar al bot.
 
-El router selecciona `ask`, `patch`, `task` o `project`. Puedes forzarlo con `/ask`,
-`/patch`, `/task` o `/project` después de la mención. Las continuaciones breves heredan
-el perfil; `models.project` null usa `models.task`. El perfil cambia tiempo/modelo; `ask` impone además modo consulta. La autorización de
-usuarios y el alcance de su pedido siguen comprobándose por separado. El tramo final reserva hasta 60 segundos o el 20% del límite para
-responder; no amplía el timeout ni garantiza recuperar una herramienta interrumpida.
+Los mensajes normales usan `task`; Regent no clasifica su lenguaje ni impone etapas.
+Claude interpreta el pedido con las instrucciones y skills del repositorio. Puedes elegir
+`/ask`, `/patch`, `/task` o `/project` después de la mención, o enviar `intent` por MCP.
+Estas opciones aplican sólo a ese mensaje; las continuaciones normales vuelven a `task`.
+`ask` impone modo consulta; los demás perfiles seleccionan límites/modelos, no autorización
+para cambiar código. `models.project` null usa `models.task`. El tramo final reserva hasta
+60 segundos o el 20% del límite para responder; no amplía el timeout ni garantiza recuperar
+una herramienta interrumpida.
 
 ## Operación
 

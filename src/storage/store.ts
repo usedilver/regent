@@ -3,7 +3,6 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { randomUUID } from 'node:crypto'
 import type { Conversation, ConversationState, Inbound, Run, RunState } from '../core/types.ts'
-import type { Intent } from '../core/intent.ts'
 import { controlCommand, type ControlCommand } from '../core/commands.ts'
 import { commandDisplay } from '../core/command-display.ts'
 import { migrate } from './schema.ts'
@@ -106,10 +105,6 @@ export class Store {
       .get(channel)
 
     return row?.key as string | undefined
-  }
-
-  lastIntent(key: string): Intent | undefined {
-    return this.latestRun(key)?.intent
   }
 
   /** The run an inbound event created the first time it arrived, when it was seen before. */
@@ -284,7 +279,7 @@ export class Store {
         input.transcript ? redact(input.transcript) : null,
         input.replyThread ?? input.thread ?? null,
         input.channel,
-        input.intent ?? 'ask',
+        input.intent ?? 'task',
         'queued',
         now,
       )

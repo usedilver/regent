@@ -26,6 +26,7 @@ const input = (id, text = 'Explica el código') => ({
   author: 'U',
   team: 'T',
   text,
+  intent: 'ask',
   history: { channel: 'C', thread: '1', latest: id, trigger: `C:${id}` },
 })
 
@@ -116,9 +117,10 @@ function fixture(t, execute = async () => success(), editing = false) {
 }
 
 const submit = async (f) => {
-  const accepted = await f.core.submit(
-    input('next', f.editing ? 'Corrige el footer de la aplicación' : 'Explica el código'),
-  )
+  const accepted = await f.core.submit({
+    ...input('next', f.editing ? 'Corrige el footer de la aplicación' : 'Explica el código'),
+    intent: f.editing ? 'task' : 'ask',
+  })
 
   await until(() => !f.core.active.size)
   return f.store.run(accepted.runId)

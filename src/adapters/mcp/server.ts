@@ -30,7 +30,7 @@ const conversationId = z.string().min(1).max(200)
 const intent = z
   .enum(['ask', 'patch', 'task', 'project'])
   .describe(
-    'ask: read-only investigation; patch: code changes; task: runtime operations; project: a new project. Preserve explicit user restrictions.',
+    'Optional execution constraints for this message, not workflow classification. Omit for ordinary requests. ask enforces read-only tools; patch/task/project select configured execution limits. Preserve user scope in every profile.',
   )
   .optional()
 const digest = (value: string) => createHash('sha256').update(value).digest()
@@ -119,7 +119,7 @@ export class ExternalMcp {
   instructions(): string {
     const defaultRepo = this.defaultRepo()
     const name = this.core.config.name
-    return `${name} runs Claude Code with the selected project's instructions, skills and connections. Use it to investigate, change code or operate that project, including application review. The default repository is ${JSON.stringify(defaultRepo)}. regent_context discovers a destination; its inventory does not prove functionality or copy project skills into this chat. Preserve the original request, URL, scope and restrictions when delegating. Each conversation retains its project; start a new one with repo for an independent project. Projects own development, validation, previews and collaboration; the engine imposes no business workflow. Use intent: ask for read-only investigation or existing-link discovery. Follow project guidance to find the native hosting preview; requesting a link does not require a server. Use intent: task for runtime operations while preserving source-change limits. Do not replace a request with mocked screenshots or an unauthorized deployment. Missing host-chat connectors do not prove missing executor access. Poll regent_get_run with its default wait and continue with regent_continue. Report results and limitations in proportion to the request and in the user's language. Use the project hosting provider for deployment previews. A successful build or login redirect does not verify an authenticated application. Regent does not host or proxy application previews. On failure report failure.message or error and distinguish partial results. Normal follow-up is text; use regent_show_progress only when a visual panel is requested. Do not create reminders or scheduled tasks. Claim actions only with evidence; presentation guidance never changes permissions.`
+    return `${name} runs Claude Code with the selected repository's instructions, skills and connections. Default repository: ${JSON.stringify(defaultRepo)}. Discover a destination with regent_context and delegate the complete request, context and scope with regent_start. Ordinary messages use one execution profile; do not classify them into workflow stages or add an investigation pass. Omit intent unless explicitly selecting execution constraints such as enforced read-only ask. The executor decides how to answer, implement and validate from the request and project guidance. Each conversation retains its project; start a new conversation for an independent project. Missing host-chat connections do not establish missing executor access. Poll regent_get_run with its default wait, follow latest_run and continue with regent_continue. Preserve confirmed results, failures and verification limits. Use regent_show_progress only when the user requests a visual panel. Do not schedule polling or duplicate MCP replies in Slack. Reply concisely in the user's language; claim actions only with evidence.`
   }
 
   // Conversations
@@ -274,7 +274,7 @@ export class ExternalMcp {
         name: 'regent_continue',
         title: 'Continue work',
         description:
-          'Continue an owned MCP conversation, preserving session, repository and worktree. Also answer pending questions or resume interrupted work. Runtime startup needs intent: task; preserve the request rather than substituting screenshots, mocks or immediate shutdown. Honor explicit read-only limits. Use a new request_id per human message and retain it for retries.',
+          'Continue an owned MCP conversation, preserving session, repository and worktree. Also answer pending questions or resume interrupted work. Preserve the complete request and scope; omit intent for normal conversation. Honor explicit read-only limits. Use a new request_id per human message and retain it for retries.',
         input: { conversation_id: conversationId, request_id: requestId, prompt: text, intent },
         annotations: WRITE,
         run: (args) => {

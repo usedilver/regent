@@ -12,7 +12,7 @@ import { errorMessage } from './errors.ts'
 import type { HistoryLoader } from './history.ts'
 import type { IdentityResolver } from './identity.ts'
 import type { ImageLoader } from './images.ts'
-import { routeIntent } from './intent.ts'
+import { requestProfile } from './intent.ts'
 import {
   hasSubmodules,
   permissionDenial,
@@ -189,10 +189,10 @@ export class Core {
     return accepted
   }
 
-  /** Routes the intent and the repository selector, rewriting the text the agent will see. */
+  /** Parses explicit execution options and repository selection without interpreting the request. */
   private resolveRequest(input: Inbound): { input: Inbound; cwd: string } {
     if (!input.intent) {
-      input = { ...input, ...routeIntent(input.text, this.store.lastIntent(input.key)) }
+      input = { ...input, ...requestProfile(input.text) }
     }
 
     const selection = repositoryRequest(input.text)

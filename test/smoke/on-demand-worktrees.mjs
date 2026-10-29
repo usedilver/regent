@@ -168,7 +168,7 @@ try {
   }
 
   const first = await run(
-    'Investiga answer.txt con la skill probe y el lector MCP get_probe. No cambies nada ni ejecutes comandos. Responde solo el contenido y el marcador.',
+    '/ask Investiga answer.txt con la skill probe y el lector MCP get_probe. No cambies nada ni ejecutes comandos. Responde solo el contenido y el marcador.',
   )
 
   assert.match(first.result, /original/)
@@ -199,7 +199,7 @@ try {
   const editingSession = store.conversation('smoke').session_id
   console.log('PASS real promotion: fresh CLI session, isolated edit, original untouched')
   const third = await run(
-    'Explica el contenido actual de answer.txt y consulta get_probe. No hagas cambios. Responde solo el contenido y el marcador.',
+    '/ask Explica el contenido actual de answer.txt y consulta get_probe. No hagas cambios. Responde solo el contenido y el marcador.',
   )
 
   assert.match(third.result, /edited/)
@@ -210,6 +210,17 @@ try {
   console.log(
     'PASS real query after edit: existing worktree/session reused, root MCP still available',
   )
+  const before = git('status', '--porcelain')
+  const ordinary = await run(
+    'Dime qué contiene answer.txt en el trabajo actual. Es sólo una pregunta: no hagas cambios, commits ni PRs. Responde con el contenido.',
+  )
+  assert.equal(ordinary.intent, 'task')
+  assert.match(ordinary.result, /edited/)
+  assert.equal(fs.readFileSync(path.join(isolated, 'answer.txt'), 'utf8'), 'edited\n')
+  assert.equal(fs.readFileSync(path.join(repo, 'answer.txt'), 'utf8'), 'original\n')
+  assert.equal(git('status', '--porcelain'), before)
+  assert.equal(store.conversation('smoke').session_id, editingSession)
+  console.log('PASS ordinary question: request scope preserved without engine classification')
 } finally {
   await core?.close()
   if (internal) await close(internal)
