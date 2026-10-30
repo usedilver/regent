@@ -142,6 +142,12 @@ Routine status, queue and retry updates use that activity timeline too. Slack do
 publish heartbeat messages or intermediate model prose. Explicit questions, actionable
 notices (including context recovery and execution limits) and final outcomes remain
 conversational messages. Legacy heartbeat receipts are retained only for cleanup.
+The 45-second heartbeat renews native `processing` status while a run is active,
+including silent waits for background work. A user stop updates the existing activity
+card and clears the native loader without posting cancellation acknowledgements or
+partial replies to Slack. Partial results remain stored and available through MCP.
+The user-stop marker survives durable delivery retries; executor-requested cancellation,
+timeouts and failures retain their terminal notices.
 
 Prompts guide behavior; hooks and authorization enforce their documented checks. Hooks are
 not an operating-system sandbox. Never read or transfer Claude credentials. Keep runtime

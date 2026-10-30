@@ -59,6 +59,10 @@ export interface Run {
   cost: number
 }
 
+export interface FinishOptions {
+  userStopped?: boolean
+}
+
 export interface Output {
   activity?(conversation: Conversation, run: Run, event: ActivityEvent): void
   /** Whether the adapter has an active native working indicator. */
@@ -73,7 +77,7 @@ export interface Output {
   progress?(conversation: Conversation, run: Run, text: string): Promise<void>
   recoverProgress?(): Promise<void>
   delta(conversation: Conversation, run: Run, text: string): Promise<void>
-  finish(conversation: Conversation, run: Run, text: string): Promise<void>
+  finish(conversation: Conversation, run: Run, text: string, options?: FinishOptions): Promise<void>
   /** The conversation re-anchored: subsequent activity follows its new destination. */
   moved?(run: Run): Promise<void>
   flush?(): Promise<void>

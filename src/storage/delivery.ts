@@ -1,4 +1,4 @@
-import type { Conversation, Output, Run } from '../core/types.ts'
+import type { Conversation, FinishOptions, Output, Run } from '../core/types.ts'
 import type { ActivityEvent } from '../core/activities.ts'
 import { Store } from './store.ts'
 import { redact, redactDeep } from './redact.ts'
@@ -130,7 +130,7 @@ export class DurableOutput implements Output {
       case 'question':
         return this.deliverQuestion(args)
       case 'finish':
-        return void (await this.delegate.finish(args[0], args[1], args[2]))
+        return void (await this.delegate.finish(args[0], args[1], args[2], args[3]))
       default:
         throw new Error(`Tipo de entrega no soportado: ${kind}`)
     }
@@ -161,7 +161,7 @@ export class DurableOutput implements Output {
     console.error(
       `[delivery] entrega descartada ${row.kind} #${row.id} (${row.conversation_key}): ${reason}`,
     )
-    if (row.kind !== 'finish') return
+    if (row.kind !== 'finish' || (args?.[3] as FinishOptions | undefined)?.userStopped) return
     // Warn the thread even when the payload is unreadable: the conversation is keyed by column,
     // not by the corrupted args, so it is still reachable through the conversations table.
     const conversation =
@@ -211,8 +211,8 @@ export class DurableOutput implements Output {
     return this.delegate.recoverProgress?.() ?? Promise.resolve()
   }
 
-  finish(c: Conversation, run: Run, text: string) {
-    return this.enqueue('finish', [c, run, text], c.key)
+  finish(c: Conversation, run: Run, text: string, options?: FinishOptions) {
+    return this.enqueue('finish', [c, run, text, options], c.key)
   }
 
   question(c: Conversation, question: { id: string; text: string; options: string[] }) {

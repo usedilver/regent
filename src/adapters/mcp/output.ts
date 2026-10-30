@@ -36,8 +36,8 @@ export function routeMcpOutput(slack: Output, mcp: Output): Output {
     async delta(c, run, text) {
       await target(c.adapter).delta(c, run, text)
     },
-    async finish(c, run, text) {
-      await target(c.adapter).finish(c, run, text)
+    async finish(c, run, text, options) {
+      await target(c.adapter).finish(c, run, text, options)
     },
     async question(c, question) {
       await target(c.adapter).question?.(c, question)

@@ -463,7 +463,9 @@ export class Turn {
 
     const text = this.replyText(state, reviewed, failure, error)
     this.core.publish(this.active, () =>
-      this.core.output.finish(this.conversation, this.run, redact(text)),
+      this.core.output.finish(this.conversation, this.run, redact(text), {
+        userStopped: this.active.userStopped,
+      }),
     )
     this.core.publish(this.active, () =>
       this.core.output.status(
@@ -536,7 +538,11 @@ export class Turn {
     if (failure) this.core.store.event(this.run.id, 'execution_failure', failure)
     this.core.store.finish(this.run.id, this.interrupted() ? 'interrupted' : 'failed', '', message)
     const text = failure ? failureMessage(failure) : interruptedText(message, '')
-    this.core.publish(this.active, () => this.core.output.finish(this.conversation, this.run, text))
+    this.core.publish(this.active, () =>
+      this.core.output.finish(this.conversation, this.run, text, {
+        userStopped: this.active.userStopped,
+      }),
+    )
     this.core.publish(this.active, () => this.core.output.status(this.conversation, 'active'))
   }
 
