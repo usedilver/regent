@@ -1,4 +1,4 @@
-import type { Conversation, Output, Run } from '../../core/types.ts'
+import type { Conversation, FinishOptions, Output, Run } from '../../core/types.ts'
 import type { ActivityEvent } from '../../core/activities.ts'
 import { redact } from '../../storage/redact.ts'
 import type { Store } from '../../storage/store.ts'
@@ -170,9 +170,9 @@ export class SlackOutput implements Output {
 
   // Final reply
 
-  async finish(c: Conversation, run: Run, text: string): Promise<void> {
+  async finish(c: Conversation, run: Run, text: string, options?: FinishOptions): Promise<void> {
     this.activities?.terminal(run)
-    await this.finishReply(c, run, text)
+    if (!options?.userStopped) await this.finishReply(c, run, text)
     await this.clearProgress(run)
   }
 

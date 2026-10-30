@@ -168,6 +168,13 @@ try {
     '1 ejecucion terminada\n1 con error\n1 en curso',
   )
   assert.ok(!JSON.stringify(payload).includes('rich_text_list'))
+  const progressPayload = activities.payload({
+    state: { calls: {}, progress: 'Waiting for the investigation agents' },
+    mode: 'blocks',
+  })
+  assert.equal(progressPayload.blocks[1].status, 'in_progress')
+  assert.ok(!('output' in progressPayload.blocks[1]), 'Slack rejects empty rich text output')
+  assert.match(JSON.stringify(progressPayload.blocks[1].details), /Waiting for the investigation/)
   assert.match(JSON.stringify(calls.at(-1).args.blocks[1].details), /Read/)
   const count = calls.length
   activities = new SlackActivities(api, store)

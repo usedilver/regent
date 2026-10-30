@@ -63,6 +63,7 @@ export interface Active {
   wrapUpAt?: number
   waiting: boolean
   cancelled: boolean
+  userStopped?: boolean
   cancelReason?: string
   timedOut?: boolean
   reserved: number
@@ -226,18 +227,13 @@ export class Core {
 
     if (active) {
       active.cancelled = true
+      active.userStopped = true
       active.cancelReason = 'Detenido por el usuario.'
       active.abort.abort()
       active.cleanupAbort?.abort()
       active.controller?.cancel()
     }
 
-    await this.output.notice(
-      conversation,
-      active
-        ? 'Deteniendo la ejecucion; los mensajes en cola se conservan.'
-        : 'Cola pausada. Escribe continua para retomar.',
-    )
     if (!active) await this.output.status(conversation, 'active')
   }
 
@@ -383,7 +379,9 @@ export class Core {
   refreshProgress(active: Active, heartbeat = false): void {
     this.publish(active, async () => {
       if (active.waiting || active.cancelled || this.stopping || !active.conversation) return
+      if (this.store.run(active.run.id)?.state !== 'running') return
       const c = active.conversation
+      if (heartbeat) await this.output.status(c, 'processing')
 
       const wrappingUp = active.wrapUpAt && Date.now() >= active.wrapUpAt
       const text = wrappingUp
