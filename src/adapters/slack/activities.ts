@@ -305,7 +305,7 @@ export class SlackActivities {
           task_id: id,
           ...task,
           ...(details ? { details: rich(details) } : {}),
-          output: rich(output),
+          ...(output ? { output: rich(output) } : {}),
         })),
       ],
     }

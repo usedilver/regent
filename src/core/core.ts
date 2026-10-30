@@ -383,7 +383,9 @@ export class Core {
   refreshProgress(active: Active, heartbeat = false): void {
     this.publish(active, async () => {
       if (active.waiting || active.cancelled || this.stopping || !active.conversation) return
+      if (this.store.run(active.run.id)?.state !== 'running') return
       const c = active.conversation
+      if (heartbeat) await this.output.status(c, 'processing')
 
       const wrappingUp = active.wrapUpAt && Date.now() >= active.wrapUpAt
       const text = wrappingUp

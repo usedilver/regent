@@ -221,9 +221,16 @@ try {
   await new Promise((resolve) => server.close(resolve))
   server = undefined
   calls.length = 0
-  // Native animation is not enough when the model posts no narrative updates.
+  // The CLI can remain alive after a result while background work or a wakeup is pending.
+  options.onEvent({ kind: 'result', text: 'Available findings', cost: 0, usage: {} })
   core.refreshProgress(active, true)
   await active.output
+  assert.equal(store.run(active.run.id).state, 'running')
+  assert.deepEqual(
+    calls.filter((c) => c.method === 'agents.sessions.setStatus').map((c) => c.args.status),
+    ['processing'],
+    'A silent live CLI renews the native loader and Stop button even after emitting a result',
+  )
   assert.equal(
     calls.filter((c) => c.method === 'chat.postMessage').length,
     0,
@@ -259,6 +266,18 @@ try {
   await active.output
   assert.equal(calls.filter((c) => c.method === 'chat.postMessage').length, 0)
   failStatus = false
+  calls.length = 0
+  core.refreshProgress(active, true)
+  await active.output
+  assert.equal(slack.animates(active.conversation), true, 'Heartbeat restores failed native status')
+  for (const flag of ['waiting', 'cancelled']) {
+    calls.length = 0
+    active[flag] = true
+    core.refreshProgress(active, true)
+    await active.output
+    assert.equal(calls.length, 0, `${flag} runs must not restart the loader`)
+    active[flag] = false
+  }
   slack.activities = new SlackActivities(api, store)
   core.rooms = {
     async validateUser() {},
@@ -274,6 +293,15 @@ try {
   finish()
   await until(() => !core.active.size)
   assert.equal(slack.progressMessage(active.run.id), undefined)
+  assert.equal(
+    calls.filter((c) => c.method === 'agents.sessions.setStatus').at(-1).args.status,
+    'active',
+    'Completion clears the native loader',
+  )
+  calls.length = 0
+  core.refreshProgress(active, true)
+  await active.output
+  assert.equal(calls.length, 0, 'A late heartbeat must not revive a completed run')
   await core.close()
   await durable.close()
   store.close()
