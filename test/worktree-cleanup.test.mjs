@@ -6,7 +6,7 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { isolationFor } from '../src/core/repository.ts'
 import { removeConversationWorktree, cleanupPlan } from '../src/core/worktree-cleanup.ts'
-import { prepareProjectWorkspace } from '../src/core/project-workspace.ts'
+import { prepareSubmodule } from '../src/core/project-workspace.ts'
 import { Store } from '../src/storage/store.ts'
 import { Core } from '../src/core/core.ts'
 import { ConfigSchema } from '../src/config.ts'
@@ -114,7 +114,7 @@ test('registered submodule and nested preview checkouts are removed before their
   git(f.repo, 'commit', '-am', 'Register child')
   git(f.repo, 'push')
   git(f.isolated, 'merge', '--ff-only', 'main')
-  await prepareProjectWorkspace(f.root, f.repo, f.isolated, f.key)
+  await prepareSubmodule(f.root, f.repo, f.isolated, f.key, 'services/child')
   const extra = path.join(f.isolated, '.claude/worktrees/preview')
   git(path.join(f.repo, 'services/child'), 'worktree', 'add', '--detach', extra)
   const result = await removeConversationWorktree(f.repo, f.key)
@@ -140,7 +140,7 @@ test('unchanged pinned submodule history is retained locally even if origin rewr
   git(f.repo, 'commit', '-am', 'Register child')
   git(f.repo, 'push')
   git(f.isolated, 'merge', '--ff-only', 'main')
-  await prepareProjectWorkspace(f.root, f.repo, f.isolated, f.key)
+  await prepareSubmodule(f.root, f.repo, f.isolated, f.key, 'child')
   const isolatedChild = path.join(f.isolated, 'child')
   const baseline = git(isolatedChild, 'rev-parse', 'HEAD')
   fs.writeFileSync(path.join(isolatedChild, 'child.txt'), 'new local work')
@@ -170,6 +170,37 @@ test('unchanged pinned submodule history is retained locally even if origin rewr
     git(sourceChild, 'for-each-ref', '--format=%(refname)', '--contains', baseline, 'refs/heads'),
   )
   assert.equal(git(sourceChild, 'show', baseline + ':child.txt'), 'baseline')
+})
+
+test('cleanup removes only the submodules the conversation prepared', async (t) => {
+  const f = fixture(t)
+
+  for (const name of ['used', 'untouched']) {
+    const child = path.join(f.root, name)
+    fs.mkdirSync(child)
+    git(child, 'init', '-b', 'main')
+    fs.writeFileSync(path.join(child, 'child.txt'), name)
+    git(child, 'add', '.')
+    git(child, 'commit', '-m', name)
+    git(f.repo, 'submodule', 'add', child, `services/${name}`)
+  }
+
+  git(f.repo, 'commit', '-am', 'Register children')
+  git(f.repo, 'push')
+  git(f.isolated, 'merge', '--ff-only', 'main')
+  await prepareSubmodule(f.root, f.repo, f.isolated, f.key, 'services/used')
+  assert.ok(!fs.existsSync(path.join(f.isolated, 'services/untouched/.git')))
+  const result = await removeConversationWorktree(f.repo, f.key)
+  assert.equal(result.state, 'removed')
+  assert.deepEqual(result.removed, [path.join(f.isolated, 'services/used'), f.isolated])
+  assert.equal(
+    (
+      git(path.join(f.repo, 'services/untouched'), 'worktree', 'list', '--porcelain').match(
+        /^worktree /gm,
+      ) ?? []
+    ).length,
+    1,
+  )
 })
 
 test('core defers removal until executor exit, reports actual result, detaches session and permits fresh queries', async (t) => {

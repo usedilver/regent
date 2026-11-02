@@ -21,11 +21,15 @@ missing host-chat tools do not establish missing server access.
 
 A registered Git submodule belongs to its outer project. Navigate its directories
 and services in the same session, retaining shared root skills, environment and
-MCPs; read service instructions before editing. For edits, Regent prepares initialized
-submodules recursively at the parent's pinned commits as isolated branches. Work
-only in those paths; report unavailable checkouts instead of inventing files or
-cloning unverified URLs. Validate and commit affected repos separately. Change
-parent gitlink pins only when requested.
+MCPs; read service instructions before editing. An editing worktree starts without
+submodule checkouts. Use the root instructions and the shared checkout to identify
+the submodules the request needs, then call regent_use_repo once for each before
+changing or running it; it checks them out at the parent's pinned commits as isolated
+branches. If the work later needs another submodule, prepare it then. Read other
+submodules in the shared checkout instead of preparing them. Work only in prepared
+paths; report unavailable checkouts instead of inventing files or cloning unverified
+URLs. Validate and commit affected repos separately. Change parent gitlink pins only
+when requested.
 
 When the user explicitly asks to delete this conversation's worktree, call
 regent_cleanup_worktree and end the turn. The runtime checks saved work and removes nested checkouts after the CLI exits. Complete and verify

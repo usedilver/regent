@@ -7,7 +7,7 @@ import { Core } from '../src/core/core.ts'
 import { Store } from '../src/storage/store.ts'
 import { ConfigSchema } from '../src/config.ts'
 import { resolveRepository, projectRoot, isolationFor } from '../src/core/repository.ts'
-import { prepareProjectWorkspace } from '../src/core/project-workspace.ts'
+import { prepareSubmodule, scanProjectWorkspace } from '../src/core/project-workspace.ts'
 import { repositoryContext } from '../src/core/repository-context.ts'
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-projects-')))
@@ -356,9 +356,21 @@ try {
     ['project-B', workspaceB],
   ]) {
     git(parent, 'worktree', 'add', '-b', isolated.name, isolated.dir, 'HEAD')
-    const prepared = await prepareProjectWorkspace(root, parent, isolated.dir, key)
+    const initial = await scanProjectWorkspace(root, parent, isolated.dir, 'refresh')
+    assert.deepEqual(initial, {
+      submodules: [],
+      unavailable: ['unavailable'],
+      pending: ['hire', 'web'],
+    })
+    assert.deepEqual(
+      await prepareSubmodule(root, parent, isolated.dir, key, 'hire/services/nested'),
+      ['hire', 'hire/services/nested'],
+    )
+    assert.deepEqual(await prepareSubmodule(root, parent, isolated.dir, key, 'web'), ['web'])
+    const prepared = await scanProjectWorkspace(root, parent, isolated.dir, 'read')
     assert.deepEqual(prepared.submodules, ['hire', 'hire/services/nested', 'web'])
     assert.deepEqual(prepared.unavailable, ['unavailable'])
+    assert.deepEqual(prepared.pending, [])
     assert.equal(git(path.join(isolated.dir, 'hire'), 'rev-parse', 'HEAD'), pinned)
     assert.equal(
       fs.readFileSync(path.join(isolated.dir, 'hire/.env'), 'utf8'),
@@ -373,7 +385,8 @@ try {
   fs.writeFileSync(path.join(workspaceA.dir, 'hire/answer.txt'), 'task A hire\n')
   fs.writeFileSync(path.join(workspaceA.dir, 'web/answer.txt'), 'task A web\n')
   fs.writeFileSync(path.join(workspaceA.dir, 'hire/.env'), 'CHILD_SETUP=changed\n')
-  await prepareProjectWorkspace(root, parent, workspaceA.dir, 'project-A')
+  await scanProjectWorkspace(root, parent, workspaceA.dir, 'refresh')
+  await prepareSubmodule(root, parent, workspaceA.dir, 'project-A', 'hire')
   assert.equal(
     fs.readFileSync(path.join(workspaceA.dir, 'hire/answer.txt'), 'utf8'),
     'task A hire\n',
@@ -401,22 +414,27 @@ try {
     'Isolated service change',
   )
   const resumedCommit = git(path.join(workspaceA.dir, 'hire'), 'rev-parse', 'HEAD')
-  await prepareProjectWorkspace(root, parent, workspaceA.dir, 'project-A')
+  await prepareSubmodule(root, parent, workspaceA.dir, 'project-A', 'hire')
   assert.equal(git(path.join(workspaceA.dir, 'hire'), 'rev-parse', 'HEAD'), resumedCommit)
   assert.equal(git(workspaceA.dir, 'rev-parse', 'HEAD:hire'), pinned)
   const occupied = isolationFor(parent, 'occupied')
   git(parent, 'worktree', 'add', '-b', occupied.name, occupied.dir, 'HEAD')
   fs.writeFileSync(path.join(occupied.dir, 'hire/keep.txt'), 'keep\n')
   await assert.rejects(
-    () => prepareProjectWorkspace(root, parent, occupied.dir, 'occupied'),
+    () => prepareSubmodule(root, parent, occupied.dir, 'occupied', 'hire'),
     /contiene archivos/,
   )
   assert.equal(fs.readFileSync(path.join(occupied.dir, 'hire/keep.txt'), 'utf8'), 'keep\n')
-  await assert.rejects(() => prepareProjectWorkspace(root, parent, parent, 'shared'), /aislado/)
+  await assert.rejects(() => prepareSubmodule(root, parent, parent, 'shared', 'hire'), /aislado/)
+  await assert.rejects(() => scanProjectWorkspace(root, parent, parent, 'read'), /aislado/)
+  await assert.rejects(
+    () => prepareSubmodule(root, parent, workspaceA.dir, 'project-A', '../escape'),
+    /fuera del proyecto/,
+  )
   const aborted = new AbortController()
   aborted.abort()
   await assert.rejects(
-    () => prepareProjectWorkspace(root, parent, workspaceA.dir, 'project-A', aborted.signal),
+    () => prepareSubmodule(root, parent, workspaceA.dir, 'project-A', 'web', aborted.signal),
     /abort/i,
   )
   console.log(
@@ -495,6 +513,25 @@ try {
       store.db.prepare("SELECT count(*) AS n FROM events WHERE kind='project_workspace'").get().n,
       1,
     )
+    assert.ok(!fs.existsSync(path.join(isolated.dir, 'hire/.git')))
+    assert.match(
+      core.permission(active.token, {
+        tool_name: 'Read',
+        tool_input: { file_path: 'hire/answer.txt' },
+        cwd: isolated.dir,
+      }),
+      /regent_use_repo with "hire"/,
+    )
+
+    for (const name of ['hire', 'web']) {
+      const selected = await core.tool(active.token, 'regent_use_repo', {
+        repo: path.join(parent, name),
+        handoff: 'Prepare the service',
+      })
+      assert.deepEqual(selected.prepared, [name])
+    }
+
+    assert.ok(!fs.existsSync(path.join(isolated.dir, 'hire/services/nested/.git')))
     assert.equal(
       core.permission(active.token, {
         tool_name: 'Read',

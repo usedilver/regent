@@ -21,10 +21,18 @@ const git = async (cwd: string, args: string[], signal?: AbortSignal) =>
     })
   ).stdout.trimEnd()
 
+/** Submodule paths relative to the conversation worktree. */
 export interface ProjectWorkspace {
+  /** Checked out in the worktree. */
   submodules: string[]
+  /** Registered but never initialized in the source checkout. */
   unavailable: string[]
+  /** Available in the source checkout but not yet checked out in the worktree. */
+  pending: string[]
 }
+
+/** `read` only inspects; `refresh` also copies newly provisioned setup files into checkouts. */
+export type ScanMode = 'read' | 'refresh'
 
 interface Gitlink {
   path: string
@@ -152,52 +160,119 @@ async function materialize(
   await copySetupFiles(original, isolated, signal)
 }
 
-/**
- * Mirrors the project's submodules, recursively, into the conversation's worktree as worktrees
- * of their own. Submodules the origin never initialized are reported, not fabricated.
- */
-export async function prepareProjectWorkspace(
+interface Submodule extends Gitlink {
+  original: string
+  isolated: string
+  label: string
+  available: boolean
+}
+
+/** The submodules one checkout level declares, mapped onto the source and the worktree. */
+async function submodulesOf(
   workspace: string,
   project: string,
   directory: string,
-  conversation: string,
+  source: string,
+  target: string,
+  signal?: AbortSignal,
+): Promise<Submodule[]> {
+  const links = await gitlinks(target, signal)
+  if (!links.length) return []
+  const registered = await registeredSubmodules(target, signal)
+
+  return links.map((link) => {
+    const original = path.join(source, link.path)
+    const isolated = path.join(target, link.path)
+
+    if (!isInside(project, original) || !isInside(directory, isolated)) {
+      throw new Error('Ruta de submodulo fuera del proyecto.')
+    }
+
+    const available = registered.has(link.path) && fs.existsSync(path.join(original, '.git'))
+
+    if (available && projectRoot(workspace, original) !== project) {
+      throw new Error('El submodulo no pertenece al proyecto seleccionado.')
+    }
+
+    return { ...link, original, isolated, label: path.relative(directory, isolated), available }
+  })
+}
+
+/**
+ * Inventories the project's submodules inside the conversation's worktree without creating
+ * checkouts. Existing ones are verified and descended into; the rest stay pending.
+ */
+export async function scanProjectWorkspace(
+  workspace: string,
+  project: string,
+  directory: string,
+  mode: ScanMode,
   signal?: AbortSignal,
 ): Promise<ProjectWorkspace> {
-  const result: ProjectWorkspace = { submodules: [], unavailable: [] }
+  const result: ProjectWorkspace = { submodules: [], unavailable: [], pending: [] }
   await assertWorktree(project, directory, signal)
 
   const visit = async (source: string, target: string): Promise<void> => {
-    const links = await gitlinks(target, signal)
-    if (!links.length) return
-    const registered = await registeredSubmodules(target, signal)
-
-    for (const link of links) {
+    for (const child of await submodulesOf(workspace, project, directory, source, target, signal)) {
       signal?.throwIfAborted()
-      const original = path.join(source, link.path)
-      const isolated = path.join(target, link.path)
-      const label = path.relative(directory, isolated)
 
-      if (!isInside(project, original) || !isInside(directory, isolated)) {
-        throw new Error('Ruta de submodulo fuera del proyecto.')
-      }
-
-      if (!registered.has(link.path) || !fs.existsSync(path.join(original, '.git'))) {
-        result.unavailable.push(label)
+      if (!child.available) {
+        result.unavailable.push(child.label)
         continue
       }
 
-      if (projectRoot(workspace, original) !== project) {
-        throw new Error('El submodulo no pertenece al proyecto seleccionado.')
+      if (!fs.existsSync(path.join(child.isolated, '.git'))) {
+        result.pending.push(child.label)
+        continue
       }
 
-      ensureDirectory(directory, path.dirname(isolated))
-      const branch = isolationFor(original, conversation).name
-      await materialize(original, isolated, link.commit, branch, label, signal)
-      result.submodules.push(label)
-      await visit(original, isolated)
+      await assertWorktree(child.original, child.isolated, signal)
+      if (mode === 'refresh') await copySetupFiles(child.original, child.isolated, signal)
+      result.submodules.push(child.label)
+      await visit(child.original, child.isolated)
     }
   }
 
   await visit(project, directory)
   return result
+}
+
+/**
+ * Checks out, at the parent's pinned commits, the submodule that contains `destination` and
+ * every enclosing submodule. Returns the checkouts it verified, outermost first.
+ */
+export async function prepareSubmodule(
+  workspace: string,
+  project: string,
+  directory: string,
+  conversation: string,
+  destination: string,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  const target = path.resolve(directory, destination)
+  if (!isInside(directory, target)) throw new Error('Ruta de submodulo fuera del proyecto.')
+  await assertWorktree(project, directory, signal)
+  const prepared: string[] = []
+  let source = project
+  let parent = directory
+
+  while (true) {
+    signal?.throwIfAborted()
+    const children = await submodulesOf(workspace, project, directory, source, parent, signal)
+    const child = children.find((candidate) => isInside(candidate.isolated, target))
+    if (!child) return prepared
+
+    if (!child.available) {
+      throw new Error(
+        `El submodulo ${JSON.stringify(child.label)} no esta inicializado en el proyecto de origen.`,
+      )
+    }
+
+    ensureDirectory(directory, path.dirname(child.isolated))
+    const branch = isolationFor(child.original, conversation).name
+    await materialize(child.original, child.isolated, child.commit, branch, child.label, signal)
+    prepared.push(child.label)
+    source = child.original
+    parent = child.isolated
+  }
 }

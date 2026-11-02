@@ -21,7 +21,11 @@ import {
   type PermissionInput,
 } from './permission.ts'
 import { progressText, type DevelopmentPhase } from './progress.ts'
-import { prepareProjectWorkspace, type ProjectWorkspace } from './project-workspace.ts'
+import {
+  prepareSubmodule,
+  scanProjectWorkspace,
+  type ProjectWorkspace,
+} from './project-workspace.ts'
 import {
   removeConversationWorktree,
   type CleanupResult,
@@ -78,7 +82,9 @@ export interface Active {
   readOnly?: boolean
   executionDir?: string
   workspace?: ProjectWorkspace
-  workspacePreparation?: Promise<ProjectWorkspace>
+  workspaceScan?: Promise<ProjectWorkspace>
+  /** Serializes submodule checkouts so nested or concurrent requests never race. */
+  submoduleQueue?: Promise<unknown>
   worktreeRemoval?: CleanupPullRequest[]
   cleanupAbort?: AbortController
 }
@@ -523,7 +529,10 @@ export class Core {
     return CORE_TOOLS[name]({ core: this, active, conversation, token, input })
   }
 
-  /** Materializes submodules in the worktree before the first file tool touches it. */
+  /**
+   * Inventories the worktree's submodules before the first file tool touches it, so the policy
+   * can tell checked-out, pending and unavailable submodules apart. Creates no checkout.
+   */
   async prepareWorkspace(token: string, tool?: string): Promise<string | null> {
     const active = this.byToken(token)
 
@@ -532,41 +541,86 @@ export class Core {
     }
 
     if (tool && !PROJECT_FILE_TOOLS.has(tool)) return null
-    if (active.readOnly) return null
+    const { cwd, dir } = this.isolation(active)
+    if (active.executionDir !== dir || !hasSubmodules(cwd, dir)) return null
     const deadline = this.deadlineReason(active, tool ?? 'project_workspace')
     if (deadline) return deadline
-    const cwd = this.store.conversation(active.run.conversation_key)?.cwd ?? this.defaultCwd
-    const isolation = isolationFor(cwd, active.run.conversation_key)
-    if (!hasSubmodules(cwd, isolation.dir)) return null
-
-    if (!active.workspacePreparation) {
-      this.workspaceActivity(active, 'running')
-      active.workspacePreparation = prepareProjectWorkspace(
-        this.cwd,
-        cwd,
-        isolation.dir,
-        active.run.conversation_key,
-        active.abort.signal,
-      )
-        .then((result) => {
-          active.abort.signal.throwIfAborted()
-          active.workspace = result
-          this.store.event(active.run.id, 'project_workspace', result)
-          this.workspaceActivity(active, 'complete')
-          return result
-        })
-        .catch((error) => {
-          this.workspaceActivity(active, 'error')
-          throw error
-        })
-    }
 
     try {
-      await active.workspacePreparation
+      await this.scanWorkspace(active)
       return null
     } catch (error) {
       return `No se pudo preparar el proyecto aislado: ${redact(errorMessage(error))}`
     }
+  }
+
+  /**
+   * Checks out the submodule containing `destination` (relative to the project) and its
+   * enclosing submodules in an editing run's worktree. Returns the verified checkouts.
+   */
+  async prepareSubmodule(active: Active, destination: string): Promise<string[]> {
+    const { cwd, dir } = this.isolation(active)
+    if (active.readOnly || active.executionDir !== dir) return []
+    await this.scanWorkspace(active)
+    const previous = active.submoduleQueue ?? Promise.resolve()
+
+    const preparation = previous
+      .catch(() => {})
+      .then(async () => {
+        this.workspaceActivity(active, 'running')
+        const prepared = await prepareSubmodule(
+          this.cwd,
+          cwd,
+          dir,
+          active.run.conversation_key,
+          destination,
+          active.abort.signal,
+        )
+        active.abort.signal.throwIfAborted()
+        active.workspace = await scanProjectWorkspace(
+          this.cwd,
+          cwd,
+          dir,
+          'read',
+          active.abort.signal,
+        )
+        this.store.event(active.run.id, 'project_workspace', active.workspace)
+        this.workspaceActivity(active, 'complete')
+        return prepared
+      })
+      .catch((error) => {
+        this.workspaceActivity(active, 'error')
+        throw error
+      })
+
+    active.submoduleQueue = preparation
+    return preparation
+  }
+
+  private isolation(active: Active): { cwd: string; dir: string } {
+    const cwd = this.store.conversation(active.run.conversation_key)?.cwd ?? this.defaultCwd
+    return { cwd, dir: isolationFor(cwd, active.run.conversation_key).dir }
+  }
+
+  private scanWorkspace(active: Active): Promise<ProjectWorkspace> {
+    if (!active.workspaceScan) {
+      const { cwd, dir } = this.isolation(active)
+
+      active.workspaceScan = scanProjectWorkspace(
+        this.cwd,
+        cwd,
+        dir,
+        active.readOnly ? 'read' : 'refresh',
+        active.abort.signal,
+      ).then((result) => {
+        active.abort.signal.throwIfAborted()
+        active.workspace = result
+        this.store.event(active.run.id, 'project_workspace', result)
+        return result
+      })
+    }
+
+    return active.workspaceScan
   }
 
   private workspaceActivity(active: Active, status: WorkspaceActivity['status']): void {
