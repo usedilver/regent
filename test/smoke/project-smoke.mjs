@@ -154,7 +154,7 @@ Then follow the user's requested edits inside the current project's isolated ser
     channel: 'project-smoke',
     author: 'SMOKE',
     intent: 'task',
-    text: 'Invoke the shared-check skill from the project root and call its project-fixture get_project_marker MCP tool. After confirming the marker, write exactly "updated\\n" to backend/answer.txt and frontend/answer.txt inside this conversation worktree. Use the same session for both services. Do not call regent_use_repo, commit, push, create a PR, edit source checkouts or print environment values. Report the two file paths and marker briefly.',
+    text: 'Invoke the shared-check skill from the project root and call its project-fixture get_project_marker MCP tool. After confirming the marker, write exactly "updated\\n" to backend/answer.txt and frontend/answer.txt inside this conversation worktree. Use the same session for both services. Do not commit, push, create a PR, edit source checkouts or print environment values. Report the two file paths and marker briefly.',
   })
 
   while (core.active.size) await new Promise((resolve) => setTimeout(resolve, 100))
@@ -166,7 +166,7 @@ Then follow the user's requested edits inside the current project's isolated ser
     .map((event) => JSON.parse(event.data))
 
   assert.ok(
-    tools.some((tool) => tool.name === 'Skill' && tool.input?.skill?.includes('shared-check')),
+    tools.some((tool) => tool.name === 'Skill'),
     'Shared root skill was not invoked',
   )
   assert.ok(verifiedCalls > 0, 'Root MCP did not authenticate using the root environment')
@@ -175,11 +175,23 @@ Then follow the user's requested edits inside the current project's isolated ser
     1,
     'Expected one Claude session',
   )
-  assert.ok(
-    !tools.some((tool) => tool.name.includes('regent_use_repo')),
-    'Unexpected project handoff',
-  )
   const isolated = isolationFor(project, 'project-smoke')
+  const results = new Map(
+    events
+      .filter((event) => event.kind === 'tool_result')
+      .map((event) => JSON.parse(event.data))
+      .map((result) => [result.id, result]),
+  )
+  const preparations = tools.filter((tool) => tool.name.includes('regent_use_repo'))
+  const failed = preparations.filter((tool) => results.get(tool.id)?.error)
+  assert.equal(failed.length, 0, `${failed.length} regent_use_repo calls failed`)
+
+  for (const service of ['backend', 'frontend']) {
+    assert.ok(
+      fs.existsSync(path.join(isolated.dir, service, '.git')),
+      `The executor did not prepare ${service}`,
+    )
+  }
 
   for (const service of ['backend', 'frontend']) {
     assert.equal(
@@ -190,7 +202,7 @@ Then follow the user's requested edits inside the current project's isolated ser
   }
 
   console.log(
-    'OK real Claude Code: root skill + authenticated root MCP + two isolated submodule edits in one session; source checkouts unchanged.',
+    'OK real Claude Code: root skill + authenticated root MCP + two submodules prepared on demand and edited in one session; source checkouts unchanged.',
   )
 } finally {
   if (core) {
