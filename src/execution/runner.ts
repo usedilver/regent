@@ -6,6 +6,7 @@ import { ensureTrusted, ensureBypassAccepted } from './claude-settings.ts'
 import type { ImageInput } from '../core/images.ts'
 import { createSystemPrompt } from './prompt.ts'
 import { executionFailure, type ExecutionFailure } from './failures.ts'
+import { BackgroundTasks } from './background-tasks.ts'
 
 type ToolEvent = { id: string; parentId?: string | null }
 type McpConnection = { name: string; status?: string }
@@ -403,6 +404,7 @@ class RunnerSession {
   private streamed = ''
   private result?: ResultEvent
   private lastEvent = Date.now()
+  private readonly backgroundTasks = new BackgroundTasks()
   private closed = false
 
   constructor(child: ChildProcessWithoutNullStreams, options: RunnerOptions, prompt: SystemPrompt) {
@@ -481,6 +483,7 @@ class RunnerSession {
     }
 
     try {
+      this.backgroundTasks.observe(raw)
       this.lastEvent = Date.now()
       for (const event of normalizeEvent(raw)) this.onEvent(event)
     } catch (error) {
@@ -512,6 +515,7 @@ class RunnerSession {
   }
 
   private checkStall(): void {
+    if (this.backgroundTasks.running) return
     if (Date.now() - this.lastEvent >= this.options.stallMs) {
       this.cancel('Claude dejo de emitir eventos.')
     }

@@ -28,6 +28,11 @@ unmodified CLI, a temporary repository and a synthetic project MCP. It incurs no
 usage, keeps source files unchanged and removes its temporary files; it never inspects or copies
 authentication files.
 Simulated tests are the default in CI.
+`REGENT_SMOKE=1 node test/smoke/background-waits.mjs` runs a synthetic 35-second
+background shell command with the official CLI and normal operator authentication.
+It checks a quiet wait longer than the inactivity window, the automatic follow-up
+turn and final-result delivery. It uses a temporary directory and loopback MCP fixture;
+it does not send Slack messages, inspect authentication files or modify project sources.
 `REGENT_SMOKE=1 node test/smoke/worktree-cleanup.mjs` checks the real CLI and MCP
 preserve a worktree after a merge-only message, then remove it only after an explicit
 cleanup request. It uses a temporary repository, local bare remote and SQLite file,

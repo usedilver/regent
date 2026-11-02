@@ -94,6 +94,13 @@ human continuation when recovery is unsafe or fails. Its transcript and project 
 not deleted. Quota, authentication, rate, budget and unknown compaction failures do not
 trigger this recovery. The total run deadline also bounds history loading.
 
+The inactivity watchdog follows the CLI's structured live background-task snapshots.
+While non-ambient background work remains active, a quiet parent stream is a valid wait;
+the configured total run deadline and user cancellation still apply. When the live set
+empties, ordinary inactivity detection resumes, including after an intermediate result.
+Older CLIs without snapshots use task lifecycle events and structured shell background
+results; command output text alone never exempts a run from inactivity detection.
+
 `execution_failure` events distinguish provider context, provider quota, request rate,
 authentication, Regent budget and Slack history failures. The runner preserves error result
 text even when the CLI reports subtype `success` and exits nonzero. Deadline and
