@@ -112,13 +112,20 @@ async function useRepo(call: ToolCall) {
   if (!INTENTS.includes(intent)) throw new Error('Intent invalido.')
 
   if (target === conversation.cwd && intent === active.run.intent) {
+    const relative = path.relative(target, requested)
+    const prepared = relative ? await core.prepareSubmodule(active, relative) : []
+    const isolated = path.join(active.executionDir ?? target, relative)
+    const checkedOut = fs.existsSync(path.join(isolated, '.git'))
+
     return {
       repo: target,
       target_repo: requested,
-      cwd: path.join(active.executionDir ?? target, path.relative(target, requested)),
+      cwd: checkedOut ? isolated : requested,
+      ...(prepared.length ? { prepared } : {}),
       unchanged: true,
-      instruction:
-        'Same project and session. Navigate to the supplied destination, read its instructions and preserve shared context and execution mode.',
+      instruction: checkedOut
+        ? 'Same project and session. Navigate to the supplied destination, read its instructions and preserve shared context and execution mode.'
+        : 'Same project and session. This query has no checkout of the destination; read it at the supplied shared path without changing it.',
     }
   }
 
@@ -140,12 +147,20 @@ async function useRepo(call: ToolCall) {
   }
 }
 
-/** A path given inside the isolated worktree is mapped back onto the shared checkout. */
+/**
+ * A relative path is tried against the conversation's project before the workspace. A path
+ * inside the isolated worktree is mapped back onto the shared checkout before it is resolved,
+ * because a submodule without a checkout there is still an empty directory.
+ */
 function requestedRepository(core: Core, conversation: Conversation, repo: string): string {
-  const requested = resolveRepository(core.cwd, repo)
   const isolatedRoot = isolationFor(conversation.cwd, conversation.key).dir
-  if (!isInside(isolatedRoot, requested)) return requested
-  const relative = path.relative(isolatedRoot, requested)
+  const fromProject = path.resolve(conversation.cwd, repo)
+  const candidate = fs.existsSync(fromProject)
+    ? fromProject
+    : path.resolve(fs.realpathSync(core.cwd), repo)
+  const real = fs.existsSync(candidate) ? fs.realpathSync(candidate) : candidate
+  if (!isInside(isolatedRoot, real)) return resolveRepository(core.cwd, real)
+  const relative = path.relative(isolatedRoot, real)
   return resolveRepository(core.cwd, path.join(conversation.cwd, relative))
 }
 

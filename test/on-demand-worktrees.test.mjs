@@ -379,13 +379,21 @@ test('independent queries use a new conversation and load only their own environ
   await f.finish()
 })
 
-test('submodule investigation uses source; preparing an edit creates only then the nested checkouts', async (t) => {
-  const f = fixture(t)
-  const child = path.join(f.root, 'child')
-
+function addSubmodule(f, name, destination) {
+  const child = path.join(f.root, name)
   init(child)
-  git(f.repo, '-c', 'protocol.file.allow=always', 'submodule', 'add', child, 'backend/api')
-  git(f.repo, 'commit', '-am', 'Submodule')
+  git(f.repo, '-c', 'protocol.file.allow=always', 'submodule', 'add', child, destination)
+  git(f.repo, 'commit', '-am', `Submodule ${destination}`)
+  return child
+}
+
+const worktreeCount = (repo) =>
+  (git(repo, 'worktree', 'list', '--porcelain').match(/^worktree /gm) ?? []).length
+
+test('submodule investigation uses source; editing checks out only the submodules the executor requests', async (t) => {
+  const f = fixture(t)
+  addSubmodule(f, 'child', 'backend/api')
+  addSubmodule(f, 'web', 'frontend/web')
   await f.submit('/ask Investiga el backend del proyecto')
   let active = [...f.core.active.values()][0]
   assert.equal(await f.core.prepareWorkspace(active.token, 'Read'), null)
@@ -400,11 +408,125 @@ test('submodule investigation uses source; preparing an edit creates only then t
   await f.finish('Investigated the pinned backend.')
   await f.submit('Implementa el cambio en backend')
   active = [...f.core.active.values()][0]
-  assert.equal(await f.core.prepareWorkspace(active.token, 'Edit'), null)
   const dir = isolationFor(f.repo, 'conversation').dir
-  assert.ok(fs.existsSync(path.join(dir, 'backend/api/.git')))
+  assert.equal(await f.core.prepareWorkspace(active.token, 'Edit'), null)
+  assert.ok(!fs.existsSync(path.join(dir, 'backend/api/.git')))
+  assert.ok(!fs.existsSync(path.join(dir, 'frontend/web/.git')))
+  assert.deepEqual(active.workspace.pending.sort(), ['backend/api', 'frontend/web'])
+
+  const edit = (file) =>
+    f.core.permission(active.token, {
+      tool_name: 'Edit',
+      tool_input: { file_path: file },
+      cwd: dir,
+    })
+
+  assert.match(edit('backend/api/answer.txt'), /regent_use_repo with "backend\/api"/)
+  assert.match(
+    f.core.permission(active.token, {
+      tool_name: 'Bash',
+      tool_input: { command: 'pnpm test' },
+      cwd: path.join(dir, 'backend/api'),
+    }),
+    /regent_use_repo/,
+  )
+  assert.equal(
+    f.core.permission(active.token, {
+      tool_name: 'Read',
+      tool_input: { file_path: path.join(f.repo, 'frontend/web/answer.txt') },
+      cwd: dir,
+    }),
+    null,
+  )
+
+  const results = await Promise.all(
+    [path.join(dir, 'backend/api'), 'repo/backend/api', 'backend/api'].map((repo) =>
+      f.core.tool(active.token, 'regent_use_repo', { repo, handoff: 'Change the backend.' }),
+    ),
+  )
+
+  for (const result of results) {
+    assert.equal(result.cwd, path.join(dir, 'backend/api'))
+    assert.deepEqual(result.prepared, ['backend/api'])
+  }
+
   assert.equal(fs.readFileSync(path.join(dir, 'backend/api/answer.txt'), 'utf8'), 'original\n')
+  assert.ok(!fs.existsSync(path.join(dir, 'frontend/web/.git')))
+  assert.equal(edit('backend/api/answer.txt'), null)
+  assert.match(edit('frontend/web/answer.txt'), /regent_use_repo with "frontend\/web"/)
+  assert.equal(worktreeCount(path.join(f.repo, 'backend/api')), 2)
+  assert.equal(worktreeCount(path.join(f.repo, 'frontend/web')), 1)
   assert.equal(f.starts.at(-1).opts.env.DEMAND_ROOT_VALUE, 'source-context')
+  await f.finish()
+
+  await f.submit('/ask Explica el frontend')
+  active = [...f.core.active.values()][0]
+  assert.equal(active.executionDir, dir)
+  assert.equal(await f.core.prepareWorkspace(active.token, 'Read'), null)
+  assert.match(
+    f.core.permission(active.token, {
+      tool_name: 'Read',
+      tool_input: { file_path: 'frontend/web/answer.txt' },
+      cwd: dir,
+    }),
+    /shared checkout at .*frontend\/web/,
+  )
+  assert.equal(
+    f.core.permission(active.token, {
+      tool_name: 'Read',
+      tool_input: { file_path: 'backend/api/answer.txt' },
+      cwd: dir,
+    }),
+    null,
+  )
+  const shared = await f.core.tool(active.token, 'regent_use_repo', {
+    repo: path.join(dir, 'frontend/web'),
+    handoff: 'Read the frontend.',
+  })
+
+  assert.equal(shared.cwd, path.join(f.repo, 'frontend/web'))
+  assert.equal(shared.prepared, undefined)
+  assert.ok(!fs.existsSync(path.join(dir, 'frontend/web/.git')))
+  await f.finish()
+})
+
+test('a nested submodule request checks out its enclosing submodule, and unavailable ones fail', async (t) => {
+  const f = fixture(t)
+  const outer = path.join(f.root, 'outer')
+  const inner = path.join(f.root, 'inner')
+  init(inner)
+  init(outer)
+  git(outer, '-c', 'protocol.file.allow=always', 'submodule', 'add', inner, 'lib/inner')
+  git(outer, 'commit', '-am', 'Nested')
+  git(f.repo, '-c', 'protocol.file.allow=always', 'submodule', 'add', outer, 'services/outer')
+  git(f.repo, 'commit', '-am', 'Outer')
+  git(f.repo, '-c', 'protocol.file.allow=always', 'submodule', 'update', '--init', '--recursive')
+  addSubmodule(f, 'missing', 'services/missing')
+  git(f.repo, 'submodule', 'deinit', '-f', 'services/missing')
+  await f.submit('Cambia la libreria interna')
+  const active = [...f.core.active.values()][0]
+  const dir = isolationFor(f.repo, 'conversation').dir
+  assert.equal(await f.core.prepareWorkspace(active.token, 'Edit'), null)
+  assert.deepEqual(active.workspace.pending, ['services/outer'])
+  assert.deepEqual(active.workspace.unavailable, ['services/missing'])
+  const result = await f.core.tool(active.token, 'regent_use_repo', {
+    repo: 'repo/services/outer/lib/inner',
+    handoff: 'Change the inner library.',
+  })
+
+  assert.deepEqual(result.prepared, ['services/outer', 'services/outer/lib/inner'])
+  assert.equal(result.cwd, path.join(dir, 'services/outer/lib/inner'))
+  assert.deepEqual(active.workspace.submodules, ['services/outer', 'services/outer/lib/inner'])
+  assert.deepEqual(active.workspace.pending, [])
+  assert.match(
+    f.core.permission(active.token, {
+      tool_name: 'Edit',
+      tool_input: { file_path: 'services/missing/answer.txt' },
+      cwd: dir,
+    }),
+    /no esta inicializado/,
+  )
+  assert.ok(!fs.existsSync(path.join(dir, 'services/missing/.git')))
   await f.finish()
 })
 
@@ -434,14 +556,13 @@ for (const blocked of [false, true]) {
       fs.mkdirSync(destination, { recursive: true })
       fs.writeFileSync(path.join(destination, 'keep.txt'), 'existing local work')
     }
-    const results = await Promise.all([
-      f.core.prepareWorkspace(active.token, 'Edit'),
-      f.core.prepareWorkspace(active.token, 'Read'),
-    ])
-    for (const result of results) {
-      if (blocked) assert.match(result, /contiene archivos/)
-      else assert.equal(result, null)
-    }
+    assert.equal(await f.core.prepareWorkspace(active.token, 'Edit'), null)
+    const preparation = f.core.tool(active.token, 'regent_use_repo', {
+      repo: 'repo/backend/api',
+      handoff: 'Review the backend.',
+    })
+    if (blocked) await assert.rejects(preparation, /contiene archivos/)
+    else assert.deepEqual((await preparation).prepared, ['backend/api'])
     await active.output
     assert.deepEqual(
       f.store.db
@@ -499,7 +620,9 @@ test('resumed submodules receive newly provisioned ignored setup files without o
     assert.equal(await f.core.prepareWorkspace(active.token, 'Edit'), null)
     return active
   }
-  await prepare()
+  const first = await prepare()
+  await f.core.tool(first.token, 'regent_use_repo', { repo: 'repo/web', handoff: 'Change it.' })
+  assert.ok(fs.existsSync(path.join(isolated, 'web/.git')))
   assert.equal(fs.existsSync(path.join(isolated, 'web/.env')), false)
   await f.finish()
   fs.writeFileSync(path.join(f.repo, 'web/.env'), 'RUNTIME=provisioned\n', { mode: 0o600 })

@@ -116,10 +116,16 @@ implementations still execute under the operator's account; these guards are not
 External services/database credentials must enforce their own data permissions.
 
 The selected project's environment and connections load in both modes, preserving shared
-root context for registered Git submodules. Query reads never prepare nested worktrees;
-editing preparation initializes the isolated checkouts at pinned commits.
-On resume, preparation also copies newly provisioned ignored setup files listed in each
-submodule's `.worktreeinclude`, while preserving files already present in the worktree.
+root context for registered Git submodules. Query reads never prepare nested worktrees.
+An editing worktree starts without submodule checkouts: the executor decides, from the
+prompt and repository instructions, which submodules a request needs and calls
+`regent_use_repo` for each, which checks out that submodule and its enclosing ones at the
+parent's pinned commits. The policy only inventories the worktree: file tools aimed at a
+pending submodule are denied with that instruction or the shared-checkout path for reads,
+and unavailable ones stay denied. Commands that reach a submodule only through their text
+are not inspected. On resume, the inventory also copies newly provisioned ignored setup
+files listed in each existing checkout's `.worktreeinclude`, while preserving files already
+present in the worktree.
 Independent repositories get their own context and connections. MCP availability inside the
 executor is independent of the host chat's connections. Tools and public session contracts
 remain compatible when source files move.
