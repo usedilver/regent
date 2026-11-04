@@ -7,6 +7,7 @@ import { isInside, isolationFor, projectRoot } from './repository.ts'
 const execute = promisify(execFile)
 const GIT_TIMEOUT_MS = 30000
 const GIT_OUTPUT_BYTES = 16 * 1024 * 1024
+const INSTALL_TIMEOUT_MS = 5 * 60 * 1000
 const GITLINK = /^160000 ([0-9a-f]+) ([0-3])\t([\s\S]+)$/
 const CREDENTIAL_FILES = /(?:^|\/)\.credentials\.json$|(?:^|\/)\.claude\.json$/
 
@@ -98,6 +99,30 @@ async function copySetupFiles(source: string, target: string, signal?: AbortSign
   }
 }
 
+/** A pnpm project gets its dependencies once, so the executor can run its checks and app. */
+async function installDependencies(
+  target: string,
+  label: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!fs.existsSync(path.join(target, 'pnpm-lock.yaml'))) return
+  if (fs.existsSync(path.join(target, 'node_modules'))) return
+
+  try {
+    await execute('pnpm', ['install', '--frozen-lockfile', '--prefer-offline'], {
+      cwd: target,
+      timeout: INSTALL_TIMEOUT_MS,
+      maxBuffer: GIT_OUTPUT_BYTES,
+      signal,
+    })
+  } catch {
+    fs.rmSync(path.join(target, 'node_modules'), { recursive: true, force: true })
+    throw new Error(
+      `El submodulo ${JSON.stringify(label)} quedo listo, pero fallo pnpm install. Ejecutalo en el submodulo antes de correr sus checks.`,
+    )
+  }
+}
+
 /** The checkout's gitlinks: each submodule path with the commit the superproject pins. */
 async function gitlinks(target: string, signal?: AbortSignal): Promise<Gitlink[]> {
   const entries = (await git(target, ['ls-files', '--stage', '-z'], signal))
@@ -158,6 +183,7 @@ async function materialize(
 
   await assertWorktree(original, isolated, signal)
   await copySetupFiles(original, isolated, signal)
+  await installDependencies(isolated, label, signal)
 }
 
 interface Submodule extends Gitlink {

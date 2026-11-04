@@ -14,6 +14,14 @@ const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-proje
 const git = (cwd, ...args) =>
   execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 const repo = path.join(root, 'repo')
+const fakeBin = path.join(root, 'bin')
+fs.mkdirSync(fakeBin)
+fs.writeFileSync(
+  path.join(fakeBin, 'pnpm'),
+  '#!/bin/sh\nmkdir -p node_modules\necho "$@" >> node_modules/.installs\n',
+  { mode: 0o755 },
+)
+process.env.PATH = `${fakeBin}${path.delimiter}${process.env.PATH}`
 fs.mkdirSync(repo)
 git(repo, 'init', '-b', 'main')
 git(repo, 'config', 'user.name', 'Fixture')
@@ -288,7 +296,16 @@ try {
   fs.mkdirSync(path.join(hire, '.claude'), { recursive: true })
   fs.writeFileSync(path.join(hire, '.claude/settings.local.json'), '{"fixture":true}\n')
   fs.writeFileSync(path.join(hire, '.env'), 'CHILD_SETUP=fixture\n')
-  git(hire, 'add', '.gitmodules', 'services/nested', '.gitignore', '.worktreeinclude')
+  fs.writeFileSync(path.join(hire, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n")
+  git(
+    hire,
+    'add',
+    '.gitmodules',
+    'services/nested',
+    '.gitignore',
+    '.worktreeinclude',
+    'pnpm-lock.yaml',
+  )
   git(
     hire,
     '-c',
@@ -380,6 +397,11 @@ try {
       fs.readFileSync(path.join(isolated.dir, 'hire/.claude/settings.local.json'), 'utf8'),
       '{"fixture":true}\n',
     )
+    assert.equal(
+      fs.readFileSync(path.join(isolated.dir, 'hire/node_modules/.installs'), 'utf8'),
+      'install --frozen-lockfile --prefer-offline\n',
+    )
+    assert.ok(!fs.existsSync(path.join(isolated.dir, 'web/node_modules')))
   }
 
   fs.writeFileSync(path.join(workspaceA.dir, 'hire/answer.txt'), 'task A hire\n')
@@ -387,6 +409,10 @@ try {
   fs.writeFileSync(path.join(workspaceA.dir, 'hire/.env'), 'CHILD_SETUP=changed\n')
   await scanProjectWorkspace(root, parent, workspaceA.dir, 'refresh')
   await prepareSubmodule(root, parent, workspaceA.dir, 'project-A', 'hire')
+  assert.equal(
+    fs.readFileSync(path.join(workspaceA.dir, 'hire/node_modules/.installs'), 'utf8'),
+    'install --frozen-lockfile --prefer-offline\n',
+  )
   assert.equal(
     fs.readFileSync(path.join(workspaceA.dir, 'hire/answer.txt'), 'utf8'),
     'task A hire\n',

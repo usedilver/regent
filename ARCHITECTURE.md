@@ -127,7 +127,8 @@ root context for registered Git submodules. Query reads never prepare nested wor
 An editing worktree starts without submodule checkouts: the executor decides, from the
 prompt and repository instructions, which submodules a request needs and calls
 `regent_use_repo` for each, which checks out that submodule and its enclosing ones at the
-parent's pinned commits. The policy only inventories the worktree: file tools aimed at a
+parent's pinned commits. A new checkout with a `pnpm-lock.yaml` also gets `pnpm install`, so
+the executor can run the project's checks and app. The policy only inventories the worktree: file tools aimed at a
 pending submodule are denied with that instruction or the shared-checkout path for reads,
 and unavailable ones stay denied. Commands that reach a submodule only through their text
 are not inspected. On resume, the inventory also copies newly provisioned ignored setup
