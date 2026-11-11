@@ -302,7 +302,7 @@ try {
         assert.equal(status.repo, fs.realpathSync(f.repo))
         assert.equal(f.store.run(one.run_id).author, 'mcp:alice')
         assert.equal(f.starts.length, 1)
-        assert.match(f.starts[0].worktreeName, /^regent-/)
+        assert.equal(f.starts[0].worktreeName, undefined, 'a run starts in the shared checkout')
         assert.deepEqual(f.messages, [])
         assert.equal(f.core.authorized({ adapter: 'mcp', author: 'U1', team: 'T1' }), false)
       } finally {
@@ -581,7 +581,7 @@ try {
     },
   )
   await check(
-    'MCP query-to-edit promotion keeps its conversation and later queries reuse that worktree',
+    'MCP profiles share one session and location: a question and a later change need no hand-off',
     async () => {
       const f = await fixture()
 
@@ -592,31 +592,20 @@ try {
           intent: 'ask',
         })
         await until(() => !f.core.active.size)
-        assert.equal(f.starts[0].readOnly, true)
         assert.equal(f.starts[0].worktreeName, undefined)
         assert.ok(!fs.existsSync(path.join(f.repo, '.claude/worktrees')))
-        const querySession = f.store.conversation(work.conversation_id).session_id
+        const session = f.store.conversation(work.conversation_id).session_id
         await call(client, 'regent_continue', {
           conversation_id: work.conversation_id,
           request_id: randomUUID(),
           prompt: 'Implementa el cambio en el código',
         })
         await until(() => !f.core.active.size)
-        assert.equal(f.starts[1].readOnly, false)
-        assert.equal(f.starts[1].sessionId, null)
-        assert.match(f.starts[1].prompt, /Prior conversation handoff/)
-        const editingSession = f.store.conversation(work.conversation_id).session_id
-        assert.notEqual(editingSession, querySession)
-        await call(client, 'regent_continue', {
-          conversation_id: work.conversation_id,
-          request_id: randomUUID(),
-          prompt: 'Explica lo que cambiaste',
-          intent: 'ask',
-        })
-        await until(() => !f.core.active.size)
-        assert.equal(f.starts[2].readOnly, true)
-        assert.equal(f.starts[2].worktreeName, f.starts[1].worktreeName)
-        assert.equal(f.starts[2].sessionId, editingSession)
+        assert.equal(f.starts[1].sessionId, session)
+        assert.equal(f.starts[1].worktreeName, undefined)
+        assert.doesNotMatch(f.starts[1].prompt, /Prior conversation handoff/)
+        assert.match(f.starts[1].prompt, /"worktree":\{"name":"regent-[a-f0-9]+","entered":false\}/)
+        assert.equal(f.store.conversation(work.conversation_id).session_id, session)
       } finally {
         await f.close()
       }
@@ -845,7 +834,7 @@ try {
     },
   )
   await check(
-    'simulated agent creates, modifies and deletes a chart through MCP in the same real Git worktree',
+    'simulated agent enters the worktree, then creates, modifies and deletes a chart there in one session',
     async () => {
       const f = await fixture()
       const git = (...args) => execFileSync('git', args, { cwd: f.repo, stdio: 'pipe' })
@@ -866,7 +855,18 @@ try {
       f.core.runner = (args) => {
         const active = f.core.byToken(args.token)
         isolated = isolationFor(args.cwd, active.run.conversation_key)
-        if (!fs.existsSync(isolated.dir)) git('worktree', 'add', '-b', isolated.name, isolated.dir)
+
+        // The first run starts in the shared checkout and enters its worktree the native way.
+        if (!fs.existsSync(isolated.dir)) {
+          const enter = { tool_name: 'EnterWorktree', tool_input: { name: isolated.name } }
+          assert.match(
+            f.core.permission(args.token, { ...enter, tool_input: { name: 'another' } }),
+            new RegExp(`EnterWorktree with name "${isolated.name}"`),
+          )
+          assert.equal(f.core.permission(args.token, enter), null)
+          git('worktree', 'add', '-b', isolated.name, isolated.dir)
+        }
+
         const chart = path.join(isolated.dir, 'chart.tsx')
 
         if (args.prompt.includes('fixture:create')) {
@@ -904,8 +904,18 @@ try {
         })
         await until(() => !f.core.active.size)
         assert.equal(fs.existsSync(path.join(isolated.dir, 'chart.tsx')), false)
-        assert.equal(new Set(f.starts.map((args) => args.worktreeName)).size, 1)
-        assert.equal(f.starts[1].sessionId, f.starts[2].sessionId)
+        assert.deepEqual(
+          f.starts.map((args) => args.worktreeName),
+          [undefined, isolated.name, isolated.name],
+        )
+        const session = f.store.conversation(work.conversation_id).session_id
+        assert.ok(session)
+        assert.deepEqual(
+          f.starts.map((args) => args.sessionId),
+          [null, session, session],
+          'entering the worktree keeps the CLI session',
+        )
+        assert.equal(f.store.conversation(work.conversation_id).session_cwd, isolated.dir)
         assert.deepEqual(f.messages, [])
       } finally {
         await f.close()

@@ -130,12 +130,6 @@ async function useRepo(call: ToolCall) {
   const args = ToolSchemas.regent_use_repo.parse(call.input)
   const otherToolsRunning = active.operations.size > 0
 
-  if (active.readOnly && args.intent && args.intent !== 'ask') {
-    throw new Error(
-      'Query mode cannot promote itself. Continue with the user request to implement the change.',
-    )
-  }
-
   const preparation = await core.prepareWorkspace(active.token)
   if (preparation) throw new Error(preparation)
   const known = [...(active.workspace?.submodules ?? []), ...(active.workspace?.pending ?? [])]
@@ -163,8 +157,8 @@ async function useRepo(call: ToolCall) {
       ...(prepared.length ? { prepared } : {}),
       unchanged: true,
       instruction: checkedOut
-        ? 'Same project and session. Navigate to the supplied destination, read its instructions and preserve shared context and execution mode.'
-        : 'Same project and session. This query has no checkout of the destination; read it at the supplied shared path without changing it.',
+        ? 'Same project and session. Navigate to the supplied destination, read its instructions and preserve shared context.'
+        : "Same project and session. The destination has no checkout in this conversation's worktree: read it at the supplied shared path. To change it, enter the worktree with EnterWorktree first and call this tool again.",
     }
   }
 
@@ -300,7 +294,6 @@ async function cancel({ active, input }: ToolCall) {
 }
 
 async function cleanupWorktree({ core, active, input }: ToolCall) {
-  if (active.readOnly) throw new Error('Query mode cannot remove a worktree.')
   if (active.moving || active.contextChanged || active.waiting)
     throw new Error('Termina el traslado o la espera antes de pedir limpieza.')
   const args = ToolSchemas.regent_cleanup_worktree.parse(input)

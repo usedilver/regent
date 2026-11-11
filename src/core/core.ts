@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import fs from 'node:fs'
 import path from 'node:path'
 import type { Config } from '../config.ts'
 import { defaultRepoDir } from '../config.ts'
@@ -80,7 +81,8 @@ export interface Active {
   abort: AbortController
   operations: Set<Promise<unknown>>
   resumeAfterWait?: boolean
-  readOnly?: boolean
+  /** The agent was allowed to enter the conversation's worktree and may be working there. */
+  enteringWorktree?: boolean
   executionDir?: string
   workspace?: ProjectWorkspace
   workspaceScan?: Promise<ProjectWorkspace>
@@ -554,6 +556,7 @@ export class Core {
     }
 
     if (tool && !PROJECT_FILE_TOOLS.has(tool)) return null
+    this.syncWorktree(active)
     const { cwd, dir } = this.isolation(active)
     if (active.executionDir !== dir || !hasSubmodules(cwd, dir)) return null
     const deadline = this.deadlineReason(active, tool ?? 'project_workspace')
@@ -573,7 +576,7 @@ export class Core {
    */
   async prepareSubmodule(active: Active, destination: string): Promise<string[]> {
     const { cwd, dir } = this.isolation(active)
-    if (active.readOnly || active.executionDir !== dir) return []
+    if (active.executionDir !== dir) return []
     await this.scanWorkspace(active)
     const previous = active.submoduleQueue ?? Promise.resolve()
 
@@ -610,6 +613,22 @@ export class Core {
     return preparation
   }
 
+  /**
+   * Once the agent has entered the conversation's worktree, the run and its CLI session belong
+   * to that directory: later tools are judged there and the next turn resumes in it.
+   */
+  syncWorktree(active: Active): void {
+    if (!active.enteringWorktree) return
+    const key = active.run.conversation_key
+    const { dir } = this.isolation(active)
+    if (!fs.existsSync(path.join(dir, '.git'))) return
+    active.enteringWorktree = false
+    active.executionDir = dir
+    const session = this.store.conversation(key)?.session_id
+    if (session) this.store.session(key, session, dir)
+    this.store.event(active.run.id, 'worktree_entered', { directory: dir })
+  }
+
   private isolation(active: Active): { cwd: string; dir: string } {
     const cwd = this.store.conversation(active.run.conversation_key)?.cwd ?? this.defaultCwd
     return { cwd, dir: isolationFor(cwd, active.run.conversation_key).dir }
@@ -623,7 +642,7 @@ export class Core {
         this.cwd,
         cwd,
         dir,
-        active.readOnly ? 'read' : 'refresh',
+        'refresh',
         active.abort.signal,
       )
         .then((result) => {
@@ -667,7 +686,11 @@ export class Core {
       return 'La limpieza ya fue solicitada; termina el turno sin ejecutar mas herramientas.'
     }
 
-    return this.deadlineReason(active, input.tool_name) ?? permissionDenial(this, active, input)
+    this.syncWorktree(active)
+    const reason =
+      this.deadlineReason(active, input.tool_name) ?? permissionDenial(this, active, input)
+    if (!reason && input.tool_name === 'EnterWorktree') active.enteringWorktree = true
+    return reason
   }
 
   // Human gates

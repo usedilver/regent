@@ -434,11 +434,11 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
     assert.ok(!args.includes('--allowedTools'))
     assert.ok(!args.includes('--strict-mcp-config'))
     assert.equal(args[args.indexOf('--add-dir') + 1], path.join(tmp, 'own worktree'))
-    // Native mode pre-allows conversation tools, never repository edits.
+    // Native mode pre-allows conversation tools and worktree entry, never repository edits.
     const native = runnerArgs(runnerOptions({ permissionMode: 'native' }))
     assert.equal(native[native.indexOf('--permission-mode') + 1], 'manual')
     assert.ok(!native.includes('bypassPermissions'))
-    assert.equal(native[native.indexOf('--allowedTools') + 1], 'mcp__regent__*')
+    assert.equal(native[native.indexOf('--allowedTools') + 1], 'mcp__regent__*,EnterWorktree')
     const isolated = runnerArgs(
       runnerOptions({ worktreeName: 'regent-test', sessionId: 'existing' }),
     )

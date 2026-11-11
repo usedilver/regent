@@ -25,10 +25,6 @@ export const PROJECT_FILE_TOOLS = new Set([
   'Monitor',
 ])
 
-const READ_TOOLS = ['Read', 'Glob', 'Grep']
-const WRITE_TOOLS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash', 'PowerShell', 'Monitor']
-const WORKTREE_TOOLS = ['EnterWorktree', 'ExitWorktree']
-
 /** Whether the project, in its shared checkout or its worktree, declares submodules to prepare. */
 export function hasSubmodules(cwd: string, isolationDir: string): boolean {
   return (
@@ -37,9 +33,45 @@ export function hasSubmodules(cwd: string, isolationDir: string): boolean {
   )
 }
 
+/** The conversation's worktree once this run works in it, whether it started or moved there. */
+function enteredWorktree(active: Active, isolationDir: string): string | undefined {
+  if (active.executionDir !== isolationDir) return
+  return fs.realpathSync(isolationDir) === isolationDir ? isolationDir : undefined
+}
+
+/** Where a tool call runs, resolved through symlinks; an unreadable place counts as shared. */
+function realDirectory(directory: string): string {
+  try {
+    return fs.realpathSync(directory)
+  } catch {
+    return directory
+  }
+}
+
+/** The native tool may only create or enter the worktree Regent tracks for this conversation. */
+function enterWorktreeDenial(
+  input: PermissionInput,
+  project: string,
+  isolation: { name: string; dir: string },
+  entered: boolean,
+): string | null {
+  if (!fs.existsSync(path.join(project, '.git'))) {
+    return 'This project is not a Git repository, so it has no worktree to enter.'
+  }
+
+  if (entered) return 'This conversation already works in its worktree.'
+  const { name, path: requested } = input.tool_input ?? {}
+
+  return name === isolation.name && requested === undefined
+    ? null
+    : `Enter this conversation's own worktree: call EnterWorktree with name "${isolation.name}" and no path.`
+}
+
 /**
- * The reason a tool call must be denied, or null to let it run. Query runs only read; editing
- * runs stay inside their worktree; everything else defers to the executor policy hook.
+ * The reason a tool call must be denied, or null to let it run. Every run investigates with all
+ * its tools from wherever it started. Edits land in the conversation's worktree or in scratch
+ * locations, and the checkout every conversation shares keeps its Git state and dependencies;
+ * everything else defers to the executor policy hook.
  */
 export function permissionDenial(
   core: Core,
@@ -48,45 +80,37 @@ export function permissionDenial(
 ): string | null {
   const cwd = core.store.conversation(active.run.conversation_key)?.cwd ?? core.defaultCwd
   const isolation = isolationFor(cwd, active.run.conversation_key)
-  const submodule = submoduleDenial(active, input, cwd, isolation.dir)
-  if (active.readOnly) return submodule ?? readOnlyDenial(core, active, input)
-  const needsWorkspace = PROJECT_FILE_TOOLS.has(input.tool_name) && !active.workspace
+  const worktree = enteredWorktree(active, isolation.dir)
+  const needsWorkspace = worktree && PROJECT_FILE_TOOLS.has(input.tool_name) && !active.workspace
 
   if (needsWorkspace && hasSubmodules(cwd, isolation.dir)) {
     return 'Espera a que termine la preparacion del proyecto aislado antes de usar herramientas.'
   }
 
+  const submodule = submoduleDenial(active, input, cwd, isolation.dir)
   if (submodule) return submodule
 
-  if (WORKTREE_TOOLS.includes(input.tool_name)) {
+  if (input.tool_name === 'EnterWorktree') {
+    return enterWorktreeDenial(input, cwd, isolation, Boolean(worktree))
+  }
+
+  if (input.tool_name === 'ExitWorktree') {
     return 'Conserva el aislamiento de esta conversacion; usa regent_use_repo para cambiar de proyecto.'
   }
 
-  if (READ_TOOLS.includes(input.tool_name)) {
-    return denial(input, { REGENT_ROOT: isolation.dir, REGENT_CWD: input.cwd ?? isolation.dir })
-  }
-
-  if (WRITE_TOOLS.includes(input.tool_name)) return worktreeDenial(core, input, isolation.dir)
+  const directory = realDirectory(input.cwd ?? worktree ?? cwd)
+  const shared =
+    isInside(realDirectory(core.cwd), directory) && !(worktree && isInside(worktree, directory))
 
   return denial(input, {
     ...process.env,
     REGENT_PERMISSION_MODE: core.config.permission_mode === 'native' ? 'repository' : '',
-    REGENT_ROOT: core.cwd,
-    REGENT_CWD: cwd,
-    REGENT_READONLY_MCP: JSON.stringify(core.config.repos.readonly_mcp),
-  })
-}
-
-/** A query runs any native tool but edits only scratch locations, never the project. */
-function readOnlyDenial(core: Core, active: Active, input: PermissionInput): string | null {
-  const root = active.executionDir ?? core.defaultCwd
-
-  return denial(input, {
-    REGENT_ROOT: root,
-    REGENT_CWD: input.cwd ?? root,
-    REGENT_READ_ONLY: '1',
-    REGENT_QUERY_PROTECTED: JSON.stringify([core.cwd]),
-    REGENT_QUERY_WRITABLE: JSON.stringify([os.tmpdir(), '/tmp', core.attachments.root]),
+    REGENT_ROOT: worktree ?? '',
+    REGENT_CWD: directory,
+    REGENT_WORKSPACE: core.cwd,
+    REGENT_WORKTREE_NAME: fs.existsSync(path.join(cwd, '.git')) ? isolation.name : '',
+    REGENT_SCRATCH: JSON.stringify([os.tmpdir(), '/tmp', core.attachments.root]),
+    REGENT_SHARED: shared ? '1' : '',
     REGENT_READONLY_MCP: JSON.stringify(core.config.repos.readonly_mcp),
   })
 }
@@ -122,30 +146,5 @@ function submoduleDenial(
   if (!pending) return null
   const source = path.join(project, pending)
 
-  if (active.readOnly) {
-    return `The submodule ${JSON.stringify(pending)} has no checkout in this conversation's worktree. Read it in the shared checkout at ${source}.`
-  }
-
   return `The submodule ${JSON.stringify(pending)} has no checkout in this conversation's worktree yet. Call regent_use_repo with ${JSON.stringify(pending)} before changing or running it; to only read it, use the shared checkout at ${source}.`
-}
-
-/** Writing tools must run from inside the conversation's worktree, resolved through symlinks. */
-function worktreeDenial(core: Core, input: PermissionInput, isolationDir: string): string | null {
-  try {
-    const root = fs.realpathSync(isolationDir)
-    if (root !== isolationDir) return 'El directorio aislado no puede ser un enlace simbolico.'
-    const actual = fs.realpathSync(input.cwd ?? isolationDir)
-
-    if (!isInside(root, actual)) {
-      return 'Ejecuta las herramientas dentro del worktree de esta conversacion.'
-    }
-
-    return denial(input, {
-      REGENT_ROOT: root,
-      REGENT_CWD: actual,
-      REGENT_READONLY_MCP: JSON.stringify(core.config.repos.readonly_mcp),
-    })
-  } catch {
-    return 'No hay un worktree aislado disponible. Selecciona un repo Git con regent_use_repo; no edites el checkout compartido.'
-  }
 }

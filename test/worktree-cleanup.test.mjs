@@ -334,8 +334,8 @@ test('core defers removal until executor exit, reports actual result, detaches s
   }
 })
 
-test('merge alone, query mode and cancellation never trigger removal', async (t) => {
-  for (const mode of ['merge-only', 'query', 'cancel']) {
+test('merge alone and cancellation never trigger removal', async (t) => {
+  for (const mode of ['merge-only', 'cancel']) {
     const f = fixture(t)
     const store = new Store(':memory:')
     let finish
@@ -365,13 +365,11 @@ test('merge alone, query mode and cancellation never trigger removal', async (t)
       channel: 'C',
       key: f.key,
       eventId: 'first',
-      intent: mode === 'query' ? 'ask' : 'task',
+      intent: 'task',
       text: mode === 'merge-only' ? 'Ya hice merge, no hagas nada' : 'Elimina el worktree',
     })
     while (!finish) await new Promise((r) => setTimeout(r, 5))
     const active = core.active.get(f.key)
-    if (mode === 'query')
-      await assert.rejects(core.tool(active.token, 'regent_cleanup_worktree', {}), /Query/)
     if (mode === 'cancel') {
       await core.tool(active.token, 'regent_cleanup_worktree', {})
       active.cancelled = true

@@ -118,24 +118,23 @@ try {
   await until(() => starts.length === 4)
   assert.equal(starts[3].opts.model, 'sonnet-test')
   assert.ok(starts[3].opts.timeoutMs <= 600000 && starts[3].opts.timeoutMs > 600000 * 0.99)
-  await assert.rejects(
-    () =>
-      core.tool(core.active.get('slack:C1:1').token, 'regent_use_repo', {
-        repo,
-        intent: 'project',
-        handoff: 'Do not promote a query without a user editing request',
-      }),
-    /Query mode/,
+  // A profile only selects model and time limit: it grants and removes no tools.
+  assert.equal(
+    core.permission(core.active.get('slack:C1:1').token, {
+      tool_name: 'Bash',
+      tool_input: { command: 'unzip -l /tmp/attached.zip' },
+    }),
+    null,
   )
   starts[3].finish()
   await until(() => !core.active.size)
   await core.submit(inbound('approved', 'implementalo'))
   await until(() => starts.length === 5)
-  assert.equal(starts[4].opts.readOnly, false)
+  assert.equal(starts[4].opts.model, 'opus-task')
   starts[4].finish()
   await until(() => !core.active.size)
   console.log(
-    'Execution options: explicit limits, ordinary follow-ups and enforced query permissions passed',
+    'Execution options: explicit limits, ordinary follow-ups and profile-independent tools passed',
   )
 } finally {
   await core.close()

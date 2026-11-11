@@ -188,16 +188,17 @@ try {
   assert.ok(sqlCalls > 0, 'The query must use the read-only execute_sql wrapper')
   assert.ok(!fs.existsSync(path.join(repo, '.claude/worktrees')))
   const session = store.conversation('smoke').session_id
-  console.log('PASS real query: root skill, env/MCP and no worktree')
+  console.log('PASS real question: root skill, env/MCP and no worktree')
   await run(
     'Cambia answer.txt para que contenga exactamente edited seguido de salto de línea. Usa Edit o Write. No hagas otros cambios ni commits. Conserva el contexto investigado y verifica el archivo.',
   )
   const isolated = isolationFor(repo, 'smoke').dir
   assert.equal(fs.readFileSync(path.join(isolated, 'answer.txt'), 'utf8'), 'edited\n')
   assert.equal(fs.readFileSync(path.join(repo, 'answer.txt'), 'utf8'), 'original\n')
-  assert.notEqual(store.conversation('smoke').session_id, session)
+  assert.equal(store.conversation('smoke').session_id, session)
+  assert.equal(store.conversation('smoke').session_cwd, isolated)
   const editingSession = store.conversation('smoke').session_id
-  console.log('PASS real promotion: fresh CLI session, isolated edit, original untouched')
+  console.log('PASS real edit: same CLI session entered the worktree, original untouched')
   const third = await run(
     '/ask Explica el contenido actual de answer.txt y consulta get_probe. No hagas cambios. Responde solo el contenido y el marcador.',
   )

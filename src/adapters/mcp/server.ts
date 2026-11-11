@@ -30,7 +30,7 @@ const conversationId = z.string().min(1).max(200)
 const intent = z
   .enum(['ask', 'patch', 'task', 'project'])
   .describe(
-    'Optional execution constraints for this message, not workflow classification. Omit for ordinary requests. ask enforces read-only tools; patch/task/project select configured execution limits. Preserve user scope in every profile.',
+    'Optional execution constraints for this message, not workflow classification. Omit for ordinary requests. ask/patch/task/project select the configured model and time limit; every profile has the same tools. Preserve user scope in every profile.',
   )
   .optional()
 const digest = (value: string) => createHash('sha256').update(value).digest()
@@ -119,7 +119,7 @@ export class ExternalMcp {
   instructions(): string {
     const defaultRepo = this.defaultRepo()
     const name = this.core.config.name
-    return `${name} runs Claude Code with the selected repository's instructions, skills and connections. Default repository: ${JSON.stringify(defaultRepo)}. Discover a destination with regent_context and delegate the complete request, context and scope with regent_start. Ordinary messages use one execution profile; do not classify them into workflow stages or add an investigation pass. Omit intent unless explicitly selecting execution constraints such as enforced read-only ask. The executor decides how to answer, implement and validate from the request and project guidance. Each conversation retains its project; start a new conversation for an independent project. Missing host-chat connections do not establish missing executor access. Poll regent_get_run with its default wait, follow latest_run and continue with regent_continue. Preserve confirmed results, failures and verification limits. Use regent_show_progress only when the user requests a visual panel. Do not schedule polling or duplicate MCP replies in Slack. Reply concisely in the user's language; claim actions only with evidence.`
+    return `${name} runs Claude Code with the selected repository's instructions, skills and connections. Default repository: ${JSON.stringify(defaultRepo)}. Discover a destination with regent_context and delegate the complete request, context and scope with regent_start. Ordinary messages use one execution profile; do not classify them into workflow stages or add an investigation pass. Omit intent unless explicitly selecting a profile's model and time limit. The executor decides how to answer, implement and validate from the request and project guidance. Each conversation retains its project; start a new conversation for an independent project. Missing host-chat connections do not establish missing executor access. Poll regent_get_run with its default wait, follow latest_run and continue with regent_continue. Preserve confirmed results, failures and verification limits. Use regent_show_progress only when the user requests a visual panel. Do not schedule polling or duplicate MCP replies in Slack. Reply concisely in the user's language; claim actions only with evidence.`
   }
 
   // Conversations

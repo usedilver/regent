@@ -74,8 +74,7 @@ export class Turn {
     this.runTimeout = setTimeout(() => this.expire(), this.timeoutMs)
 
     try {
-      const execution = executionContext(this.conversation, this.run.intent)
-      this.active.readOnly = execution.readOnly
+      const execution = executionContext(this.conversation)
       this.active.executionDir = execution.directory
       const env = agentEnvironment(this.core.config, this.core.secretKeys, this.conversation.cwd)
       assertAuth(this.core.config, env)
@@ -234,8 +233,10 @@ export class Turn {
       workspace: this.core.cwd,
       default_repo: this.core.defaultCwd,
       context_repo: this.conversation.cwd,
-      execution_mode: execution.readOnly ? 'query' : 'edit',
       cwd: execution.directory,
+      worktree: execution.worktree
+        ? { name: execution.worktree.name, entered: execution.isolated }
+        : null,
       wrap_up_at: new Date(this.active.wrapUpAt!).toISOString(),
       timeout_ms: this.timeoutMs,
     }
@@ -264,10 +265,6 @@ export class Turn {
     prompt: string,
   ): RunnerOptions {
     const { config } = this.core
-    const isolation = execution.isolated
-      ? isolationFor(this.conversation.cwd, this.conversation.key)
-      : undefined
-
     return {
       cwd: this.conversation.cwd,
       prompt,
@@ -277,8 +274,7 @@ export class Turn {
       images: this.visual.images,
       permissionMode: config.permission_mode,
       communicationFile: config.communication.instructions_file,
-      worktreeName: isolation?.name,
-      readOnly: execution.readOnly,
+      worktreeName: execution.isolated ? execution.worktree!.name : undefined,
       additionalDirectories: [],
       env,
       token: this.active.token,
@@ -309,6 +305,7 @@ export class Turn {
       this.active.toolUses++
       output.activity?.(this.conversation, this.run, event)
     } else if (event.kind === 'tool_result') {
+      this.core.syncWorktree(this.active)
       output.activity?.(this.conversation, this.run, event)
     } else if (event.kind === 'text_delta') {
       const text = event.text
@@ -443,6 +440,7 @@ export class Turn {
     this.stopTimers()
     this.active.abort.abort()
     await Promise.allSettled(this.active.operations)
+    this.core.syncWorktree(this.active)
     let state = this.finalState(result.state)
     const deliveredSession = this.core.store.conversation(this.conversation.key)?.session_id
     let error = this.stopReason() ?? result.error

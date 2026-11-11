@@ -194,7 +194,6 @@ test('an initialized submodule keeps its files and identity after the shared che
     repo: checkout,
     handoff: 'Read the existing isolated checkout',
   })
-  assert.equal(query.readOnly, true)
   assert.equal(readOnly.cwd, checkout)
   assert.equal(r.starts[1].sessionId, 'fixture-session')
 })
