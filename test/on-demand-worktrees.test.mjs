@@ -155,7 +155,7 @@ for (const adapter of ['slack', 'mcp']) {
     assert.equal(await f.core.prepareWorkspace([...f.core.active.values()][0].token, 'Read'), null)
     const args = runnerArgs(first.opts)
     assert.equal(args[args.indexOf('--permission-mode') + 1], 'bypassPermissions')
-    assert.doesNotMatch(args[args.indexOf('--tools') + 1], /Bash|Write|Edit|Agent/)
+    assert.ok(!args.includes('--tools'), 'a query keeps every native tool')
     assert.ok(!args.includes('--worktree'))
     const inventory = await f.core.tool([...f.core.active.values()][0].token, 'regent_git_read', {
       operation: 'worktrees',
@@ -238,7 +238,7 @@ test('editing first creates isolation immediately, while another query conversat
   )
 })
 
-test('query permission hooks reject writers, interpreters, delegation, preview and automatic promotion', async (t) => {
+test('query permissions allow investigation and scratch files but reject project edits, Git changes, MCP writes and promotion', async (t) => {
   const f = fixture(t)
   await f.submit('/ask Investiga el repositorio sin hacer cambios')
   const active = [...f.core.active.values()][0]
@@ -246,37 +246,46 @@ test('query permission hooks reject writers, interpreters, delegation, preview a
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise((resolve) => server.close(resolve)))
   const url = `http://127.0.0.1:${server.address().port}/tool-policy`
-
-  for (const tool_name of [
-    'Write',
-    'Edit',
-    'NotebookEdit',
-    'Bash',
-    'PowerShell',
-    'Agent',
-    'Task',
-    'EnterWorktree',
-    'ExitPlanMode',
-    'mcp__regent__regent_preview',
-    'mcp__files__write_file',
-    'mcp__data__query_db',
-  ]) {
+  const scratch = path.join(os.tmpdir(), 'regent-query-scratch', 'notes.py')
+  const decide = async (tool_name, tool_input = {}) => {
     const response = await fetch(url, {
       method: 'POST',
       headers: { authorization: `Bearer ${active.token}`, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        tool_name,
-        tool_input: {
-          file_path: 'answer.txt',
-          command: "node -e \"require('fs').writeFileSync('answer.txt','bad')\"",
-          sql: 'DELETE FROM users',
-        },
-        cwd: f.repo,
-      }),
+      body: JSON.stringify({ tool_name, tool_input, cwd: f.repo }),
     })
 
     assert.equal(response.status, 200)
-    assert.ok((await response.json()).reason, tool_name)
+    return (await response.json()).reason
+  }
+
+  for (const [tool_name, tool_input] of [
+    ['Write', { file_path: 'answer.txt' }],
+    ['Edit', { file_path: path.join(f.repo, 'answer.txt') }],
+    ['NotebookEdit', { notebook_path: 'analysis.ipynb' }],
+    ['Write', { file_path: path.join(os.homedir(), '.profile') }],
+    ['Bash', { command: 'echo bad > answer.txt' }],
+    ['Bash', { command: 'git commit -am "Change"' }],
+    ['Bash', { command: `cd ${f.repo} && git -c user.name=x push origin HEAD` }],
+    ['Bash', { command: 'git checkout -b feature' }],
+    ['Bash', { command: 'gh pr create --fill' }],
+    ['PowerShell', { command: 'git reset --hard' }],
+    ['EnterWorktree', {}],
+    ['mcp__regent__regent_preview', {}],
+    ['mcp__files__write_file', { file_path: scratch }],
+    ['mcp__data__query_db', { sql: 'DELETE FROM users' }],
+  ]) {
+    assert.ok(await decide(tool_name, tool_input), `${tool_name} ${JSON.stringify(tool_input)}`)
+  }
+
+  for (const [tool_name, tool_input] of [
+    ['Write', { file_path: scratch }],
+    ['Edit', { file_path: scratch }],
+    ['Bash', { command: 'unzip -o /srv/attachments/site.zip -d /tmp/site && ls /tmp/site' }],
+    ['Bash', { command: `python3 ${scratch} > /tmp/regent-query-output.txt 2>&1` }],
+    ['Bash', { command: 'git log --oneline -5 && git status --short && pnpm test' }],
+    ['Agent', { prompt: 'Summarize the spreadsheet' }],
+  ]) {
+    assert.equal(await decide(tool_name, tool_input), null, `${tool_name} ${tool_input.command}`)
   }
 
   for (const input of [

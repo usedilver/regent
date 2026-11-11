@@ -3,6 +3,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { queryDenial } from './query.mjs'
 import { literalCommand } from './command.mjs'
+import { inside, resolveTarget } from './paths.mjs'
 
 const WORKSPACE_PREPARATION_TIMEOUT_MS = 240000
 const CREDENTIAL_FILES = /\.credentials\.json|\.claude\.json/
@@ -23,11 +24,6 @@ const ABSOLUTE_OR_HOME = /^(?:\/|~|\$HOME|\$\{HOME\})/
 const SQL_MUTATION =
   /\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|merge|call|execute|copy|into|set)\b/i
 
-const inside = (root, target) => {
-  const relative = path.relative(root, target)
-  return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
-}
-
 /**
  * The reason a tool call is denied, or null to abstain. These are heuristic guards in both
  * permission modes, not a sandbox: credentials, download-to-interpreter pipelines, recursive
@@ -38,7 +34,7 @@ export function denial(input, env = process.env) {
   const args = input.tool_input ?? {}
 
   if (env.REGENT_READ_ONLY === '1') {
-    const reason = queryDenial(input)
+    const reason = queryDenial(input, env)
     if (reason) return reason
   }
 
@@ -60,24 +56,6 @@ function readDenial(name, args) {
   return null
 }
 
-/** The real location of a path that may not exist yet: its nearest existing ancestor, resolved. */
-function resolveTarget(cwd, file) {
-  const requested = path.resolve(cwd, file)
-  let parent = requested
-
-  while (true) {
-    try {
-      fs.lstatSync(parent)
-      break
-    } catch (error) {
-      if (error.code !== 'ENOENT' || path.dirname(parent) === parent) throw error
-      parent = path.dirname(parent)
-    }
-  }
-
-  return path.resolve(fs.realpathSync(parent), path.relative(parent, requested))
-}
-
 function editDenial(args, env) {
   const file = args.file_path ?? args.notebook_path
   if (typeof file !== 'string' || !file) return 'Indica la ruta del archivo.'
@@ -96,6 +74,8 @@ function editDenial(args, env) {
       return 'No modificar archivos de credenciales mediante herramientas de edicion.'
     }
 
+    // A query run writes only scratch files, which queryDenial already confined.
+    if (env.REGENT_READ_ONLY === '1') return null
     if (!inside(root, resolved)) return 'La edicion debe estar dentro del workspace autorizado.'
     return null
   } catch {

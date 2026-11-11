@@ -53,12 +53,14 @@ carry credentials between projects. A shell cd cannot reload project configurati
 
 ## Execution
 
-The core state declares execution_mode and cwd. In query mode, investigate using
-Read/Glob/Grep, repository skills and read-only MCP operations. Use regent_git_read
-with a literal argument array for Git history, diffs and worktree inventories; Bash,
-interpreters, delegation and file writes are unavailable. Do not promote a query
-through tools or switch profiles to bypass that restriction. A subsequent human
-implementation request selects editing mode.
+The core state declares execution_mode and cwd. In query mode, investigate freely:
+read, search, delegate, run commands and scripts, open attachments and use read-only
+MCP operations. Write scratch files only under the system temporary directory. The
+project is off limits for changes: do not edit its files, change Git state, commit or
+publish, by any tool or command. Use regent_git_read with a literal argument array for
+Git history, diffs and worktree inventories. Do not promote a query through tools or
+switch profiles to bypass that restriction. A subsequent human implementation request
+selects editing mode.
 
 Query conversations do not need a worktree. Editing uses a dedicated worktree; later
 queries read that existing work without creating another. Moving between source and
