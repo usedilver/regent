@@ -612,12 +612,17 @@ export class Core {
         dir,
         active.readOnly ? 'read' : 'refresh',
         active.abort.signal,
-      ).then((result) => {
-        active.abort.signal.throwIfAborted()
-        active.workspace = result
-        this.store.event(active.run.id, 'project_workspace', result)
-        return result
-      })
+      )
+        .then((result) => {
+          active.abort.signal.throwIfAborted()
+          active.workspace = result
+          this.store.event(active.run.id, 'project_workspace', result)
+          return result
+        })
+        .catch((error) => {
+          active.workspaceScan = undefined
+          throw error
+        })
     }
 
     return active.workspaceScan

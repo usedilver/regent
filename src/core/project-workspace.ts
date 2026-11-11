@@ -46,16 +46,26 @@ async function commonDir(repo: string, signal?: AbortSignal): Promise<string> {
   )
 }
 
-/** The target is a real worktree of the source repository, not a symlink or the source itself. */
-async function assertWorktree(source: string, target: string, signal?: AbortSignal): Promise<void> {
+async function assertRepositoryWorktree(
+  repository: string,
+  target: string,
+  signal?: AbortSignal,
+): Promise<void> {
   if (
     fs.realpathSync(target) !== target ||
-    fs.realpathSync(source) === target ||
     fs.realpathSync(await git(target, ['rev-parse', '--show-toplevel'], signal)) !== target ||
-    (await commonDir(source, signal)) !== (await commonDir(target, signal))
+    repository !== (await commonDir(target, signal))
   ) {
     throw new Error('El checkout aislado no corresponde al repositorio de origen.')
   }
+}
+
+/** The target is a real worktree of the source repository, not a symlink or the source itself. */
+async function assertWorktree(source: string, target: string, signal?: AbortSignal): Promise<void> {
+  if (fs.realpathSync(source) === target) {
+    throw new Error('El checkout aislado no corresponde al repositorio de origen.')
+  }
+  await assertRepositoryWorktree(await commonDir(source, signal), target, signal)
 }
 
 function ensureDirectory(root: string, directory: string): void {
@@ -140,31 +150,40 @@ async function gitlinks(target: string, signal?: AbortSignal): Promise<Gitlink[]
   })
 }
 
-async function registeredSubmodules(target: string, signal?: AbortSignal): Promise<Set<string>> {
-  if (!fs.existsSync(path.join(target, '.gitmodules'))) return new Set()
+async function registeredSubmodules(
+  target: string,
+  signal?: AbortSignal,
+): Promise<Map<string, string>> {
+  if (!fs.existsSync(path.join(target, '.gitmodules'))) return new Map()
   const output = await git(
     target,
     ['config', '--null', '--file', '.gitmodules', '--get-regexp', '^submodule\\..*\\.path$'],
     signal,
   )
 
-  return new Set(
+  return new Map(
     output
       .split('\0')
       .filter(Boolean)
-      .map((entry) => entry.slice(entry.indexOf('\n') + 1)),
+      .map((entry) => {
+        const separator = entry.indexOf('\n')
+        return [
+          entry.slice(separator + 1),
+          entry.slice('submodule.'.length, separator - '.path'.length),
+        ]
+      }),
   )
 }
 
 /** Adds the submodule's worktree at the pinned commit, once, and verifies it either way. */
 async function materialize(
-  original: string,
-  isolated: string,
-  commit: string,
-  branch: string,
-  label: string,
+  child: Submodule,
+  conversation: string,
   signal?: AbortSignal,
 ): Promise<void> {
+  const { original, isolated, repository, commit, label } = child
+  if (!repository) throw new Error('No se encontro el repositorio de origen del submodulo.')
+
   if (!fs.existsSync(path.join(isolated, '.git'))) {
     const occupied =
       fs.existsSync(isolated) &&
@@ -173,6 +192,7 @@ async function materialize(
     if (occupied) throw new Error('El destino del submodulo contiene archivos; no se reemplazara.')
 
     try {
+      const branch = isolationFor(original, conversation).name
       await git(original, ['worktree', 'add', '-b', branch, isolated, commit], signal)
     } catch {
       throw new Error(
@@ -181,16 +201,56 @@ async function materialize(
     }
   }
 
-  await assertWorktree(original, isolated, signal)
-  await copySetupFiles(original, isolated, signal)
+  await assertRepositoryWorktree(repository, isolated, signal)
+  if (child.sourceAvailable) await copySetupFiles(original, isolated, signal)
   await installDependencies(isolated, label, signal)
 }
 
 interface Submodule extends Gitlink {
   original: string
   isolated: string
+  repository: string | null
+  sourceAvailable: boolean
   label: string
   available: boolean
+}
+
+/** Submodule ownership comes from the isolated parent's registration and Git storage. */
+async function submoduleRepository(
+  workspace: string,
+  project: string,
+  parentCommon: string,
+  original: string,
+  name: string | undefined,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  if (!name) return null
+  const modules = path.join(parentCommon, 'modules')
+  const expected = path.resolve(modules, name)
+  if (expected === modules || !isInside(modules, expected)) {
+    throw new Error('Ruta de repositorio de submodulo fuera del proyecto.')
+  }
+
+  if (fs.existsSync(expected)) {
+    const repository = fs.realpathSync(expected)
+    if (!isInside(parentCommon, repository)) {
+      throw new Error('Repositorio de submodulo enlazado fuera del proyecto.')
+    }
+    return repository
+  }
+
+  // Older, unabsorbed submodules keep their Git directory inside the source checkout.
+  const localGit = path.join(original, '.git')
+  if (
+    fs.existsSync(localGit) &&
+    fs.realpathSync(original) === original &&
+    fs.lstatSync(localGit).isDirectory() &&
+    projectRoot(workspace, original) === project
+  ) {
+    return commonDir(original, signal)
+  }
+
+  return null
 }
 
 /** The submodules one checkout level declares, mapped onto the source and the worktree. */
@@ -205,23 +265,46 @@ async function submodulesOf(
   const links = await gitlinks(target, signal)
   if (!links.length) return []
   const registered = await registeredSubmodules(target, signal)
+  const parentCommon = await commonDir(target, signal)
 
-  return links.map((link) => {
-    const original = path.join(source, link.path)
-    const isolated = path.join(target, link.path)
+  return Promise.all(
+    links.map(async (link) => {
+      const original = path.join(source, link.path)
+      const isolated = path.join(target, link.path)
 
-    if (!isInside(project, original) || !isInside(directory, isolated)) {
-      throw new Error('Ruta de submodulo fuera del proyecto.')
-    }
+      if (!isInside(project, original) || !isInside(directory, isolated)) {
+        throw new Error('Ruta de submodulo fuera del proyecto.')
+      }
 
-    const available = registered.has(link.path) && fs.existsSync(path.join(original, '.git'))
+      const repository = await submoduleRepository(
+        workspace,
+        project,
+        parentCommon,
+        original,
+        registered.get(link.path),
+        signal,
+      )
+      const sourceAvailable = Boolean(
+        repository &&
+          fs.existsSync(path.join(original, '.git')) &&
+          fs.realpathSync(original) === original &&
+          (await commonDir(original, signal)) === repository,
+      )
+      const available = Boolean(
+        repository && (sourceAvailable || fs.existsSync(path.join(isolated, '.git'))),
+      )
 
-    if (available && projectRoot(workspace, original) !== project) {
-      throw new Error('El submodulo no pertenece al proyecto seleccionado.')
-    }
-
-    return { ...link, original, isolated, label: path.relative(directory, isolated), available }
-  })
+      return {
+        ...link,
+        original,
+        isolated,
+        repository,
+        sourceAvailable,
+        label: path.relative(directory, isolated),
+        available,
+      }
+    }),
+  )
 }
 
 /**
@@ -242,7 +325,7 @@ export async function scanProjectWorkspace(
     for (const child of await submodulesOf(workspace, project, directory, source, target, signal)) {
       signal?.throwIfAborted()
 
-      if (!child.available) {
+      if (!child.available || !child.repository) {
         result.unavailable.push(child.label)
         continue
       }
@@ -252,8 +335,9 @@ export async function scanProjectWorkspace(
         continue
       }
 
-      await assertWorktree(child.original, child.isolated, signal)
-      if (mode === 'refresh') await copySetupFiles(child.original, child.isolated, signal)
+      await assertRepositoryWorktree(child.repository, child.isolated, signal)
+      if (mode === 'refresh' && child.sourceAvailable)
+        await copySetupFiles(child.original, child.isolated, signal)
       result.submodules.push(child.label)
       await visit(child.original, child.isolated)
     }
@@ -295,8 +379,7 @@ export async function prepareSubmodule(
     }
 
     ensureDirectory(directory, path.dirname(child.isolated))
-    const branch = isolationFor(child.original, conversation).name
-    await materialize(child.original, child.isolated, child.commit, branch, child.label, signal)
+    await materialize(child, conversation, signal)
     prepared.push(child.label)
     source = child.original
     parent = child.isolated

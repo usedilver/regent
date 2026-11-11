@@ -98,6 +98,7 @@ async function createRoom({ core, active, conversation, input }: ToolCall) {
 async function useRepo(call: ToolCall) {
   const { core, active, conversation } = call
   const args = ToolSchemas.regent_use_repo.parse(call.input)
+  const otherToolsRunning = active.operations.size > 0
 
   if (active.readOnly && args.intent && args.intent !== 'ask') {
     throw new Error(
@@ -105,8 +106,16 @@ async function useRepo(call: ToolCall) {
     )
   }
 
-  const requested = requestedRepository(core, conversation, args.repo)
-  const target = projectRoot(core.cwd, requested)
+  const preparation = await core.prepareWorkspace(active.token)
+  if (preparation) throw new Error(preparation)
+  const known = [...(active.workspace?.submodules ?? []), ...(active.workspace?.pending ?? [])]
+  const requested = requestedRepository(core, conversation, args.repo, known)
+  const requestedProject = known.includes(path.relative(conversation.cwd, requested))
+    ? conversation.cwd
+    : projectRoot(core.cwd, requested)
+  const target = known.includes(path.relative(conversation.cwd, requestedProject))
+    ? conversation.cwd
+    : requestedProject
   requireSameProject(conversation.cwd, target)
   const intent = args.intent ?? active.run.intent
   if (!INTENTS.includes(intent)) throw new Error('Intent invalido.')
@@ -133,7 +142,8 @@ async function useRepo(call: ToolCall) {
     throw new Error('Hay mensajes en cola; espera antes de cambiar de proyecto.')
   }
 
-  if (active.operations.size > 0) {
+  // This call joins operations at its first await; only additional calls block the handoff.
+  if (otherToolsRunning || active.operations.size > 1) {
     throw new Error('Espera a que terminen las otras herramientas antes de cambiar de contexto.')
   }
 
@@ -150,11 +160,23 @@ async function useRepo(call: ToolCall) {
 /**
  * A relative path is tried against the conversation's project before the workspace. A path
  * inside the isolated worktree is mapped back onto the shared checkout before it is resolved,
- * because a submodule without a checkout there is still an empty directory.
+ * because a submodule without a checkout there is still an empty directory. Verified isolated
+ * repositories retain their identity when the shared checkout retires or removes their source.
  */
-function requestedRepository(core: Core, conversation: Conversation, repo: string): string {
+function requestedRepository(
+  core: Core,
+  conversation: Conversation,
+  repo: string,
+  known: string[],
+): string {
   const isolatedRoot = isolationFor(conversation.cwd, conversation.key).dir
   const fromProject = path.resolve(conversation.cwd, repo)
+  for (const relative of known) {
+    const source = path.join(conversation.cwd, relative)
+    const isolated = path.join(isolatedRoot, relative)
+    if (fromProject === source || fromProject === isolated) return source
+  }
+
   const candidate = fs.existsSync(fromProject)
     ? fromProject
     : path.resolve(fs.realpathSync(core.cwd), repo)

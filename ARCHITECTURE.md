@@ -135,7 +135,12 @@ pending submodule are denied with that instruction or the shared-checkout path f
 and unavailable ones stay denied. Commands that reach a submodule only through their text
 are not inspected. On resume, the inventory also copies newly provisioned ignored setup
 files listed in each existing checkout's `.worktreeinclude`, while preserving files already
-present in the worktree.
+present in the worktree. Submodule membership and Git storage are verified against the
+conversation worktree's registration, independently of the shared checkout's current
+branch. Retiring a submodule upstream does not invalidate existing conversations or their
+initialized nested checkouts. Missing or replaced source checkouts leave unprepared
+submodules unavailable without blocking unrelated tools. Failed inventory attempts can
+be retried within the same turn.
 Independent repositories get their own context and connections. MCP availability inside the
 executor is independent of the host chat's connections. Tools and public session contracts
 remain compatible when source files move.
