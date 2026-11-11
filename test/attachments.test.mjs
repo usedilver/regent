@@ -8,7 +8,6 @@ import { Core } from '../src/core/core.ts'
 import { ConfigSchema } from '../src/config.ts'
 import { Store } from '../src/storage/store.ts'
 import { slackAttachmentLoader } from '../src/adapters/slack/attachments.ts'
-import { queryDenial } from '../plugins/executor/hooks/query.mjs'
 
 function workspace(t) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-attachments-')))
@@ -272,8 +271,6 @@ test('new attachments reach the prompt as server paths; the tool re-downloads on
     /\[attachment F0OLD1: [^\]]+\] Not downloaded yet; call regent_get_attachment with this file_id\./,
   )
   assert.equal(requested.length, 10, 'only the ten newest files are downloaded up front')
-  assert.equal(starts[0].options.readOnly, true)
-  assert.equal(queryDenial({ tool_name: 'mcp__regent__regent_get_attachment' }), null)
 
   const token = core.active.get('slack:C:1').token
   fs.rmSync(stored)

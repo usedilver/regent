@@ -20,8 +20,8 @@ Call `regent_start` with the original request, its business context, the selecte
 repository when applicable and a new UUID in `request_id`. Reuse that UUID only
 to retry the same submission. Delegate the complete request without assigning workflow
 stages; the server-side agent uses conversation and repository instructions to choose the
-necessary work. Omit intent for ordinary requests. Use ask only when explicitly selecting
-enforced read-only execution. Preserve the user's scope for edits, checks, PRs and deployment.
+necessary work. Omit intent for ordinary requests; a profile such as ask only selects the
+configured model and time limit, with the same tools. Preserve the user's scope for edits, checks, PRs and deployment.
 
 The executor checks its own connections. Missing tools in this chat do not prove
 that the server cannot query data or edit the project. Do not substitute another

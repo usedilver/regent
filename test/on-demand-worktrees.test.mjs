@@ -11,7 +11,7 @@ import { ConfigSchema } from '../src/config.ts'
 import { isolationFor } from '../src/core/repository.ts'
 import { queryGit } from '../src/core/query-git.ts'
 import { runnerArgs } from '../src/execution/runner.ts'
-import { queryDenial } from '../plugins/executor/hooks/query.mjs'
+import { readerDenial } from '../plugins/executor/hooks/readers.mjs'
 import { denial } from '../plugins/executor/hooks/policy.mjs'
 import { createHttp } from '../src/adapters/http.ts'
 import { SlackOutput } from '../src/adapters/slack/output.ts'
@@ -115,49 +115,74 @@ function fixture(t, adapter = 'slack') {
     await until(() => !core.active.size)
   }
 
-  return { root, repo, config, core, store, starts, input, submit, finish }
+  /** What the CLI does when the agent calls EnterWorktree: allowed by policy, created natively. */
+  const enter = (key = 'conversation') => {
+    const active = core.active.get(key)
+    const isolation = isolationFor(repo, key)
+    const call = { tool_name: 'EnterWorktree', tool_input: { name: isolation.name } }
+    assert.equal(core.permission(active.token, call), null)
+    git(repo, 'worktree', 'add', '-b', isolation.name, isolation.dir, 'HEAD')
+    starts.at(-1).opts.onEvent({ kind: 'tool_result', id: 'enter-worktree', error: false })
+    return isolation
+  }
+
+  return { root, repo, config, core, store, starts, input, submit, finish, enter }
 }
 
 for (const adapter of ['slack', 'mcp']) {
-  test(`${adapter}: preview requests reuse edited work and later questions retain query restrictions`, async (t) => {
+  test(`${adapter}: a conversation answers from the shared checkout and enters its worktree only to change code`, async (t) => {
     const f = fixture(t, adapter)
-    const edit = await f.submit('Corrige el texto del archivo')
-    await f.finish()
-    const session = f.store.conversation('conversation').session_id
-    const preview = await f.submit('/ask Dame un preview para revisarlo antes de hacer PR')
-    assert.equal(f.store.latestRun('conversation').intent, 'ask')
-    assert.equal(preview.opts.readOnly, true)
-    assert.equal(preview.opts.sessionId, session)
-    assert.equal(preview.opts.worktreeName, edit.opts.worktreeName)
-    await f.finish()
-
-    const query = await f.submit('/ask Explica por qué falló el preview')
-    assert.equal(query.opts.readOnly, true)
-    assert.equal(query.opts.sessionId, session)
-    assert.equal(query.opts.worktreeName, edit.opts.worktreeName)
-    await f.finish()
-
-    await f.core.submit({ ...f.input('Levanta un preview'), intent: 'ask' })
-    await until(() => f.starts.length === 4)
-    assert.equal(f.starts.at(-1).opts.readOnly, true)
-    assert.equal(f.store.latestRun('conversation').intent, 'ask')
-    await f.finish()
-  })
-
-  test(`${adapter}: query, edit and later query share the conversation without unnecessary worktrees`, async (t) => {
-    const f = fixture(t, adapter)
-    const first = await f.submit('/ask Explica cómo funciona este código')
-    assert.ok(first.opts.readOnly)
+    const isolation = isolationFor(f.repo, 'conversation')
+    const first = await f.submit('Explica cómo funciona este código')
     assert.equal(first.opts.worktreeName, undefined)
     assert.equal(first.opts.cwd, f.repo)
     assert.equal(first.opts.env.DEMAND_ROOT_VALUE, 'source-context')
+    assert.ok(first.opts.prompt.includes(`"worktree":{"name":"${isolation.name}","entered":false}`))
     assert.equal(fs.existsSync(path.join(f.repo, '.claude/worktrees')), false)
-    assert.equal(await f.core.prepareWorkspace([...f.core.active.values()][0].token, 'Read'), null)
     const args = runnerArgs(first.opts)
     assert.equal(args[args.indexOf('--permission-mode') + 1], 'bypassPermissions')
-    assert.ok(!args.includes('--tools'), 'a query keeps every native tool')
+    assert.ok(!args.includes('--tools'), 'every run keeps every native tool')
     assert.ok(!args.includes('--worktree'))
-    const inventory = await f.core.tool([...f.core.active.values()][0].token, 'regent_git_read', {
+    const token = () => f.core.active.get('conversation').token
+    const decide = (tool_name, tool_input, cwd) =>
+      f.core.permission(token(), { tool_name, tool_input, ...(cwd ? { cwd } : {}) })
+    assert.equal(await f.core.prepareWorkspace(token(), 'Read'), null)
+
+    // Investigation is free in the shared checkout; changing it is not.
+    for (const command of [
+      'unzip -o /srv/attachments/site.zip -d /tmp/site && ls /tmp/site',
+      'python3 /tmp/inspect.py > /tmp/regent-inspect.txt 2>&1',
+      'git log --oneline -5 && git status --short && pnpm test',
+      'git fetch origin && git pull --ff-only',
+    ]) {
+      assert.equal(decide('Bash', { command }), null, command)
+    }
+
+    assert.equal(decide('Agent', { prompt: 'Summarize the spreadsheet' }), null)
+    assert.equal(
+      decide('Write', { file_path: path.join(os.tmpdir(), 'regent-scratch', 'notes.py') }),
+      null,
+    )
+    const hint = new RegExp(`EnterWorktree with name "${isolation.name}"`)
+    assert.match(decide('Write', { file_path: 'answer.txt' }), hint)
+    assert.match(decide('Edit', { file_path: path.join(f.repo, 'answer.txt') }), hint)
+    assert.match(decide('Bash', { command: 'echo bad > answer.txt' }), hint)
+    assert.ok(decide('Write', { file_path: path.join(os.homedir(), '.profile') }))
+
+    for (const command of [
+      'git checkout -b feature',
+      'git commit -am "Change"',
+      'git -c user.name=x reset --hard HEAD~1',
+      'pnpm install',
+      'npm install left-pad',
+    ]) {
+      assert.match(decide('Bash', { command }), /Every conversation reads this checkout/, command)
+    }
+
+    assert.match(decide('EnterWorktree', { name: 'somewhere-else' }), hint)
+    assert.match(decide('EnterWorktree', { name: isolation.name, path: '/tmp/x' }), hint)
+    assert.ok(decide('ExitWorktree', {}))
+    const inventory = await f.core.tool(token(), 'regent_git_read', {
       operation: 'worktrees',
       args: ['--porcelain'],
     })
@@ -165,72 +190,65 @@ for (const adapter of ['slack', 'mcp']) {
     assert.equal((inventory.output.match(/^worktree /gm) ?? []).length, 1)
     const session = f.store.conversation('conversation').session_id
     await f.finish('Investigated evidence: answer.txt contains original.')
-    const continued = await f.submit('/ask Continua con la investigación')
-    assert.equal(continued.opts.sessionId, session)
-    assert.equal(continued.opts.worktreeName, undefined)
-    await f.finish('The investigation recommends changing answer.txt.')
+
+    // The change request continues the same session; the agent enters the worktree mid-run.
     const edit = await f.submit('Implementa el cambio investigado')
-    assert.equal(edit.opts.readOnly, false)
-    assert.equal(edit.opts.sessionId, null)
-    assert.match(edit.opts.prompt, /Investigated evidence/)
-    assert.match(edit.opts.prompt, /investigación/)
-    const dir = isolationFor(f.repo, 'conversation').dir
-    assert.ok(fs.existsSync(path.join(dir, '.git')))
-    const editSession = f.store.conversation('conversation').session_id
-    assert.notEqual(editSession, session)
+    assert.equal(edit.opts.sessionId, session)
+    assert.equal(edit.opts.worktreeName, undefined)
+    const { dir } = f.enter()
+    assert.equal(f.store.conversation('conversation').session_id, session)
     assert.equal(f.store.conversation('conversation').session_cwd, dir)
-    const active = [...f.core.active.values()][0]
-    assert.equal(
-      f.core.permission(active.token, {
-        tool_name: 'Write',
-        tool_input: { file_path: 'answer.txt' },
-        cwd: dir,
-      }),
-      null,
+    assert.equal(f.store.lastEvent(edit.opts.runId, 'worktree_entered').directory, dir)
+    assert.equal(decide('Write', { file_path: 'answer.txt' }), null)
+    assert.equal(decide('Write', { file_path: 'answer.txt' }, dir), null)
+    assert.ok(decide('Write', { file_path: path.join(f.repo, 'answer.txt') }, dir))
+    assert.equal(decide('Bash', { command: 'pnpm install && git commit -am "Change"' }, dir), null)
+    assert.match(
+      decide('Bash', { command: 'git checkout main' }, f.repo),
+      /Every conversation reads this checkout/,
     )
-    assert.ok(
-      f.core.permission(active.token, {
-        tool_name: 'Write',
-        tool_input: { file_path: path.join(f.repo, 'answer.txt') },
-        cwd: dir,
-      }),
-    )
+    assert.match(decide('EnterWorktree', { name: isolation.name }), /already works in its worktree/)
     fs.writeFileSync(path.join(dir, 'answer.txt'), 'edited\n')
     await f.finish('Change completed in the isolated worktree.')
+
+    // A profile only selects model and time limit: later runs resume in the worktree either way.
     const follow = await f.submit('/ask Explica qué cambiaste')
-    assert.equal(follow.opts.readOnly, true)
-    assert.equal(follow.opts.worktreeName, edit.opts.worktreeName)
-    assert.equal(follow.opts.sessionId, editSession)
+    assert.equal(f.store.latestRun('conversation').intent, 'ask')
+    assert.equal(follow.opts.worktreeName, isolation.name)
+    assert.equal(follow.opts.sessionId, session)
+    assert.ok(follow.opts.prompt.includes(`"worktree":{"name":"${isolation.name}","entered":true}`))
     assert.equal(
       (git(f.repo, 'worktree', 'list', '--porcelain').match(/^worktree /gm) ?? []).length,
       2,
     )
-    const token = [...f.core.active.values()][0].token
-    const diff = await f.core.tool(token, 'regent_git_read', {
+    const diff = await f.core.tool(token(), 'regent_git_read', {
       operation: 'diff',
       args: ['--', 'answer.txt'],
     })
 
     assert.match(diff.output, /edited/)
-    assert.ok(
-      f.core.permission(token, {
-        tool_name: 'Bash',
-        tool_input: { command: 'echo bad > answer.txt' },
-      }),
-    )
+    assert.equal(decide('Edit', { file_path: 'answer.txt' }), null)
+    assert.ok(decide('Bash', { command: `echo bad > ${path.join(f.repo, 'answer.txt')}` }))
     assert.equal(fs.readFileSync(path.join(f.repo, 'answer.txt'), 'utf8'), 'original\n')
     await f.finish()
   })
 }
 
-test('editing first creates isolation immediately, while another query conversation stays on source', async (t) => {
+test('one conversation works in its worktree while another stays on the shared checkout', async (t) => {
   const f = fixture(t)
-  const edit = await f.submit('Corrige el texto del archivo')
-  assert.ok(edit.opts.worktreeName)
+  await f.submit('Corrige el texto del archivo')
+  const { dir } = f.enter()
   await f.finish()
-  const query = await f.submit('/ask Dime cuántos archivos hay', 'independent-query')
-  assert.equal(query.opts.worktreeName, undefined)
-  assert.equal(query.opts.readOnly, true)
+  const other = await f.submit('Dime cuántos archivos hay', 'independent')
+  assert.equal(other.opts.worktreeName, undefined)
+  assert.equal(other.opts.cwd, f.repo)
+  assert.ok(
+    f.core.permission(f.core.active.get('independent').token, {
+      tool_name: 'Write',
+      tool_input: { file_path: path.join(dir, 'answer.txt') },
+    }),
+    "another conversation's worktree is not editable",
+  )
   await f.finish()
   assert.equal(
     (git(f.repo, 'worktree', 'list', '--porcelain').match(/^worktree /gm) ?? []).length,
@@ -238,17 +256,15 @@ test('editing first creates isolation immediately, while another query conversat
   )
 })
 
-test('query permissions allow investigation and scratch files but reject project edits, Git changes, MCP writes and promotion', async (t) => {
+test('credential files, unknown tools and the policy endpoint behave the same for every profile', async (t) => {
   const f = fixture(t)
   await f.submit('/ask Investiga el repositorio sin hacer cambios')
   const active = [...f.core.active.values()][0]
   const server = createHttp(f.core, () => ({}))
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   t.after(() => new Promise((resolve) => server.close(resolve)))
-  const url = `http://127.0.0.1:${server.address().port}/tool-policy`
-  const scratch = path.join(os.tmpdir(), 'regent-query-scratch', 'notes.py')
   const decide = async (tool_name, tool_input = {}) => {
-    const response = await fetch(url, {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/tool-policy`, {
       method: 'POST',
       headers: { authorization: `Bearer ${active.token}`, 'content-type': 'application/json' },
       body: JSON.stringify({ tool_name, tool_input, cwd: f.repo }),
@@ -258,59 +274,12 @@ test('query permissions allow investigation and scratch files but reject project
     return (await response.json()).reason
   }
 
-  for (const [tool_name, tool_input] of [
-    ['Write', { file_path: 'answer.txt' }],
-    ['Edit', { file_path: path.join(f.repo, 'answer.txt') }],
-    ['NotebookEdit', { notebook_path: 'analysis.ipynb' }],
-    ['Write', { file_path: path.join(os.homedir(), '.profile') }],
-    ['Bash', { command: 'echo bad > answer.txt' }],
-    ['Bash', { command: 'git commit -am "Change"' }],
-    ['Bash', { command: `cd ${f.repo} && git -c user.name=x push origin HEAD` }],
-    ['Bash', { command: 'git checkout -b feature' }],
-    ['Bash', { command: 'gh pr create --fill' }],
-    ['PowerShell', { command: 'git reset --hard' }],
-    ['EnterWorktree', {}],
-    ['mcp__regent__regent_preview', {}],
-    ['mcp__files__write_file', { file_path: scratch }],
-    ['mcp__data__query_db', { sql: 'DELETE FROM users' }],
-  ]) {
-    assert.ok(await decide(tool_name, tool_input), `${tool_name} ${JSON.stringify(tool_input)}`)
-  }
-
-  for (const [tool_name, tool_input] of [
-    ['Write', { file_path: scratch }],
-    ['Edit', { file_path: scratch }],
-    ['Bash', { command: 'unzip -o /srv/attachments/site.zip -d /tmp/site && ls /tmp/site' }],
-    ['Bash', { command: `python3 ${scratch} > /tmp/regent-query-output.txt 2>&1` }],
-    ['Bash', { command: 'git log --oneline -5 && git status --short && pnpm test' }],
-    ['Agent', { prompt: 'Summarize the spreadsheet' }],
-  ]) {
-    assert.equal(await decide(tool_name, tool_input), null, `${tool_name} ${tool_input.command}`)
-  }
-
-  for (const input of [
-    { tool_name: 'Read', tool_input: { file_path: 'answer.txt' } },
-    { tool_name: 'mcp__data__query_db', tool_input: { sql: 'SELECT id FROM users LIMIT 1' } },
-    { tool_name: 'mcp__notion__search', tool_input: { query: 'Create project guide' } },
-  ]) {
-    assert.equal(f.core.permission(active.token, input), null)
-  }
-
-  assert.ok(
-    f.core.permission(active.token, {
-      tool_name: 'Read',
-      tool_input: { file_path: '.credentials.json' },
-    }),
-  )
-  await assert.rejects(
-    () =>
-      f.core.tool(active.token, 'regent_use_repo', {
-        repo: f.repo,
-        intent: 'project',
-        handoff: 'Agent self escalation',
-      }),
-    /cannot promote/,
-  )
+  assert.ok(await decide('Write', { file_path: 'answer.txt' }))
+  assert.ok(await decide('Read', { file_path: '.credentials.json' }))
+  assert.ok(await decide('Bash', { command: 'cat ~/.claude/.credentials.json' }))
+  assert.equal(await decide('Read', { file_path: 'answer.txt' }), null)
+  assert.equal(await decide('Bash', { command: 'unzip -l /tmp/attached.zip' }), null)
+  assert.equal(await decide('mcp__notion__create_page', { title: 'Guide' }), null)
   await assert.rejects(
     () => f.core.tool(active.token, 'regent_preview', { action: 'status' }),
     /Tool desconocida/,
@@ -416,6 +385,7 @@ test('submodule investigation uses source; editing checks out only the submodule
   assert.ok(!fs.existsSync(path.join(f.repo, '.claude/worktrees')))
   await f.finish('Investigated the pinned backend.')
   await f.submit('Implementa el cambio en backend')
+  f.enter()
   active = [...f.core.active.values()][0]
   const dir = isolationFor(f.repo, 'conversation').dir
   assert.equal(await f.core.prepareWorkspace(active.token, 'Edit'), null)
@@ -488,14 +458,15 @@ test('submodule investigation uses source; editing checks out only the submodule
     }),
     null,
   )
-  const shared = await f.core.tool(active.token, 'regent_use_repo', {
+  // A profile changes no capability: once in the worktree, any run may request a checkout.
+  const requested = await f.core.tool(active.token, 'regent_use_repo', {
     repo: path.join(dir, 'frontend/web'),
-    handoff: 'Read the frontend.',
+    handoff: 'Work on the frontend.',
   })
 
-  assert.equal(shared.cwd, path.join(f.repo, 'frontend/web'))
-  assert.equal(shared.prepared, undefined)
-  assert.ok(!fs.existsSync(path.join(dir, 'frontend/web/.git')))
+  assert.equal(requested.cwd, path.join(dir, 'frontend/web'))
+  assert.deepEqual(requested.prepared, ['frontend/web'])
+  assert.ok(fs.existsSync(path.join(dir, 'frontend/web/.git')))
   await f.finish()
 })
 
@@ -513,6 +484,7 @@ test('a nested submodule request checks out its enclosing submodule, and unavail
   addSubmodule(f, 'missing', 'services/missing')
   git(f.repo, 'submodule', 'deinit', '-f', 'services/missing')
   await f.submit('Cambia la libreria interna')
+  f.enter()
   const active = [...f.core.active.values()][0]
   const dir = isolationFor(f.repo, 'conversation').dir
   assert.equal(await f.core.prepareWorkspace(active.token, 'Edit'), null)
@@ -556,6 +528,7 @@ for (const blocked of [false, true]) {
     await f.core.submit({ ...f.input('Revisa el proyecto'), thread: '123.456' })
     await until(() => f.core.active.size)
     const active = [...f.core.active.values()][0]
+    f.enter()
     const reading = { kind: 'tool_use', id: 'read-code', name: 'Grep' }
     f.store.event(active.run.id, reading.kind, reading)
     f.core.output.activity(active.conversation, active.run, reading)
@@ -625,6 +598,7 @@ test('resumed submodules receive newly provisioned ignored setup files without o
   const isolated = isolationFor(f.repo, 'conversation').dir
   const prepare = async () => {
     await f.submit('Cambia el texto del boton')
+    if (!fs.existsSync(isolated)) f.enter()
     const active = [...f.core.active.values()][0]
     assert.equal(await f.core.prepareWorkspace(active.token, 'Edit'), null)
     return active
@@ -669,7 +643,7 @@ test('legacy sessions reuse their existing worktree, and removed worktrees do no
   await f.finish()
 })
 
-test('configured read-only MCPs retain their reader contracts in both execution modes', () => {
+test('configured read-only MCPs retain their reader contracts', () => {
   for (const [name, tool_input] of [
     ['execute_sql', { query: 'SELECT id FROM candidates LIMIT 1' }],
     ['mixpanel_query', { project: 'match', type: 'segmentation' }],
@@ -696,28 +670,113 @@ test('configured read-only MCPs retain their reader contracts in both execution 
     'SELECT id FROM candidates; DELETE FROM candidates',
     'node -e writeFile()',
   ]) {
-    assert.ok(queryDenial({ tool_name: 'mcp__fixture__execute_sql', tool_input: { query } }))
+    assert.ok(readerDenial({ tool_name: 'mcp__fixture__execute_sql', tool_input: { query } }))
   }
 
-  assert.ok(queryDenial({ tool_name: 'mcp__fixture__execute_sql', tool_input: {} }))
-  assert.ok(queryDenial({ tool_name: 'mcp__fixture__delete_and_query', tool_input: {} }))
+  assert.ok(readerDenial({ tool_name: 'mcp__fixture__execute_sql', tool_input: {} }))
+  assert.ok(readerDenial({ tool_name: 'mcp__fixture__delete_and_query', tool_input: {} }))
   assert.equal(
-    queryDenial({
+    readerDenial({
       tool_name: 'mcp__notion__API-post-search',
       tool_input: { query: 'Create project guide' },
     }),
     null,
   )
   assert.ok(
-    queryDenial({
+    readerDenial({
       tool_name: 'mcp__db__query_sql',
       tool_input: { payload: { SQL: 'DELETE FROM users' } },
     }),
   )
   assert.ok(
-    queryDenial({
+    readerDenial({
       tool_name: 'mcp__data__query_db',
       tool_input: { sql: 'SELECT id FROM users; DELETE FROM users' },
     }),
   )
+})
+
+test('commands from the shared checkout may read, build and update it, never move its state', () => {
+  const env = {
+    REGENT_SHARED: '1',
+    REGENT_SCRATCH: JSON.stringify([os.tmpdir(), '/tmp']),
+    REGENT_WORKSPACE: path.dirname(process.cwd()),
+    REGENT_WORKTREE_NAME: 'regent-fixture',
+    REGENT_CWD: process.cwd(),
+  }
+  const decide = (command, overrides = {}) =>
+    denial({ tool_name: 'Bash', tool_input: { command } }, { ...env, ...overrides })
+
+  for (const command of [
+    'git branch -a',
+    'git branch -vv',
+    'git branch --show-current',
+    'git merge-base main HEAD',
+    'git stash list',
+    'git log --oneline -5 --grep reset',
+    'git show HEAD~1 --stat',
+    'git diff main...HEAD',
+    'git fetch origin && git pull --ff-only',
+    'git submodule update --init',
+    'git worktree list',
+    'gh pr view 5 && gh pr merge 5 --squash',
+    'pnpm test && pnpm run build',
+    'npm init -y --dry-run',
+    'unzip -o report.zip -d /tmp/report',
+    'python3 /tmp/inspect.py > /tmp/inspect.txt 2>&1',
+    'cat > /tmp/inspect.py <<\'PY\'\nif total > 3:\n    print("<b>big</b>")\nPY',
+  ]) {
+    assert.equal(decide(command), null, command)
+  }
+
+  for (const command of [
+    'git checkout main',
+    'git switch -c feature',
+    'git -C . commit -m "Change"',
+    'git add . && git commit -m x',
+    'git reset --hard',
+    'git stash',
+    'git stash pop',
+    'git branch -D old',
+    'git merge main',
+    'git rebase main',
+    'git push origin main',
+    'git clean -fd',
+    'git worktree add ../other',
+    'cd . && git restore .',
+  ]) {
+    assert.match(decide(command), /do not change its Git state.*EnterWorktree with name/, command)
+  }
+
+  for (const command of ['pnpm install', 'pnpm i', 'yarn add left-pad', 'bun install']) {
+    assert.match(decide(command), /do not change its dependencies/, command)
+  }
+
+  // Reproducing the committed lockfile is how a pulled checkout is brought up to date.
+  for (const command of ['git pull --ff-only && pnpm install --frozen-lockfile', 'npm ci']) {
+    assert.equal(decide(command), null, command)
+  }
+
+  // Mentioning a command is not running it.
+  for (const command of [
+    'rg "run git commit" docs',
+    'echo "then run npm install"',
+    "gh pr comment 1 --body 'please git rebase main'",
+    'cat > /tmp/release.sh <<EOF\ngit commit -m x\npnpm install\nEOF',
+    'git apply --check /tmp/change.patch',
+  ]) {
+    assert.equal(decide(command), null, command)
+  }
+
+  assert.match(decide('gh pr checkout 12'), /do not change its Git state/)
+
+  for (const command of ['echo hi > notes.txt', 'cat > src/new.ts <<EOF\nx\nEOF']) {
+    assert.match(decide(command), /EnterWorktree with name "regent-fixture"/, command)
+  }
+
+  // Inside the conversation's own worktree the same commands are ordinary work.
+  const worktree = { REGENT_SHARED: '', REGENT_ROOT: process.cwd() }
+  for (const command of ['git commit -am x', 'pnpm install', 'echo hi > notes.txt']) {
+    assert.equal(decide(command, worktree), null, command)
+  }
 })

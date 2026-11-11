@@ -68,13 +68,14 @@ try {
       output: { async notice() {}, async status() {}, async delta() {}, async finish() {} },
       runner: (value) => {
         options = value
-        const isolated = {
-          name: value.worktreeName,
-          dir: path.join(repo, '.claude/worktrees', value.worktreeName),
-        }
+        const isolated = isolationFor(repo, core.byToken(value.token).run.conversation_key)
 
+        // The run starts in the shared checkout; the agent enters its worktree the native way.
         if (!fs.existsSync(isolated.dir)) {
+          const enter = { tool_name: 'EnterWorktree', tool_input: { name: isolated.name } }
+          assert.equal(core.permission(value.token, enter), null)
           git(repo, 'worktree', 'add', '-b', `worktree-${isolated.name}`, isolated.dir, 'HEAD')
+          value.onEvent({ kind: 'tool_result', id: 'enter-worktree', error: false })
         }
 
         let finish
@@ -107,7 +108,9 @@ try {
       assert.equal(options.cwd, fs.realpathSync(repo))
       assert.deepEqual(options.additionalDirectories, [])
       const isolated = isolationFor(repo, key)
-      assert.equal(options.worktreeName, isolated.name)
+      // The first mode enters the worktree mid-run; the second one starts in it.
+      assert.equal(options.worktreeName, permission_mode === 'bypass' ? undefined : isolated.name)
+      assert.equal(active.executionDir, isolated.dir)
       assert.doesNotMatch(options.prompt, /"policy"|"worktrees"|"task"/)
 
       for (const tool_name of ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']) {
@@ -115,8 +118,10 @@ try {
         assert.equal(permit(tool_name, { [field]: 'answer.txt' }), null)
         assert.ok(permit(tool_name, { [field]: path.join(unborn, 'nested/new.txt') }))
         assert.ok(permit(tool_name, { [field]: path.join(repo, 'answer.txt') }))
-        assert.ok(permit(tool_name, { [field]: path.join(root, 'escape/outside.txt') }))
-        assert.ok(permit(tool_name, { [field]: path.join(os.tmpdir(), 'outside.txt') }))
+        // Scratch files outside every repository are not code, however the path reaches them.
+        assert.equal(permit(tool_name, { [field]: path.join(root, 'escape/outside.txt') }), null)
+        assert.equal(permit(tool_name, { [field]: path.join(os.tmpdir(), 'outside.txt') }), null)
+        assert.ok(permit(tool_name, { [field]: path.join(os.homedir(), 'outside.txt') }))
         assert.equal(permit(tool_name, { [field]: '.env.local' }), null) // build config del proyecto: editable dentro del worktree
         assert.ok(permit(tool_name, { [field]: '.credentials.json' })) // credencial dura: sigue bloqueada
       }
@@ -226,13 +231,11 @@ try {
       )
       fs.writeFileSync(path.join(other.dir, 'answer.txt'), 'independent\n')
       assert.ok(permit('Write', { file_path: path.join(other.dir, 'answer.txt') }))
-      assert.ok(
-        core.permission(active.token, {
-          tool_name: 'Bash',
-          tool_input: { command: 'git status' },
-          cwd: repo,
-        }),
-      )
+      // From the shared checkout a run may read, never move the branch every conversation sees.
+      const fromShared = (command) =>
+        core.permission(active.token, { tool_name: 'Bash', tool_input: { command }, cwd: repo })
+      assert.equal(fromShared('git status'), null)
+      assert.match(fromShared('git checkout -b feature'), /Every conversation reads this checkout/)
       assert.ok(core.permission(active.token, { tool_name: 'ExitWorktree', tool_input: {} }))
       assert.equal(fs.readFileSync(path.join(repo, 'answer.txt'), 'utf8'), 'before\n')
       assert.equal(
@@ -485,13 +488,17 @@ try {
     output: { async notice() {}, async status() {}, async delta() {}, async finish() {} },
     runner: (options) => {
       starts.push(options)
-      const isolated = isolationFor(options.cwd, 'project-session')
+      const isolated = isolationFor(options.cwd, core.byToken(options.token).run.conversation_key)
+      options.onEvent({ kind: 'init', sessionId: options.sessionId ?? `fixture-${starts.length}` })
 
+      // The agent enters the conversation's worktree before changing anything.
       if (!fs.existsSync(isolated.dir)) {
+        const enter = { tool_name: 'EnterWorktree', tool_input: { name: isolated.name } }
+        assert.equal(core.permission(options.token, enter), null)
         git(options.cwd, 'worktree', 'add', '-b', isolated.name, isolated.dir, 'HEAD')
+        options.onEvent({ kind: 'tool_result', id: 'enter-worktree', error: false })
       }
 
-      options.onEvent({ kind: 'init', sessionId: options.sessionId ?? `fixture-${starts.length}` })
       let resolve
       const done = new Promise((complete) => {
         resolve = complete
@@ -613,7 +620,8 @@ try {
     finish[0]()
     await wait(() => starts.length === 2)
     assert.equal(starts[1].sessionId, 'fixture-1')
-    assert.equal(starts[1].worktreeName, starts[0].worktreeName)
+    assert.equal(starts[0].worktreeName, undefined)
+    assert.equal(starts[1].worktreeName, isolated.name)
     assert.doesNotMatch(starts[1].prompt, /Antes de ejecutar la solicitud, llama regent_use_repo/)
     const next = [...core.active.values()][0]
     await assert.rejects(

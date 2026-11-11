@@ -12,7 +12,6 @@ import { History, HISTORY_CONTEXT_CHARS } from '../src/core/history.ts'
 import { gatherHistory } from '../src/adapters/slack/history.ts'
 import { executionFailure, failureMessage } from '../src/execution/failures.ts'
 import { startRunner } from '../src/execution/runner.ts'
-import { queryDenial } from '../plugins/executor/hooks/query.mjs'
 import { ExternalMcp } from '../src/adapters/mcp/server.ts'
 import { isolationFor } from '../src/core/repository.ts'
 
@@ -279,7 +278,7 @@ test('runner preserves an error result with subtype success and exit code 1', as
 })
 
 for (const editing of [false, true]) {
-  test(`context recovery preserves ${editing ? 'an existing dirty worktree' : 'query mode'}, deadlines, costs and conversation`, async (t) => {
+  test(`context recovery preserves ${editing ? 'an existing dirty worktree' : 'the shared checkout'}, deadlines, costs and conversation`, async (t) => {
     const f = fixture(
       t,
       async (_opts, n) => {
@@ -299,7 +298,6 @@ for (const editing of [false, true]) {
     assert.equal(first.sessionId, 'old-session')
     assert.equal(second.sessionId, null)
     assert.equal(second.runId, first.runId)
-    assert.equal(second.readOnly, !editing)
     assert.equal(second.worktreeName, first.worktreeName)
     assert.equal(second.cwd, first.cwd)
     assert.equal(second.env.SYNTHETIC_PROJECT_VALUE, 'preserved')
@@ -405,7 +403,6 @@ test('history reader is read-only, paged, scoped to the active run and expires w
   await f.core.submit(input('next'))
   await until(() => release)
   const active = [...f.core.active.values()][0]
-  assert.equal(queryDenial({ tool_name: 'mcp__regent__regent_read_history' }), null)
   const page = await f.core.tool(active.token, 'regent_read_history', {
     max_chars: 12,
     run_id: other.runId,

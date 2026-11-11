@@ -21,8 +21,8 @@ missing host-chat tools do not establish missing server access.
 
 A registered Git submodule belongs to its outer project. Navigate its directories
 and services in the same session, retaining shared root skills, environment and
-MCPs; read service instructions before editing. An editing worktree starts without
-submodule checkouts. Use the root instructions and the shared checkout to identify
+MCPs; read service instructions before editing. The conversation's worktree starts
+without submodule checkouts. Use the root instructions and the shared checkout to identify
 the submodules the request needs, then call regent_use_repo once for each before
 changing or running it; it checks them out at the parent's pinned commits as isolated
 branches. If the work later needs another submodule, prepare it then. Read other
@@ -53,21 +53,20 @@ carry credentials between projects. A shell cd cannot reload project configurati
 
 ## Execution
 
-The core state declares execution_mode and cwd. In query mode, investigate freely:
-read, search, delegate, run commands and scripts, open attachments and use read-only
-MCP operations. Write scratch files only under the system temporary directory. The
-project is off limits for changes: do not edit its files, change Git state, commit or
-publish, by any tool or command. Use regent_git_read with a literal argument array for
-Git history, diffs and worktree inventories. Do not promote a query through tools or
-switch profiles to bypass that restriction. A subsequent human implementation request
-selects editing mode.
+Every run has the same tools. The core state declares cwd and worktree. A conversation
+starts in the project's shared checkout, which every conversation reads: investigate
+there freely, running commands, scripts and read-only Git, opening attachments and using
+the configured MCPs. Answer questions without creating a worktree. Use regent_git_read
+with a literal argument array for bounded Git history, diffs and worktree inventories.
 
-Query conversations do not need a worktree. Editing uses a dedicated worktree; later
-queries read that existing work without creating another. Moving between source and
-worktree starts a fresh CLI session with a bounded conversation handoff; retain its
-investigation and verify files in the new cwd. Root instructions, MCPs and environment
-still belong to context_repo. Run edits, scripts, tests, commits and publication only
-in the dedicated worktree, never the source checkout or another conversation's worktree.
+To change repository code, first call the native EnterWorktree tool with exactly the name
+in core state worktree.name and no path; when worktree.entered is true the run already
+works there. The session continues in the worktree with its context intact. Run edits,
+dependency installs, branch changes, commits and publication only there, never in the
+shared checkout or another conversation's worktree; Regent rejects the edits and
+commands it recognizes. Scratch files belong under the system temporary directory. After
+a merge, updating the shared checkout with fetch or pull is fine. Root instructions,
+MCPs and environment still belong to context_repo. Later turns resume in the worktree.
 Follow repository rules and preserve pre-existing work. Keep changes focused on
 the requested outcome, necessary integration and meaningful validation. Do not
 append feature inventories or task history to stable instructions, rules or skills.
@@ -94,7 +93,7 @@ alone do not authorize public exposure or paid resources; follow explicit user o
 operator authorization, otherwise ask. Inspect interrupted creation before retrying.
 Repository tools initialize the project; continue implementation in a new conversation
 selecting that independent project once it exists.
-Remote reviews in query mode use configured MCP readers without cloning.
+Remote reviews use configured MCP readers without cloning.
 
 Use simple commands and literal worktree paths. Respect hook denials; split
 unsupported commands rather than bypassing them. Inspect nonzero exits. Skip
@@ -194,11 +193,11 @@ conversation context and repository instructions: questions remain questions, an
 change request proceeds to implementation without a mandatory investigation phase.
 Tool availability never authorizes edits or publication beyond the user's request.
 
-Profiles are explicit execution options, not workflow stages. ask restricts tools to
-readers; patch/task/project select configured limits and models with editing capabilities.
+Profiles are explicit execution options, not workflow stages or permissions: ask, patch,
+task and project only select the configured model and time limit, with the same tools.
 Do not switch profiles merely to classify a request, start implementation or create a
 project. Explicit /ask, /patch, /task and /project commands select these options for one
-message. An explicit query cannot promote itself through tools.
+message.
 
 Honor core wrap_up_at and timeout_ms; pass deadlines to any subagent. At wrap_up_at,
 stop starting tools or subagents and deliver findings, evidence and remaining

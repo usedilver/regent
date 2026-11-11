@@ -65,19 +65,22 @@ Regent does not classify natural-language requests. Ordinary messages use the sa
 profile and reach Claude unchanged, apart from explicit repository selection. Claude uses
 conversation and repository instructions to decide whether to answer, investigate,
 implement or validate. Investigation is not a prerequisite for an edit. Optional MCP intent
-arguments and slash prefixes select execution constraints for that message only; they do
-not infer authorization or carry over from an earlier message. Explicit ask remains a
-query mode that never changes the project. Existing stored profiles and public tools remain compatible.
+arguments and slash prefixes select the model and time limit for that message only; they
+grant or remove no tools, infer no authorization and do not carry over from an earlier
+message. Existing stored profiles and public tools remain compatible.
 
-The runner launches the unmodified official CLI. Query runs start in the selected source
-checkout without allocating a worktree; editing runs create/reuse the conversation worktree.
-Queries after an edit read that existing worktree. `src/core/execution-context.ts` selects the
-location and `conversations.session_cwd` binds the persisted CLI session to it (schema 12).
+The runner launches the unmodified official CLI. There is one execution mode. A conversation
+starts in the selected project's shared checkout without a worktree and answers from there.
+To change code, the executor calls the CLI's native `EnterWorktree` with the name Regent
+assigns the conversation; the same session continues in that worktree, and later runs start
+in it with `--worktree`. `src/core/execution-context.ts` selects the location and
+`conversations.session_cwd` binds the persisted CLI session to it (schema 12).
 A directory change starts a fresh CLI session with a bounded prior-request/result handoff;
 the Regent conversation, history, caller and queued work remain the same. A turn handed to
 a queued continuation closes its activity without posting a reply. Agent runs disable the
 CLI's auto memory, which lives outside the worktree and is shared by every conversation. Legacy sessions
-resume only when their existing worktree matches; a removed worktree is not recreated for a query.
+resume only when their existing worktree matches; a removed worktree is recreated only when the
+executor enters it again.
 
 Slack history has no conversation-wide 2,000-message or 200,000-character rejection.
 The redacted snapshot is retained for the run; previously delivered messages are filtered
@@ -127,20 +130,23 @@ available. Cost and token usage cover all attempts; successful recovery is not r
 a terminal failure. Tests simulate these conditions and do not claim to exhaust a real
 provider context window or subscription quota.
 
-Query mode keeps every native tool, so a question can run commands, delegate and open
-attachments. Core/hook policy confines edit tools to scratch locations (the system temporary
-directory and Regent's attachment directory), denies commands that change Git state or
-publish through `git`/`gh`, denies self-promotion and constrains MCP operations to query
-conventions. A shell command can still write inside the shared checkout; that boundary is
-an instruction, not an enforcement. `regent_git_read` executes bounded read-only Git argv
+Core/hook policy keeps two boundaries around that freedom. Edit tools write only inside the
+conversation's worktree, once entered, or in scratch locations (the system temporary directory
+and the conversation's own attachment directory); `EnterWorktree` is accepted only for the conversation's
+own worktree and `ExitWorktree` is refused. A command run from the project's shared checkout
+may read, build, fetch, pull and reinstall the committed lockfile, but recognized Git state
+changes, other package installs and output redirected outside the worktree are refused,
+because every conversation reads that checkout. A new project created elsewhere in the
+workspace is not a shared checkout. These are heuristics over the command text: an elaborate command can still write
+there, so the instruction remains the rule and the check its safety net. `regent_git_read` executes bounded read-only Git argv
 without a shell, disabling executable Git filters, fsmonitor and external diff/textconv.
 It receives a minimal environment, not transport credentials. Trusted project hooks and MCP
 implementations still execute under the operator's account; these guards are not an OS sandbox.
 External services/database credentials must enforce their own data permissions.
 
-The selected project's environment and connections load in both modes, preserving shared
-root context for registered Git submodules. Query reads never prepare nested worktrees.
-An editing worktree starts without submodule checkouts: the executor decides, from the
+The selected project's environment and connections load for every run, preserving shared
+root context for registered Git submodules. Runs in the shared checkout never prepare nested
+worktrees. The conversation's worktree starts without submodule checkouts: the executor decides, from the
 prompt and repository instructions, which submodules a request needs and calls
 `regent_use_repo` for each, which checks out that submodule and its enclosing ones at the
 parent's pinned commits. A new checkout with a `pnpm-lock.yaml` also gets `pnpm install`, so

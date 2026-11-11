@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import { assertAuth } from '../config.ts'
 import {
   executionFailure,
@@ -15,7 +16,6 @@ import { History, type AttachmentSaver } from './history.ts'
 import { prepareImages } from './images.ts'
 import { resolveIdentity, type Identity } from './identity.ts'
 import { failedText, interruptedText } from './progress.ts'
-import { isolationFor } from './repository.ts'
 import { cleanupText } from './worktree-cleanup.ts'
 import type { Conversation, Run, RunState } from './types.ts'
 
@@ -53,6 +53,8 @@ export class Turn {
   private runTimeout?: NodeJS.Timeout
   private heartbeat?: NodeJS.Timeout
   private deadlineWarning?: NodeJS.Timeout
+  /** The id of the agent's own EnterWorktree call, to tell its result from other tools'. */
+  private enteringCall?: string
 
   constructor(core: Core, active: Active) {
     this.core = core
@@ -74,8 +76,7 @@ export class Turn {
     this.runTimeout = setTimeout(() => this.expire(), this.timeoutMs)
 
     try {
-      const execution = executionContext(this.conversation, this.run.intent)
-      this.active.readOnly = execution.readOnly
+      const execution = executionContext(this.conversation)
       this.active.executionDir = execution.directory
       const env = agentEnvironment(this.core.config, this.core.secretKeys, this.conversation.cwd)
       assertAuth(this.core.config, env)
@@ -180,6 +181,13 @@ export class Turn {
     )
   }
 
+  /** Native mode only reads outside the project when told: this conversation's attachments. */
+  private readableDirectories(): string[] {
+    if (this.core.config.permission_mode !== 'native') return []
+    const directory = this.core.attachments.directory(this.conversation.key)
+    return fs.existsSync(directory) ? [directory] : []
+  }
+
   private saveAttachment(): AttachmentSaver | undefined {
     const { attachments, attachmentLoader } = this.core
     if (!attachmentLoader) return
@@ -234,8 +242,10 @@ export class Turn {
       workspace: this.core.cwd,
       default_repo: this.core.defaultCwd,
       context_repo: this.conversation.cwd,
-      execution_mode: execution.readOnly ? 'query' : 'edit',
       cwd: execution.directory,
+      worktree: execution.worktree
+        ? { name: execution.worktree.name, entered: execution.isolated }
+        : null,
       wrap_up_at: new Date(this.active.wrapUpAt!).toISOString(),
       timeout_ms: this.timeoutMs,
     }
@@ -264,10 +274,6 @@ export class Turn {
     prompt: string,
   ): RunnerOptions {
     const { config } = this.core
-    const isolation = execution.isolated
-      ? isolationFor(this.conversation.cwd, this.conversation.key)
-      : undefined
-
     return {
       cwd: this.conversation.cwd,
       prompt,
@@ -277,9 +283,8 @@ export class Turn {
       images: this.visual.images,
       permissionMode: config.permission_mode,
       communicationFile: config.communication.instructions_file,
-      worktreeName: isolation?.name,
-      readOnly: execution.readOnly,
-      additionalDirectories: [],
+      worktreeName: execution.isolated ? execution.worktree!.name : undefined,
+      additionalDirectories: this.readableDirectories(),
       env,
       token: this.active.token,
       toolsUrl: this.core.toolsUrl,
@@ -305,10 +310,14 @@ export class Turn {
         store.session(this.conversation.key, event.sessionId, execution.directory)
       }
     } else if (event.kind === 'tool_use') {
+      if (event.name === 'EnterWorktree') this.enteringCall = event.id
       this.active.lastTool = event.name
       this.active.toolUses++
       output.activity?.(this.conversation, this.run, event)
     } else if (event.kind === 'tool_result') {
+      // A failed entry leaves the run where it was, whatever Git left on disk.
+      if (event.error && event.id === this.enteringCall) this.active.enteringWorktree = false
+      this.core.syncWorktree(this.active)
       output.activity?.(this.conversation, this.run, event)
     } else if (event.kind === 'text_delta') {
       const text = event.text
@@ -443,6 +452,7 @@ export class Turn {
     this.stopTimers()
     this.active.abort.abort()
     await Promise.allSettled(this.active.operations)
+    this.core.syncWorktree(this.active)
     let state = this.finalState(result.state)
     const deliveredSession = this.core.store.conversation(this.conversation.key)?.session_id
     let error = this.stopReason() ?? result.error
@@ -547,6 +557,7 @@ export class Turn {
   private async fail(error: unknown): Promise<void> {
     this.active.controller?.cancel('Error del servidor')
     if (this.active.controller) await this.active.controller.done.catch(() => {})
+    this.core.syncWorktree(this.active)
     const message = redact(this.stopReason() ?? errorMessage(error))
     const failure = this.crashFailure(error, message)
     if (failure) this.core.store.event(this.run.id, 'execution_failure', failure)

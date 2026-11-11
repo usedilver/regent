@@ -68,7 +68,6 @@ export interface RunnerOptions {
   token: string
   readonlyMcp: string[]
   additionalDirectories?: string[]
-  readOnly?: boolean
   worktreeName?: string
   communicationFile?: string | null
   /** Bypass skips native permissions. Native honors repository rules; unanswered
@@ -83,7 +82,6 @@ export interface RunnerOptions {
   onEvent(event: RunnerEvent): void
 }
 
-const QUERY_PREAPPROVED_TOOLS = 'Read,Glob,Grep,Skill,ToolSearch,WebFetch,WebSearch'
 const MAX_EVENT_BYTES = 8 * 1024 * 1024
 const STDERR_TAIL_CHARS = 16000
 const KILL_GRACE_CAP_MS = 5000
@@ -110,12 +108,8 @@ export function runnerArgs(
   const native = options.permissionMode === 'native'
   let toolFlags: string[] = []
 
-  // A query keeps every native tool; the policy hook is what confines its edits and commands.
-  if (options.readOnly) {
-    toolFlags = native ? ['--allowedTools', `${QUERY_PREAPPROVED_TOOLS},mcp__*`] : []
-  } else if (native) {
-    toolFlags = ['--allowedTools', 'mcp__regent__*']
-  }
+  // Entering the conversation's worktree is Regent's own protocol, like its tools.
+  if (native) toolFlags = ['--allowedTools', 'mcp__regent__*,EnterWorktree']
 
   return [
     '-p',
@@ -347,7 +341,6 @@ function runnerEnv(options: RunnerOptions): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...(options.env ?? process.env),
     REGENT_RUN_ID: options.runId,
-    REGENT_READ_ONLY: options.readOnly ? '1' : '0',
     REGENT_RUN_TOKEN: options.token,
     REGENT_TOOLS_URL: options.toolsUrl,
     REGENT_READONLY_MCP: JSON.stringify(options.readonlyMcp),
@@ -373,16 +366,17 @@ function runnerEnv(options: RunnerOptions): NodeJS.ProcessEnv {
   return env
 }
 
-/** One-time checks before the first real CLI launch; skipped for fakes and read-only runs. */
+/** One-time checks before the first real CLI launch; skipped for fakes. */
 function preflight(options: RunnerOptions): void {
-  if (options.worktreeName && !options.command && !isolationVersionChecked) {
+  // Any run may enter its worktree mid-session, so every real launch needs that CLI support.
+  if (!options.command && !isolationVersionChecked) {
     assertIsolationVersion(
       execFileSync('claude', ['--version'], { encoding: 'utf8', timeout: 10000 }).trim(),
     )
     isolationVersionChecked = true
   }
 
-  if (options.permissionMode !== 'native' && !options.command && !options.readOnly) {
+  if (options.permissionMode !== 'native' && !options.command) {
     ensureTrusted(options.cwd)
     ensureBypassAccepted()
   }
