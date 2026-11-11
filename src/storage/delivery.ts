@@ -161,7 +161,8 @@ export class DurableOutput implements Output {
     console.error(
       `[delivery] entrega descartada ${row.kind} #${row.id} (${row.conversation_key}): ${reason}`,
     )
-    if (row.kind !== 'finish' || (args?.[3] as FinishOptions | undefined)?.userStopped) return
+    const options = args?.[3] as FinishOptions | undefined
+    if (row.kind !== 'finish' || options?.userStopped || options?.continued) return
     // Warn the thread even when the payload is unreadable: the conversation is keyed by column,
     // not by the corrupted args, so it is still reachable through the conversations table.
     const conversation =

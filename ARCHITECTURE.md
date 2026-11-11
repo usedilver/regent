@@ -74,7 +74,9 @@ checkout without allocating a worktree; editing runs create/reuse the conversati
 Queries after an edit read that existing worktree. `src/core/execution-context.ts` selects the
 location and `conversations.session_cwd` binds the persisted CLI session to it (schema 12).
 A directory change starts a fresh CLI session with a bounded prior-request/result handoff;
-the Regent conversation, history, caller and queued work remain the same. Legacy sessions
+the Regent conversation, history, caller and queued work remain the same. A turn handed to
+a queued continuation closes its activity without posting a reply. Agent runs disable the
+CLI's auto memory, which lives outside the worktree and is shared by every conversation. Legacy sessions
 resume only when their existing worktree matches; a removed worktree is not recreated for a query.
 
 Slack history has no conversation-wide 2,000-message or 200,000-character rejection.
@@ -183,13 +185,14 @@ active conversation. It defers execution until the official CLI exits; core perf
 cleanup from the shared checkout, not from the directory being deleted. It inventories
 registered nested checkouts, requires clean tracked/untracked state and verifies new work
 against freshly fetched remote refs. Unchanged pinned submodule baselines retain their
-existing local branches without requiring a current remote branch to contain old history. Explicitly supplied PR refs support squash merges
+existing local branches without requiring a current remote branch to contain old history;
+a pin with no local branch must be contained by a fetched remote ref. Explicitly supplied PR refs support squash merges
 whose source branches were removed; they are fetched once, without PR polling.
 Unknown locks, live CLI/processes, unique local commits, unavailable remotes and unsafe
 paths block cleanup. Only stale recognized native locks are released. Registered nested checkouts are removed before the parent.
 Success clears the CLI session pointer while preserving the conversation, history,
 branches and remote commits. MCP returns additive `run.cleanup`, and the runtime supplies
-the actual cleanup result alongside the executor report, preserving outcomes of other
+the actual cleanup result before the executor report, preserving outcomes of other
 requested actions such as PR closure or branch removal. A blocked cleanup does not
 erase those outcomes. Cancellation/shutdown abort cleanup. A partial
 I/O failure stays pending and can be retried. Merge/PR closure, reset, idle time and run

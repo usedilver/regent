@@ -172,7 +172,7 @@ export class SlackOutput implements Output {
 
   async finish(c: Conversation, run: Run, text: string, options?: FinishOptions): Promise<void> {
     this.activities?.terminal(run)
-    if (!options?.userStopped) await this.finishReply(c, run, text)
+    if (!options?.userStopped && !options?.continued) await this.finishReply(c, run, text)
     await this.clearProgress(run)
   }
 

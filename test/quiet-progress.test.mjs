@@ -137,3 +137,88 @@ test('queue, model status, heartbeat, retries and partial prose stay in activiti
     fs.rmSync(directory, { recursive: true, force: true })
   }
 })
+
+test('profile hand-offs and answered waits continue without posting an interim Slack reply', async () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-handoff-')))
+  const repo = path.join(root, 'app')
+  fs.mkdirSync(path.join(repo, '.git'), { recursive: true })
+  const store = new Store(':memory:')
+  const calls = []
+  const slack = new SlackOutput(async (method, args) => {
+    calls.push({ method, args })
+    return { ts: String(calls.length) }
+  })
+  slack.store = store
+  slack.activities = new SlackActivities(slack.api, store)
+  const output = new DurableOutput(store, slack)
+  const handles = []
+  const core = new Core({
+    store,
+    output,
+    cwd: root,
+    config: ConfigSchema.parse({
+      auth: { mode: 'indie' },
+      repos: { path: root, default_repo: 'app' },
+      slack: { workspace_team_id: 'T', allowed_users: ['U'] },
+    }),
+    runner: (opts) => {
+      let finish
+      const done = new Promise((resolve) => {
+        finish = resolve
+      })
+      const handle = {
+        opts,
+        finish: (text) => finish({ state: 'completed', text, error: '', cost: 0, usage: {} }),
+        done,
+        cancel() {
+          finish({ state: 'interrupted', text: '', error: 'stopped', cost: 0, usage: {} })
+        },
+      }
+      handles.push(handle)
+      opts.onEvent({ kind: 'init', sessionId: `session-${handles.length}` })
+      return handle
+    },
+  })
+  const message = (id, text) => ({
+    adapter: 'slack',
+    key: 'slack:C:1',
+    eventId: id,
+    channel: 'C',
+    thread: '1',
+    team: 'T',
+    author: 'U',
+    text,
+  })
+  const replies = () =>
+    calls.filter(
+      (c) => c.method === 'chat.postMessage' && !c.args.blocks?.some((b) => b.type === 'plan'),
+    )
+  try {
+    await core.submit(message('1', 'Change the footer'))
+    await until(() => handles.length === 1)
+    await core.tool(core.active.get('slack:C:1').token, 'regent_use_repo', {
+      repo: 'app',
+      intent: 'patch',
+      handoff: 'Change the footer in the worktree.',
+    })
+    await until(() => handles.length === 2)
+    await core.tool(core.active.get('slack:C:1').token, 'regent_ask_human', {
+      question: 'Which color?',
+    })
+    await core.submit(message('2', 'Blue'))
+    await until(() => handles.length === 3)
+    handles[2].finish('Footer changed')
+    await until(() => !core.active.size)
+    await output.flush?.()
+    await until(() => replies().some((c) => c.args.text === 'Footer changed'))
+    assert.deepEqual(
+      replies().map((c) => c.args.text),
+      ['Which color?', 'Footer changed'],
+    )
+  } finally {
+    await core.close()
+    await output.close()
+    store.close()
+    fs.rmSync(root, { recursive: true, force: true })
+  }
+})

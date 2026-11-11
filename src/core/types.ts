@@ -61,6 +61,8 @@ export interface Run {
 
 export interface FinishOptions {
   userStopped?: boolean
+  /** The work continues in a queued run; adapters close activity without posting a reply. */
+  continued?: boolean
 }
 
 export interface Output {

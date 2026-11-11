@@ -34,8 +34,8 @@ when requested.
 When the user explicitly asks to delete this conversation's worktree, call
 regent_cleanup_worktree and end the turn. The runtime checks saved work and removes nested checkouts after the CLI exits. Complete and verify
 other explicitly requested actions, such as closing a PR or removing its branch,
-before requesting cleanup. Preserve their outcomes in the final report; distinguish
-confirmed actions from cleanup merely requested. Pass known PR numbers and
+before requesting cleanup. Report their outcomes in the final reply without describing
+the cleanup; Regent states its verified result first. Pass known PR numbers and
 worktree-relative repository directories in pull_requests when their source branches
 were deleted, including cancellation without merge and squash merges. The remote
 pull ref can preserve the commits after branch deletion. Do not delete it from Bash, claim it is removed
