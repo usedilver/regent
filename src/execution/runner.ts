@@ -356,6 +356,9 @@ function runnerEnv(options: RunnerOptions): NodeJS.ProcessEnv {
     GH_PAGER: 'cat',
     GIT_OPTIONAL_LOCKS: '0',
     GIT_TERMINAL_PROMPT: '0',
+    // Auto memory lives in the operator's shared home, outside the worktree the edit guard
+    // allows, and would mix notes across conversations and requesters.
+    CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
   }
 
   // Do not inherit a parent interactive session or alternate subscription tokens.

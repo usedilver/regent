@@ -75,7 +75,8 @@ Queries after an edit read that existing worktree. `src/core/execution-context.t
 location and `conversations.session_cwd` binds the persisted CLI session to it (schema 12).
 A directory change starts a fresh CLI session with a bounded prior-request/result handoff;
 the Regent conversation, history, caller and queued work remain the same. A turn handed to
-a queued continuation closes its activity without posting a reply. Legacy sessions
+a queued continuation closes its activity without posting a reply. Agent runs disable the
+CLI's auto memory, which lives outside the worktree and is shared by every conversation. Legacy sessions
 resume only when their existing worktree matches; a removed worktree is not recreated for a query.
 
 Slack history has no conversation-wide 2,000-message or 200,000-character rejection.
