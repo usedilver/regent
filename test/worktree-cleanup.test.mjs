@@ -172,6 +172,49 @@ test('unchanged pinned submodule history is retained locally even if origin rewr
   assert.equal(git(sourceChild, 'show', baseline + ':child.txt'), 'baseline')
 })
 
+test('a submodule pin bumped to a commit only on its remote is removable; a pin without branch or remote blocks', async (t) => {
+  const f = fixture(t)
+  const child = path.join(f.root, 'child')
+  fs.mkdirSync(child)
+  git(child, 'init', '-b', 'main')
+  fs.writeFileSync(path.join(child, 'child.txt'), 'old pin')
+  git(child, 'add', '.')
+  git(child, 'commit', '-m', 'Old pin')
+  git(f.repo, 'submodule', 'add', child, 'child')
+  git(f.repo, 'commit', '-am', 'Register child')
+  git(f.repo, 'push')
+  git(f.isolated, 'merge', '--ff-only', 'main')
+  await prepareSubmodule(f.root, f.repo, f.isolated, f.key, 'child')
+  const isolatedChild = path.join(f.isolated, 'child')
+  const bump = (message) => {
+    git(f.isolated, 'add', 'child')
+    git(f.isolated, 'commit', '-m', message)
+    git(f.isolated, 'push', '-f', 'origin', 'HEAD:refs/heads/bump')
+  }
+
+  git(isolatedChild, 'checkout', '--detach')
+  fs.writeFileSync(path.join(isolatedChild, 'child.txt'), 'unpublished')
+  git(isolatedChild, 'commit', '-am', 'Unpublished pin without a branch')
+  bump('Bump to unpublished work')
+  await assert.rejects(removeConversationWorktree(f.repo, f.key), /sin respaldo/)
+
+  fs.writeFileSync(path.join(child, 'child.txt'), 'merged upstream')
+  git(child, 'commit', '-am', 'Merged upstream')
+  git(isolatedChild, 'fetch', 'origin')
+  git(isolatedChild, 'checkout', '--detach', 'origin/main')
+  bump('Bump to merged upstream')
+  const sourceChild = path.join(f.repo, 'child')
+  const pin = git(isolatedChild, 'rev-parse', 'HEAD')
+  assert.equal(
+    git(sourceChild, 'for-each-ref', '--format=%(refname)', '--contains', pin, 'refs/heads'),
+    '',
+  )
+  const result = await removeConversationWorktree(f.repo, f.key)
+  assert.equal(result.state, 'removed')
+  assert.match(result.message, /^Eliminé el worktree .* 1 checkouts de submódulos\. No borré ramas/)
+  assert.ok(!fs.existsSync(f.isolated))
+})
+
 test('cleanup removes only the submodules the conversation prepared', async (t) => {
   const f = fixture(t)
 
@@ -277,8 +320,8 @@ test('core defers removal until executor exit, reports actual result, detaches s
         .at(-1)
         .startsWith(
           blocked
-            ? 'Limpieza del worktree pendiente:'
-            : 'Worktree y checkouts anidados eliminados.',
+            ? 'No eliminé el worktree de esta conversación; sigue intacto. Motivo:'
+            : 'Eliminé el worktree de esta conversación.',
         ),
     )
     assert.equal(fs.existsSync(f.isolated), blocked)

@@ -456,7 +456,7 @@ export class Core {
     if (active && active.run.id !== runId)
       return {
         state: 'blocked',
-        message: 'La conversacion tiene otra ejecucion activa; no se eliminara su worktree.',
+        message: 'No eliminé el worktree de esta conversación: tiene otra ejecución activa.',
       }
     const conversation = this.store.conversation(key)
     if (!conversation) throw new Error('Conversacion inexistente.')
@@ -476,7 +476,7 @@ export class Core {
     } catch (error) {
       result = {
         state: 'blocked',
-        message: `Limpieza del worktree pendiente: ${redact(errorMessage(error))}`,
+        message: `No eliminé el worktree de esta conversación; sigue intacto. Motivo: ${redact(errorMessage(error))}`,
       }
     } finally {
       clearTimeout(deadline)

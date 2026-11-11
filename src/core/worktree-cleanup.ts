@@ -45,13 +45,9 @@ export interface CleanupResult {
   removed?: string[]
 }
 
+/** The verified cleanup outcome leads; the agent's report covers the other requested actions. */
 export function cleanupText(cleanup: CleanupResult, report: string): string {
-  return [
-    cleanup.message,
-    report.trim() ? `Informe del agente sobre las acciones solicitadas:\n${report.trim()}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n\n')
+  return [cleanup.message, report.trim()].filter(Boolean).join('\n\n')
 }
 
 function inventory(text: string): Array<{ directory: string; branch?: string; lock?: string }> {
@@ -146,59 +142,73 @@ async function assertSaved(
   if (status)
     throw new Error(`Hay cambios sin commit en ${checkout.directory}. Se conserva el worktree.`)
   const head = await workspaceGit(checkout.directory, ['rev-parse', 'HEAD'], signal)
-  // The clean pinned baseline is already retained by the parent project and its
-  // local submodule branch, which cleanup never deletes. Only new work needs a
-  // fresh remote backup; unrelated source checkouts may contain older history.
-  if (head === checkout.baseline) {
-    const retained = await workspaceGit(
-      checkout.source,
-      ['for-each-ref', '--format=%(refname)', '--contains', head, 'refs/heads'],
-      signal,
-    )
-    if (!retained)
-      throw new Error('El commit inicial del submodulo no tiene una rama local que lo conserve.')
-  } else {
+  // A clean pinned baseline is usually retained by a local submodule branch, which cleanup
+  // never deletes. A pin with no local branch (for example, bumped to a merged remote commit)
+  // needs a remote backup like new work; unrelated source checkouts may hold older history.
+  const retained =
+    head === checkout.baseline && (await retainedLocally(checkout.source, head, signal))
+  if (!retained) await assertRemoteBackup(checkout, head, pullRequests, root, signal)
+  assertUnlocked(checkout)
+}
+
+async function retainedLocally(source: string, head: string, signal?: AbortSignal) {
+  const branches = await workspaceGit(
+    source,
+    ['for-each-ref', '--format=%(refname)', '--contains', head, 'refs/heads'],
+    signal,
+  )
+  return Boolean(branches)
+}
+
+async function assertRemoteBackup(
+  checkout: Checkout,
+  head: string,
+  pullRequests: CleanupPullRequest[],
+  root: string,
+  signal?: AbortSignal,
+) {
+  const requests = pullRequests.filter(
+    (pr) => path.resolve(root, pr.directory) === checkout.directory,
+  )
+  await workspaceGit(
+    checkout.source,
+    ['fetch', '--prune', '--no-recurse-submodules', 'origin'],
+    signal,
+  )
+  for (const pr of requests) {
+    if (!Number.isSafeInteger(pr.number) || pr.number < 1) throw new Error('Numero de PR invalido.')
+    // Fetch the remote PR ref only for an explicitly identified repository/PR.
+    // This preserves squash-merged commits even when the source branch was deleted.
     await workspaceGit(
       checkout.source,
-      ['fetch', '--prune', '--no-recurse-submodules', 'origin'],
-      signal,
-    )
-    for (const pr of pullRequests) {
-      if (path.resolve(root, pr.directory) !== checkout.directory) continue
-      if (!Number.isSafeInteger(pr.number) || pr.number < 1)
-        throw new Error('Numero de PR invalido.')
-      // Fetch the remote PR ref only for an explicitly identified repository/PR.
-      // This preserves squash-merged commits even when the source branch was deleted.
-      await workspaceGit(
-        checkout.source,
-        [
-          'fetch',
-          '--no-recurse-submodules',
-          'origin',
-          `refs/pull/${pr.number}/head:refs/regent/cleanup/pr-${pr.number}`,
-        ],
-        signal,
-      )
-    }
-    const remote = await workspaceGit(
-      checkout.source,
       [
-        'for-each-ref',
-        '--format=%(refname)',
-        '--contains',
-        head,
-        'refs/remotes/origin',
-        ...pullRequests
-          .filter((pr) => path.resolve(root, pr.directory) === checkout.directory)
-          .map((pr) => `refs/regent/cleanup/pr-${pr.number}`),
+        'fetch',
+        '--no-recurse-submodules',
+        'origin',
+        `refs/pull/${pr.number}/head:refs/regent/cleanup/pr-${pr.number}`,
       ],
       signal,
     )
-    if (!remote)
-      throw new Error(
-        `Hay commits sin respaldo verificable en remoto en ${checkout.directory}. Se conserva el worktree.`,
-      )
   }
+  const remote = await workspaceGit(
+    checkout.source,
+    [
+      'for-each-ref',
+      '--format=%(refname)',
+      '--contains',
+      head,
+      'refs/remotes/origin',
+      ...requests.map((pr) => `refs/regent/cleanup/pr-${pr.number}`),
+    ],
+    signal,
+  )
+  if (!remote)
+    throw new Error(
+      `Hay commits sin respaldo verificable en remoto en ${checkout.directory}. Se conserva el worktree.`,
+    )
+}
+
+function assertUnlocked(checkout: Checkout): void {
   if (checkout.lock !== undefined) {
     // This is native CLI lock metadata, never a classifier over user requests.
     const lock = /^claude session regent-[a-f0-9]+ \(pid (\d+) start (\d+)\)$/.exec(checkout.lock)
@@ -236,7 +246,7 @@ export async function removeConversationWorktree(
   if (!plan.length) {
     return {
       state: 'absent',
-      message: 'El worktree ya no existe; no hay nada pendiente de borrar.',
+      message: 'El worktree de esta conversación ya no existía; no había nada que borrar.',
     }
   }
   // Complete preflight before removing any checkout.
@@ -269,10 +279,10 @@ export async function removeConversationWorktree(
     )
     removed.push(checkout.directory)
   }
+  const nested = removed.length - 1
   return {
     state: 'removed',
     removed,
-    message:
-      'Worktree y checkouts anidados eliminados. Los commits remotos y el historial de la conversacion se conservan.',
+    message: `Eliminé el worktree de esta conversación${nested ? ` y sus ${nested} checkouts de submódulos` : ''}. No borré ramas locales ni remotas; el historial de la conversación se conserva.`,
   }
 }

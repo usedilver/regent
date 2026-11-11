@@ -259,7 +259,7 @@ async function cleanupWorktree({ core, active, input }: ToolCall) {
   return {
     state: 'requested',
     instruction:
-      'End the turn now. Run no more commands and do not delete from Bash or claim removal: Regent checks and cleans up after the CLI exits, then reports the actual outcome. Preserve history, branches and remote commits. No preview is required.',
+      'End the turn now. Run no more commands and do not delete from Bash. Regent checks and cleans up after the CLI exits and states the actual outcome first, so your final reply must not mention the cleanup; report only the other requested actions. Preserve history, branches and remote commits. No preview is required.',
   }
 }
 
