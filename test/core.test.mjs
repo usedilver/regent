@@ -1117,32 +1117,14 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
       )
     },
   )
-  await check('Slack files: bounded inline text and no token sent to untrusted hosts', async () => {
-    let calls = 0
-
-    const download = async () => {
-      calls++
-      return new Response('stack trace')
-    }
-
-    const file = {
-      id: 'F1',
-      name: 'app.log',
-      filetype: 'log',
-      size: 100,
-      url_private_download: 'https://files.slack.com/files-pri/test',
-    }
-
-    assert.match(await readSlackFile(file, 'fixture', download), /stack trace/)
-    assert.match(
-      await readSlackFile(
-        { ...file, url_private_download: 'https://example.com/file' },
-        'fixture',
-        download,
-      ),
-      /no autorizada/,
+  await check('Slack files: listed by id, type and size, never read into the prompt', async () => {
+    const file = { id: 'F1', name: 'app.log', filetype: 'log', size: 100 }
+    assert.equal(readSlackFile(file), '[attachment F1: app.log · log · 100 B]')
+    assert.equal(
+      readSlackFile({ id: 'F2', name: 'site.zip', filetype: 'zip', size: 3 * 1024 * 1024 }),
+      '[attachment F2: site.zip · zip · 3.0 MB]',
     )
-    assert.equal(calls, 1)
+    assert.equal(readSlackFile({ name: 'gone.txt' }), '[attachment unavailable: gone.txt]')
   })
   await check('durable output: disconnected deliveries survive reopen and keep order', async () => {
     const file = path.join(tmp, 'delivery.sqlite')

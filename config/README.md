@@ -298,6 +298,11 @@ una herramienta interrumpida.
 - Las imágenes adjuntas de Slack requieren `files:read`: hasta cinco por turno,
   3 MiB por imagen y 10 MiB en total, en PNG/JPEG/GIF/WebP. Las URLs y páginas PDF
   no se convierten automáticamente en imágenes.
+- Los demás adjuntos de Slack (HTML, PDF, ZIP, DOCX, XLSX…) no viajan en el prompt:
+  Regent los descarga a `log/attachments/`, también con `files:read`, hasta 50 MiB por
+  archivo, y le pasa al agente la ruta absoluta para que los abra con sus herramientas.
+  Se borran al reiniciar la conversación, al limpiar su worktree o a los siete días sin
+  uso.
 - El emisor se resuelve por workspace/user ID, con nombre y correo opcionales vía
   `users.info`. El dueño de una conexión no sustituye la identidad del solicitante;
   las asignaciones externas requieren un mapeo inequívoco.

@@ -2,6 +2,7 @@ const REGENT_PREFIX = 'mcp__regent__regent_'
 const readers = new Set(['Read', 'Glob', 'Grep', 'Skill', 'ToolSearch', 'WebFetch', 'WebSearch'])
 const internal = new Set([
   'read_history',
+  'get_attachment',
   'git_read',
   'use_repo',
   'create_room',

@@ -87,6 +87,17 @@ independent of Claude's token window. Omitted contents remain available through 
 run token. Only complete delivered messages are acknowledged. Missing history and pagination
 failures remain explicit errors, rather than silently returning an incomplete snapshot.
 
+Attached Slack files never travel in the prompt. The history lists each one with its id,
+type and size. Before a turn starts, the core downloads the files of its pending messages,
+at most ten per turn and 50 MiB each, to `log/attachments/<conversation>/<file>/`, outside
+every repository and worktree, and appends the absolute path; the executor opens them with
+its own tools, and Regent neither converts nor unpacks them. A failed download is stated
+in the entry without failing the turn. The internal `regent_get_attachment` tool repeats
+the download on request and accepts only file ids present in the active run's snapshot,
+image originals included. Download URLs are refreshed from Slack and the bot token stays
+in the adapter. Contents are user data and are not redacted on disk. A conversation's
+attachments are removed on reset, on worktree cleanup and seven days after their last use.
+
 The official CLI still owns automatic compaction. A failed resumed execution may retry once
 in a fresh CLI session only for a recognized context overflow, before any agent tool use,
 with current authorization and remaining time/cost budget. The conversation, intent,
