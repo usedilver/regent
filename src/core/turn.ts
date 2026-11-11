@@ -462,9 +462,14 @@ export class Turn {
     })
 
     const text = this.replyText(state, reviewed, failure, error)
+    // A queued run continues this work, so the activity card is the only trace of the hand-off.
+    const continued =
+      (state === 'completed' || state === 'waiting_human') &&
+      Boolean(this.active.contextChanged || this.active.resumeAfterWait)
     this.core.publish(this.active, () =>
       this.core.output.finish(this.conversation, this.run, redact(text), {
         userStopped: this.active.userStopped,
+        continued,
       }),
     )
     this.core.publish(this.active, () =>
@@ -523,8 +528,7 @@ export class Turn {
       return failure ? failedText(failure, result.text) : interruptedText(error, result.text)
     }
 
-    if (this.active.contextChanged) return 'Continuo con el perfil seleccionado.'
-    if (this.active.resumeAfterWait) return 'Respuesta recibida; continuo con el siguiente mensaje.'
+    if (this.active.contextChanged || this.active.resumeAfterWait) return ''
     if (state === 'waiting_human') return 'Espero tu respuesta para continuar.'
     return result.text || 'La consulta termino sin texto de respuesta.'
   }
