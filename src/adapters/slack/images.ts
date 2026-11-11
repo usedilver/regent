@@ -6,8 +6,8 @@ import {
   type ImageReference,
 } from '../../core/images.ts'
 import type { SlackApi } from './api.ts'
+import { downloadUrl, FILE_ID, fileInfo, openDownload } from './files.ts'
 
-const FILE_ID = /^F[A-Z0-9]+$/
 const IMAGE_TYPES = /^(png|jpe?g|gif|webp|heic|heif|svg|avif)$/i
 const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|heic|heif|svg|avif)$/i
 const DOWNLOAD_TIMEOUT_MS = 10000
@@ -37,71 +37,16 @@ export function imageReference(file: any): ImageReference | undefined {
   }
 }
 
-/** Fresh file metadata from Slack, or a timeout; the lookup itself cannot be aborted. */
-async function fileInfo(api: SlackApi, id: string, timeout: AbortSignal): Promise<any> {
-  let onAbort: () => void = () => {}
-
-  try {
-    timeout.throwIfAborted()
-    const result: any = await Promise.race([
-      api('files.info', { file: id }).catch(() => {
-        throw new Error(
-          'Slack no permitio consultar el archivo; revisa files:read y acceso a la conversacion',
-        )
-      }),
-      new Promise((_, reject) => {
-        onAbort = () => reject(new Error('tiempo de descarga agotado'))
-        timeout.addEventListener('abort', onAbort, { once: true })
-      }),
-    ])
-
-    return result.file
-  } finally {
-    timeout.removeEventListener('abort', onAbort)
-  }
-}
-
-/** The private download URL, only when it points at Slack's own file host over HTTPS. */
-function downloadUrl(file: any): URL {
-  let url: URL
-
-  try {
-    url = new URL(file.url_private_download ?? file.url_private)
-  } catch {
-    throw new Error('sin URL de descarga')
-  }
-
-  const trusted =
-    url.protocol === 'https:' &&
-    url.hostname === 'files.slack.com' &&
-    !url.port &&
-    !url.username &&
-    !url.password
-
-  if (!trusted) throw new Error('origen de descarga no autorizado')
-  return url
-}
-
 async function downloadBytes(
   url: URL,
   token: string,
   download: typeof fetch,
   timeout: AbortSignal,
 ): Promise<Buffer> {
-  const response = await download(url, {
-    headers: { authorization: `Bearer ${token}` },
-    redirect: 'error',
-    signal: timeout,
-  }).catch(() => {
-    timeout.throwIfAborted()
-    throw new Error('fallo de descarga o redireccion no permitida')
-  })
-
-  if (!response.ok || !response.body) throw new Error(`Slack devolvio HTTP ${response.status}`)
   const chunks: Buffer[] = []
   let size = 0
 
-  for await (const chunk of response.body) {
+  for await (const chunk of await openDownload(url, token, download, timeout)) {
     timeout.throwIfAborted()
     size += chunk.length
     if (size > IMAGE_BYTES) throw new Error('imagen mayor a 3 MiB')

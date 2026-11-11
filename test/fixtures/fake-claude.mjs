@@ -47,6 +47,7 @@ if (scenario === 'hang' || scenario === 'ignore-signals') {
         'regent_cancel',
         'regent_cleanup_worktree',
         'regent_create_room',
+        'regent_get_attachment',
         'regent_git_read',
         'regent_read_history',
         'regent_status',

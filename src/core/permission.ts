@@ -1,7 +1,7 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { denial } from '../../plugins/executor/hooks/policy.mjs'
-import { queryDenial } from '../../plugins/executor/hooks/query.mjs'
 import type { Active, Core } from './core.ts'
 import { isInside, isolationFor } from './repository.ts'
 
@@ -77,15 +77,16 @@ export function permissionDenial(
   })
 }
 
+/** A query runs any native tool but edits only scratch locations, never the project. */
 function readOnlyDenial(core: Core, active: Active, input: PermissionInput): string | null {
-  const reason = queryDenial(input)
-  if (reason) return reason
   const root = active.executionDir ?? core.defaultCwd
 
   return denial(input, {
     REGENT_ROOT: root,
     REGENT_CWD: input.cwd ?? root,
     REGENT_READ_ONLY: '1',
+    REGENT_QUERY_PROTECTED: JSON.stringify([core.cwd]),
+    REGENT_QUERY_WRITABLE: JSON.stringify([os.tmpdir(), '/tmp', core.attachments.root]),
     REGENT_READONLY_MCP: JSON.stringify(core.config.repos.readonly_mcp),
   })
 }

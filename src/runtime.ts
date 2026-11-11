@@ -28,6 +28,7 @@ export interface RuntimeOptions {
 }
 
 const DEFAULT_PORT = 8788
+const ATTACHMENT_SWEEP_MS = 6 * 60 * 60 * 1000
 const closingError = () => new Error('El runtime se esta cerrando.')
 
 export function runtimePort(value: string | undefined): number {
@@ -149,10 +150,16 @@ export function createRuntime(config: Config, options: RuntimeOptions) {
     )
     const http = httpLifecycle(server)
     let closing: Promise<void> | undefined
+    let attachmentSweep: NodeJS.Timeout | undefined
+
+    const sweepAttachments = () => {
+      void core.attachments.sweep().catch((error) => console.error(error))
+    }
 
     const close = (): Promise<void> => {
       closing ??= (async () => {
         process.removeListener('SIGHUP', reload.onSignal)
+        clearInterval(attachmentSweep)
         await closeAll([
           () => core.close(),
           () => durable?.close(),
@@ -182,6 +189,9 @@ export function createRuntime(config: Config, options: RuntimeOptions) {
         durable?.start()
         await core.recover()
         reload.markRecovered()
+        sweepAttachments()
+        attachmentSweep = setInterval(sweepAttachments, ATTACHMENT_SWEEP_MS)
+        attachmentSweep.unref()
       } catch (error) {
         try {
           await close()

@@ -66,8 +66,8 @@ profile and reach Claude unchanged, apart from explicit repository selection. Cl
 conversation and repository instructions to decide whether to answer, investigate,
 implement or validate. Investigation is not a prerequisite for an edit. Optional MCP intent
 arguments and slash prefixes select execution constraints for that message only; they do
-not infer authorization or carry over from an earlier message. Explicit ask remains an
-enforced read-only mode. Existing stored profiles and public tools remain compatible.
+not infer authorization or carry over from an earlier message. Explicit ask remains a
+query mode that never changes the project. Existing stored profiles and public tools remain compatible.
 
 The runner launches the unmodified official CLI. Query runs start in the selected source
 checkout without allocating a worktree; editing runs create/reuse the conversation worktree.
@@ -86,6 +86,17 @@ independent of Claude's token window. Omitted contents remain available through 
 `regent_read_history` reader, in pages of at most 16,000 characters, scoped to the active
 run token. Only complete delivered messages are acknowledged. Missing history and pagination
 failures remain explicit errors, rather than silently returning an incomplete snapshot.
+
+Attached Slack files never travel in the prompt. The history lists each one with its id,
+type and size. Before a turn starts, the core downloads the files of its pending messages,
+at most ten per turn and 50 MiB each, to `log/attachments/<conversation>/<file>/`, outside
+every repository and worktree, and appends the absolute path; the executor opens them with
+its own tools, and Regent neither converts nor unpacks them. A failed download is stated
+in the entry without failing the turn. The internal `regent_get_attachment` tool repeats
+the download on request and accepts only file ids present in the active run's snapshot,
+image originals included. Download URLs are refreshed from Slack and the bot token stays
+in the adapter. Contents are user data and are not redacted on disk. A conversation's
+attachments are removed on reset, on worktree cleanup and seven days after their last use.
 
 The official CLI still owns automatic compaction. A failed resumed execution may retry once
 in a fresh CLI session only for a recognized context overflow, before any agent tool use,
@@ -116,9 +127,12 @@ available. Cost and token usage cover all attempts; successful recovery is not r
 a terminal failure. Tests simulate these conditions and do not claim to exhaust a real
 provider context window or subscription quota.
 
-Query mode limits native built-ins to readers, skill loading and MCP discovery. Core/hook
-policy denies shell execution, writers, delegation and self-promotion, and constrains
-MCP operations to query conventions. `regent_git_read` executes bounded read-only Git argv
+Query mode keeps every native tool, so a question can run commands, delegate and open
+attachments. Core/hook policy confines edit tools to scratch locations (the system temporary
+directory and Regent's attachment directory), denies commands that change Git state or
+publish through `git`/`gh`, denies self-promotion and constrains MCP operations to query
+conventions. A shell command can still write inside the shared checkout; that boundary is
+an instruction, not an enforcement. `regent_git_read` executes bounded read-only Git argv
 without a shell, disabling executable Git filters, fsmonitor and external diff/textconv.
 It receives a minimal environment, not transport credentials. Trusted project hooks and MCP
 implementations still execute under the operator's account; these guards are not an OS sandbox.

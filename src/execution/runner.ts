@@ -83,7 +83,7 @@ export interface RunnerOptions {
   onEvent(event: RunnerEvent): void
 }
 
-const READ_ONLY_TOOLS = 'Read,Glob,Grep,Skill,ToolSearch,WebFetch,WebSearch'
+const QUERY_PREAPPROVED_TOOLS = 'Read,Glob,Grep,Skill,ToolSearch,WebFetch,WebSearch'
 const MAX_EVENT_BYTES = 8 * 1024 * 1024
 const STDERR_TAIL_CHARS = 16000
 const KILL_GRACE_CAP_MS = 5000
@@ -110,8 +110,9 @@ export function runnerArgs(
   const native = options.permissionMode === 'native'
   let toolFlags: string[] = []
 
+  // A query keeps every native tool; the policy hook is what confines its edits and commands.
   if (options.readOnly) {
-    toolFlags = ['--tools', READ_ONLY_TOOLS, '--allowedTools', `${READ_ONLY_TOOLS},mcp__*`]
+    toolFlags = native ? ['--allowedTools', `${QUERY_PREAPPROVED_TOOLS},mcp__*`] : []
   } else if (native) {
     toolFlags = ['--allowedTools', 'mcp__regent__*']
   }

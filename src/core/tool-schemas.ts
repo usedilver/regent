@@ -8,6 +8,9 @@ export const ToolSchemas = {
     offset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
     max_chars: z.number().int().min(1).max(16000).default(12000),
   }),
+  regent_get_attachment: z.object({
+    file_id: z.string().regex(/^[A-Za-z0-9]{1,64}$/),
+  }),
   regent_git_read: z.object({
     operation: z.enum(GitReadOperations),
     args: z.array(z.string().max(2000)).max(80).default([]),

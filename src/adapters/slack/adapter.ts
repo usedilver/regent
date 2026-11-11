@@ -8,6 +8,7 @@ import { SlackAccess } from './access.ts'
 import { SlackActivities } from './activities.ts'
 import type { SlackApi } from './api.ts'
 import { SlackConnection } from './connection.ts'
+import { slackAttachmentLoader } from './attachments.ts'
 import { gatherHistory, readSlackFile } from './history.ts'
 import { createIdentityResolver } from './identity.ts'
 import { slackImageLoader } from './images.ts'
@@ -56,16 +57,10 @@ class SlackInbound {
     this.botId = auth.user_id
     const token = process.env.SLACK_BOT_TOKEN!
     core.historyLoader = (source, signal, includeOwn) =>
-      gatherHistory(
-        api,
-        source,
-        this.botId,
-        (file) => readSlackFile(file, token),
-        signal,
-        includeOwn,
-      )
+      gatherHistory(api, source, this.botId, readSlackFile, signal, includeOwn)
     core.identities = createIdentityResolver(api, team)
     core.imageLoader = slackImageLoader(api, token)
+    core.attachmentLoader = slackAttachmentLoader(api, token)
   }
 
   /** A message or app_mention event. */

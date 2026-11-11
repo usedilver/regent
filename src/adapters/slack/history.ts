@@ -1,13 +1,10 @@
 import type { HistoryMessage, HistorySource } from '../../core/history.ts'
 import type { SlackApi } from './api.ts'
+import { attachmentReference, fileName } from './attachments.ts'
 import { imageReference } from './images.ts'
 import { appLabel, messageBody, threadToMarkdown } from './thread.ts'
 
-type ReadFile = (file: any) => Promise<string>
-
-const FILE_BYTES = 200 * 1024
-const FILE_CHARS = 12000
-const TEXT_FILETYPES = /^(log|txt|json|yaml|yml|md|csv|diff|patch|xml)$/i
+type ReadFile = (file: any) => Promise<string> | string
 
 /** Slack timestamps ("1700000000.123456") as integers that sort and compare exactly. */
 function slackTimestamp(ts: string): bigint {
@@ -87,7 +84,7 @@ function authorLabel(message: any): string {
   return reply ? `${author} (hilo ${message.thread_ts})` : author
 }
 
-/** The entries one message contributes: its text, one per image, and its other files together. */
+/** The entries one message contributes: its text and one per attached image or file. */
 async function historyEntries(
   message: any,
   channel: string,
@@ -98,25 +95,27 @@ async function historyEntries(
   const entries: HistoryMessage[] = []
   const body = messageBody(message)
   if (body) entries.push({ id, text: `${label}: ${body}` })
-  const otherFiles: any[] = []
+  const files: any[] = message.files ?? []
 
-  for (const file of message.files ?? []) {
-    const image = imageReference(file)
+  const described = await Promise.all(
+    files.map(async (file, index): Promise<HistoryMessage> => {
+      const image = imageReference(file)
 
-    if (image) {
-      entries.push({
-        id: `${id}:image:${image.id}`,
-        text: `${label}: [imagen: ${image.name}]`,
-        image,
-      })
-    } else {
-      otherFiles.push(file)
-    }
-  }
+      if (image) {
+        return { id: `${id}:image:${image.id}`, text: `${label}: [imagen: ${image.name}]`, image }
+      }
 
-  const files = (await Promise.all(otherFiles.map(readFile))).join('\n')
-  if (files) entries.push({ id: `${id}:files`, text: `${label}: ${files}` })
-  return entries
+      const attachment = attachmentReference(file)
+
+      return {
+        id: `${id}:file:${attachment?.id ?? index}`,
+        text: `${label}: ${await readFile(file)}`,
+        ...(attachment ? { attachment } : {}),
+      }
+    }),
+  )
+
+  return [...entries, ...described]
 }
 
 export async function gatherHistory(
@@ -139,64 +138,29 @@ export async function gatherHistory(
   return result
 }
 
-function isTextFile(file: any): boolean {
-  return (
-    file.mode === 'snippet' ||
-    /^text\//.test(file.mimetype ?? '') ||
-    TEXT_FILETYPES.test(file.filetype ?? '')
-  )
+function sizeLabel(bytes: unknown): string | undefined {
+  if (typeof bytes !== 'number' || bytes < 0) return
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-async function downloadText(url: URL, token: string, download: typeof fetch): Promise<string> {
-  const response = await download(url, {
-    headers: { authorization: `Bearer ${token}` },
-    redirect: 'error',
-    signal: AbortSignal.timeout(5000),
-  })
-
-  if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`)
-  const chunks: Buffer[] = []
-  let size = 0
-
-  for await (const chunk of response.body) {
-    size += chunk.length
-    if (size > FILE_BYTES) throw new Error('archivo mayor a 200 KB')
-    chunks.push(Buffer.from(chunk))
-  }
-
-  return Buffer.concat(chunks).toString('utf8').slice(0, FILE_CHARS)
-}
-
-/** A text attachment as prompt context, or just its label when it cannot or should not be read. */
-export async function readSlackFile(
-  file: any,
-  token: string,
-  download: typeof fetch = fetch,
-): Promise<string> {
-  const label = `[archivo: ${file.title ?? file.name ?? file.id}]`
-
-  if (!isTextFile(file) || !file.url_private_download || (file.size ?? 0) > FILE_BYTES) {
-    return file.preview ? `${label}\n${file.preview}` : label
-  }
-
-  try {
-    const url = new URL(file.url_private_download)
-
-    if (url.protocol !== 'https:' || url.hostname !== 'files.slack.com') {
-      return `${label} (URL de descarga no autorizada)`
-    }
-
-    return `${label}\n${await downloadText(url, token, download)}`
-  } catch (error) {
-    return `${label} (no pude leerlo: ${(error as Error).message})`
-  }
+/**
+ * How one attached file is listed in the history. Its content never travels in the prompt:
+ * the core downloads it and adds the server path the agent opens with its own tools.
+ */
+export function readSlackFile(file: any): string {
+  const reference = attachmentReference(file)
+  if (!reference) return `[attachment unavailable: ${fileName(file)}]`
+  const summary = [reference.name, file.filetype, sizeLabel(file.size)].filter(Boolean).join(' · ')
+  return `[attachment ${reference.id}: ${summary}]`
 }
 
 export async function gatherThread(
   api: SlackApi,
   channel: string,
   thread: string,
-  readFile: ReadFile = (file) => readSlackFile(file, ''),
+  readFile: ReadFile = readSlackFile,
 ): Promise<string> {
   const lines: string[] = []
   let cursor: string | undefined

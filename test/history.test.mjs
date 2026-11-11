@@ -232,7 +232,9 @@ try {
 
   assert.equal(history.filter((m) => m.id === 'C1:1').length, 1)
   assert.ok(history.some((m) => m.text.includes('Fresh reply')))
-  assert.ok(history.some((m) => m.id === 'C1:7:files' && m.text.includes('Attachment content')))
+  const attached = history.find((m) => m.id === 'C1:7:file:F1')
+  assert.ok(attached.text.includes('Attachment content'))
+  assert.deepEqual(attached.attachment, { id: 'F1', name: 'F1' })
   assert.ok(!history.some((m) => /Future|Own response/.test(m.text)))
   const fresh = await gatherHistory(
     api,

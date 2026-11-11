@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto'
 import { HistoryUnavailable } from '../execution/failures.ts'
 import type { Store } from '../storage/store.ts'
 import { redact } from '../storage/redact.ts'
+import { errorMessage } from './errors.ts'
+import type { AttachmentReference } from './attachments.ts'
 import type { ImageReference } from './images.ts'
 
 export interface HistorySource {
@@ -15,6 +17,8 @@ export interface HistoryMessage {
   id: string
   text: string
   image?: ImageReference
+  /** A file listed in the text and left on the adapter until the agent requests it. */
+  attachment?: AttachmentReference
 }
 
 export type HistoryLoader = (
@@ -27,6 +31,11 @@ export type HistoryLoader = (
 export const HISTORY_CONTEXT_CHARS = 60000
 
 const REFERENCE_PREVIEW_CHARS = 200
+/** Files downloaded up front per turn; older ones stay available through the tool. */
+const ATTACHMENT_LIMIT = 10
+
+/** Stores a listed file and returns its absolute path. */
+export type AttachmentSaver = (reference: AttachmentReference) => Promise<string>
 
 type HashedMessage = HistoryMessage & { hash: string }
 
@@ -59,7 +68,12 @@ function dedupe(messages: HistoryMessage[]): HistoryMessage[] {
   const byId = new Map<string, HistoryMessage>()
 
   for (const m of messages) {
-    byId.set(m.id, { id: m.id, text: redact(m.text), ...(m.image ? { image: m.image } : {}) })
+    byId.set(m.id, {
+      id: m.id,
+      text: redact(m.text),
+      ...(m.image ? { image: m.image } : {}),
+      ...(m.attachment ? { attachment: m.attachment } : {}),
+    })
   }
 
   return [...byId.values()]
@@ -108,6 +122,43 @@ function pack(pending: HashedMessage[], trigger: string | undefined): Packed {
   return { text: notice + parts.join('\n\n'), omitted, delivered }
 }
 
+const FETCH = 'call regent_get_attachment with this file_id'
+
+/**
+ * Downloads the newest pending attachments and appends where each one is, so the prompt
+ * carries a path the agent can open. A failure is stated instead of failing the turn.
+ */
+async function locate(
+  pending: HashedMessage[],
+  save: AttachmentSaver | undefined,
+  signal?: AbortSignal,
+): Promise<HashedMessage[]> {
+  const located = new Map<string, string>()
+  let attempts = 0
+
+  for (const message of [...pending].reverse()) {
+    if (!message.attachment) continue
+    signal?.throwIfAborted()
+
+    if (!save || attempts++ >= ATTACHMENT_LIMIT) {
+      located.set(message.id, `Not downloaded yet; ${FETCH}.`)
+      continue
+    }
+
+    try {
+      located.set(message.id, `Saved on the server at ${await save(message.attachment)}`)
+    } catch (error) {
+      signal?.throwIfAborted()
+      located.set(message.id, `Not downloaded (${redact(errorMessage(error))}); ${FETCH} to retry.`)
+    }
+  }
+
+  return pending.map((message) => {
+    const note = located.get(message.id)
+    return note ? { ...message, text: `${message.text} ${note}` } : message
+  })
+}
+
 /** Pending images, the trigger message's own first, as the image loader expects them. */
 function pendingImages(pending: HashedMessage[], trigger: string | undefined) {
   const fromTrigger = (m: HistoryMessage) => Number(m.id.startsWith(`${trigger}:image:`))
@@ -142,6 +193,17 @@ export class History {
     }
   }
 
+  /** A file of this run's own history snapshot, by id; images count as downloadable files too. */
+  file(runId: string, id: string): AttachmentReference | undefined {
+    const row = this.store.db.prepare('SELECT snapshot FROM run_history WHERE run_id=?').get(runId)
+    const messages: HistoryMessage[] = row?.snapshot ? JSON.parse(row.snapshot as string) : []
+
+    for (const message of messages) {
+      const reference = message.attachment ?? message.image
+      if (reference?.id === id) return { id, name: reference.name }
+    }
+  }
+
   /** The thread history this run should see, packed for the prompt, plus how to acknowledge it. */
   async prepare(
     runId: string,
@@ -149,6 +211,7 @@ export class History {
     session: string | null,
     loader?: HistoryLoader,
     signal?: AbortSignal,
+    save?: AttachmentSaver,
   ) {
     const row = this.store.db.prepare('SELECT * FROM run_history WHERE run_id=?').get(runId)
 
@@ -167,7 +230,7 @@ export class History {
         ? JSON.parse(row.snapshot as string)
         : await this.snapshot(runId, source, loader, session, signal)
     const pending = this.unseen(messages, key, session)
-    const packed = pack(pending, source.trigger)
+    const packed = pack(await locate(pending, save, signal), source.trigger)
 
     return {
       text: packed.text,

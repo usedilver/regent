@@ -10,6 +10,7 @@ export function progressText(tool: string): string {
       'Skill',
       'mcp__regent__regent_git_read',
       'mcp__regent__regent_read_history',
+      'mcp__regent__regent_get_attachment',
     ].includes(tool)
   ) {
     return 'Sigo revisando el codigo y el contexto del proyecto.'

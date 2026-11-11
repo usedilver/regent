@@ -2,12 +2,13 @@ import { randomBytes } from 'node:crypto'
 import path from 'node:path'
 import type { Config } from '../config.ts'
 import { defaultRepoDir } from '../config.ts'
-import { ownEnvKeys } from '../env.ts'
+import { ownEnvKeys, REGENT_DIR } from '../env.ts'
 import { startRunner, type RunnerOptions } from '../execution/runner.ts'
 import { redact } from '../storage/redact.ts'
 import type { Accepted, Store } from '../storage/store.ts'
 import { AccessPolicy, legacyAccess } from './access-policy.ts'
 import type { WorkspaceActivity } from './activities.ts'
+import { Attachments, type AttachmentLoader } from './attachments.ts'
 import { isStopCommand, type ControlCommand } from './commands.ts'
 import { errorMessage } from './errors.ts'
 import type { HistoryLoader } from './history.ts'
@@ -98,6 +99,8 @@ export interface CoreOptions {
   adapter?: string | string[]
   runner?: typeof startRunner
   runnerOverrides?: Partial<RunnerOptions>
+  /** Where requested attachments are stored; defaults next to the runtime database. */
+  attachmentsDir?: string
 }
 
 const logError = (error: unknown) => console.error(redact(errorMessage(error)))
@@ -126,6 +129,9 @@ export class Core {
   /** Maps a Slack author id to a real identity. Set by the adapter. */
   identities?: IdentityResolver
   imageLoader?: ImageLoader
+  /** Streams a file of the conversation history. Set by the adapter that owns its transport. */
+  attachmentLoader?: AttachmentLoader
+  attachments: Attachments
   mcpIdentity?: (author: string) => { email: string; name: string } | undefined
 
   constructor(options: CoreOptions) {
@@ -143,6 +149,9 @@ export class Core {
     this.runner = options.runner ?? startRunner
     this.runnerOverrides = options.runnerOverrides ?? {}
     this.adapter = options.adapter
+    this.attachments = new Attachments(
+      options.attachmentsDir ?? path.join(REGENT_DIR, 'log/attachments'),
+    )
   }
 
   authorized(input: Inbound): boolean {
@@ -253,6 +262,7 @@ export class Core {
     }
 
     this.store.resetConversation(key)
+    await this.attachments.remove(key).catch(logError)
     await this.output.notice(
       conversation,
       'Sesion reiniciada. El siguiente mensaje abre una conversacion nueva.',
@@ -472,7 +482,10 @@ export class Core {
         pullRequests,
         controller.signal,
       )
-      if (result.state !== 'blocked') this.store.forgetSession(key)
+      if (result.state !== 'blocked') {
+        this.store.forgetSession(key)
+        await this.attachments.remove(key).catch(logError)
+      }
     } catch (error) {
       result = {
         state: 'blocked',

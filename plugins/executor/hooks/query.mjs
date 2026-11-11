@@ -1,7 +1,29 @@
+import fs from 'node:fs'
+import { parse } from 'shell-quote'
+import { inside, resolveTarget } from './paths.mjs'
+
 const REGENT_PREFIX = 'mcp__regent__regent_'
-const readers = new Set(['Read', 'Glob', 'Grep', 'Skill', 'ToolSearch', 'WebFetch', 'WebSearch'])
+const editors = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit'])
+const shells = new Set(['Bash', 'PowerShell', 'Monitor'])
+const relocators = new Set(['EnterWorktree', 'ExitWorktree'])
+const HEREDOC_BODY = /(<<-?\s*(['"]?)(\w+)\2[^\n]*)\n[\s\S]*?\n\s*\3\b/g
+const PROJECT_WRITE =
+  'Query mode cannot write project files; code changes require an editing request. Write scratch files under the system temporary directory.'
+const COMMAND_START = String.raw`(?:^|[\s;&|(\`])`
+const GIT_OPTIONS = String.raw`(?:(?:-[cC]\s+\S+|--?[\w-]+(?:=\S+)?)\s+)*`
+const GIT_WRITE = new RegExp(
+  COMMAND_START +
+    String.raw`git\s+` +
+    GIT_OPTIONS +
+    String.raw`(?:add|am|apply|checkout|cherry-pick|clean|commit|merge|mv|pull|push|rebase|reset|restore|revert|rm|stash|switch|tag|branch\s+-[a-zA-Z]|worktree\s+(?:add|remove|move|prune)|submodule\s+(?:add|update|init|deinit))\b`,
+)
+const GH_WRITE = new RegExp(
+  COMMAND_START +
+    String.raw`gh\s+(?:pr|issue|release|repo|workflow|run)\s+(?:create|merge|close|reopen|edit|comment|review|delete|rename|sync|run|rerun|cancel|ready)\b`,
+)
 const internal = new Set([
   'read_history',
+  'get_attachment',
   'git_read',
   'use_repo',
   'create_room',
@@ -77,19 +99,77 @@ function sqlArgumentDenial(root, sqlExecutor, sqlTool) {
   return null
 }
 
-/** Why a tool call is not allowed in query (read-only) mode, or null when it is. */
-export function queryDenial(input) {
+/** Whether a path lies in a scratch location a query may write, never in the project. */
+function isScratch(file, env) {
+  try {
+    const within = (roots) =>
+      roots.some((root) => fs.existsSync(root) && inside(fs.realpathSync(root), target))
+    const target = resolveTarget(env.REGENT_CWD ?? env.REGENT_ROOT ?? process.cwd(), file)
+    // The repository workspace stays protected even when it sits under a scratch location.
+    if (within(JSON.parse(env.REGENT_QUERY_PROTECTED ?? '[]'))) return false
+    return within(JSON.parse(env.REGENT_QUERY_WRITABLE ?? '[]'))
+  } catch {
+    // An unreadable location is treated like the project: not writable from a query.
+    return false
+  }
+}
+
+function scratchEditDenial(args, env) {
+  const file = args.file_path ?? args.notebook_path
+  if (typeof file !== 'string' || !file) return 'Indica la ruta del archivo.'
+  return isScratch(file, env) ? null : PROJECT_WRITE
+}
+
+/** A literal output redirection aimed outside the scratch locations. Heuristic, like every guard here. */
+function redirectsIntoProject(command, env) {
+  let words
+
+  try {
+    words = parse(command.replace(HEREDOC_BODY, '$1'), (name) => `\${${name}}`)
+  } catch {
+    return false
+  }
+
+  return words.some((word, index) => {
+    const target = words[index + 1]
+    if (word?.op !== '>' && word?.op !== '>>') return false
+    if (typeof target !== 'string' || /[$`]/.test(target) || target.startsWith('/dev/'))
+      return false
+    return !isScratch(target, env)
+  })
+}
+
+/**
+ * Commands run freely in a query, except the ones that change Git state, publish work or
+ * plainly redirect output into the project.
+ */
+function commandDenial(command, env) {
+  if (typeof command !== 'string') return null
+
+  if (GIT_WRITE.test(command) || GH_WRITE.test(command)) {
+    return 'Query mode cannot change Git state or publish. Use regent_git_read for history and diffs; code changes require an editing request.'
+  }
+
+  return redirectsIntoProject(command, env) ? PROJECT_WRITE : null
+}
+
+/**
+ * Why a tool call is not allowed in query mode, or null when it is. A query investigates with
+ * every native tool, including shells and scratch files, but never edits the project, changes
+ * Git state, publishes or mutates through MCP.
+ */
+export function queryDenial(input, env = process.env) {
   const name = input.tool_name ?? ''
-  if (readers.has(name)) return null
+  if (editors.has(name)) return scratchEditDenial(input.tool_input ?? {}, env)
+  if (shells.has(name)) return commandDenial(input.tool_input?.command, env)
+  if (relocators.has(name)) return 'Query mode keeps the conversation in its current location.'
 
   if (name.startsWith(REGENT_PREFIX)) {
     if (internal.has(name.slice(REGENT_PREFIX.length))) return null
     return 'Query mode cannot change files or start processes.'
   }
 
-  if (!name.startsWith('mcp__')) {
-    return 'Query mode only permits readers. Use regent_git_read for Git history/diffs; code changes require an editing request.'
-  }
+  if (!name.startsWith('mcp__')) return null
 
   const tool = mcpOperation(name)
   const sqlExecutor = sqlExecutors.has(tool)

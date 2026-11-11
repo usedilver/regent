@@ -11,7 +11,7 @@ import { agentEnvironment } from './agent-env.ts'
 import type { Active, Core } from './core.ts'
 import { errorMessage } from './errors.ts'
 import { executionContext } from './execution-context.ts'
-import { History } from './history.ts'
+import { History, type AttachmentSaver } from './history.ts'
 import { prepareImages } from './images.ts'
 import { resolveIdentity, type Identity } from './identity.ts'
 import { failedText, interruptedText } from './progress.ts'
@@ -176,7 +176,17 @@ export class Turn {
       sessionId,
       this.core.historyLoader,
       this.active.abort.signal,
+      this.saveAttachment(),
     )
+  }
+
+  private saveAttachment(): AttachmentSaver | undefined {
+    const { attachments, attachmentLoader } = this.core
+    if (!attachmentLoader) return
+    const { signal } = this.active.abort
+
+    return async (reference) =>
+      (await attachments.save(this.conversation.key, reference, attachmentLoader, signal)).path
   }
 
   private scheduleWrapUp(): void {
