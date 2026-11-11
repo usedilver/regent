@@ -174,7 +174,7 @@ for (const adapter of ['slack', 'mcp']) {
       'git commit -am "Change"',
       'git -c user.name=x reset --hard HEAD~1',
       'pnpm install',
-      'npm ci',
+      'npm install left-pad',
     ]) {
       assert.match(decide('Bash', { command }), /Every conversation reads this checkout/, command)
     }
@@ -643,7 +643,7 @@ test('legacy sessions reuse their existing worktree, and removed worktrees do no
   await f.finish()
 })
 
-test('configured read-only MCPs retain their reader contracts in both execution modes', () => {
+test('configured read-only MCPs retain their reader contracts', () => {
   for (const [name, tool_input] of [
     ['execute_sql', { query: 'SELECT id FROM candidates LIMIT 1' }],
     ['mixpanel_query', { project: 'match', type: 'segmentation' }],
@@ -694,4 +694,89 @@ test('configured read-only MCPs retain their reader contracts in both execution 
       tool_input: { sql: 'SELECT id FROM users; DELETE FROM users' },
     }),
   )
+})
+
+test('commands from the shared checkout may read, build and update it, never move its state', () => {
+  const env = {
+    REGENT_SHARED: '1',
+    REGENT_SCRATCH: JSON.stringify([os.tmpdir(), '/tmp']),
+    REGENT_WORKSPACE: path.dirname(process.cwd()),
+    REGENT_WORKTREE_NAME: 'regent-fixture',
+    REGENT_CWD: process.cwd(),
+  }
+  const decide = (command, overrides = {}) =>
+    denial({ tool_name: 'Bash', tool_input: { command } }, { ...env, ...overrides })
+
+  for (const command of [
+    'git branch -a',
+    'git branch -vv',
+    'git branch --show-current',
+    'git merge-base main HEAD',
+    'git stash list',
+    'git log --oneline -5 --grep reset',
+    'git show HEAD~1 --stat',
+    'git diff main...HEAD',
+    'git fetch origin && git pull --ff-only',
+    'git submodule update --init',
+    'git worktree list',
+    'gh pr view 5 && gh pr merge 5 --squash',
+    'pnpm test && pnpm run build',
+    'npm init -y --dry-run',
+    'unzip -o report.zip -d /tmp/report',
+    'python3 /tmp/inspect.py > /tmp/inspect.txt 2>&1',
+    'cat > /tmp/inspect.py <<\'PY\'\nif total > 3:\n    print("<b>big</b>")\nPY',
+  ]) {
+    assert.equal(decide(command), null, command)
+  }
+
+  for (const command of [
+    'git checkout main',
+    'git switch -c feature',
+    'git -C . commit -m "Change"',
+    'git add . && git commit -m x',
+    'git reset --hard',
+    'git stash',
+    'git stash pop',
+    'git branch -D old',
+    'git merge main',
+    'git rebase main',
+    'git push origin main',
+    'git clean -fd',
+    'git worktree add ../other',
+    'cd . && git restore .',
+  ]) {
+    assert.match(decide(command), /do not change its Git state.*EnterWorktree with name/, command)
+  }
+
+  for (const command of ['pnpm install', 'pnpm i', 'yarn add left-pad', 'bun install']) {
+    assert.match(decide(command), /do not change its dependencies/, command)
+  }
+
+  // Reproducing the committed lockfile is how a pulled checkout is brought up to date.
+  for (const command of ['git pull --ff-only && pnpm install --frozen-lockfile', 'npm ci']) {
+    assert.equal(decide(command), null, command)
+  }
+
+  // Mentioning a command is not running it.
+  for (const command of [
+    'rg "run git commit" docs',
+    'echo "then run npm install"',
+    "gh pr comment 1 --body 'please git rebase main'",
+    'cat > /tmp/release.sh <<EOF\ngit commit -m x\npnpm install\nEOF',
+    'git apply --check /tmp/change.patch',
+  ]) {
+    assert.equal(decide(command), null, command)
+  }
+
+  assert.match(decide('gh pr checkout 12'), /do not change its Git state/)
+
+  for (const command of ['echo hi > notes.txt', 'cat > src/new.ts <<EOF\nx\nEOF']) {
+    assert.match(decide(command), /EnterWorktree with name "regent-fixture"/, command)
+  }
+
+  // Inside the conversation's own worktree the same commands are ordinary work.
+  const worktree = { REGENT_SHARED: '', REGENT_ROOT: process.cwd() }
+  for (const command of ['git commit -am x', 'pnpm install', 'echo hi > notes.txt']) {
+    assert.equal(decide(command, worktree), null, command)
+  }
 })

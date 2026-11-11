@@ -572,7 +572,7 @@ export class Core {
 
   /**
    * Checks out the submodule containing `destination` (relative to the project) and its
-   * enclosing submodules in an editing run's worktree. Returns the verified checkouts.
+   * enclosing submodules in the conversation's worktree, once the run works there. Returns the verified checkouts.
    */
   async prepareSubmodule(active: Active, destination: string): Promise<string[]> {
     const { cwd, dir } = this.isolation(active)

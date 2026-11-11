@@ -29,7 +29,7 @@ La imagen Docker incluye Python 3, `venv` y `pip` para scripts del agente. En un
 instalación directa sobre Debian/Ubuntu, instala `python3 python3-venv python3-pip`.
 Las dependencias de cada script o proyecto se instalan en su propio entorno virtual
 (`python3 -m venv .venv` y `.venv/bin/python -m pip install ...`), sin modificar el
-Python del sistema. Disponer de Python no amplía los permisos del modo consulta.
+Python del sistema. Disponer de Python no cambia los permisos de ninguna ejecución.
 
 ## Recarga de accesos
 
@@ -277,7 +277,7 @@ Los mensajes normales usan `task`; Regent no clasifica su lenguaje ni impone eta
 Claude interpreta el pedido con las instrucciones y skills del repositorio. Puedes elegir
 `/ask`, `/patch`, `/task` o `/project` después de la mención, o enviar `intent` por MCP.
 Estas opciones aplican sólo a ese mensaje; las continuaciones normales vuelven a `task`.
-`ask` impone modo consulta; los demás perfiles seleccionan límites/modelos, no autorización
+`ask` y los demás perfiles solo seleccionan límites/modelos, con las mismas herramientas; no son autorización
 para cambiar código. `models.project` null usa `models.task`. El tramo final reserva hasta
 60 segundos o el 20% del límite para responder; no amplía el timeout ni garantiza recuperar
 una herramienta interrumpida.

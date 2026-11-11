@@ -36,7 +36,10 @@ export function hasSubmodules(cwd: string, isolationDir: string): boolean {
 /** The conversation's worktree once this run works in it, whether it started or moved there. */
 function enteredWorktree(active: Active, isolationDir: string): string | undefined {
   if (active.executionDir !== isolationDir) return
-  return fs.realpathSync(isolationDir) === isolationDir ? isolationDir : undefined
+  // A worktree removed or replaced by a link mid-run is no longer an editable place.
+  return realDirectory(isolationDir) === isolationDir && fs.existsSync(isolationDir)
+    ? isolationDir
+    : undefined
 }
 
 /** Where a tool call runs, resolved through symlinks; an unreadable place counts as shared. */
@@ -99,8 +102,10 @@ export function permissionDenial(
   }
 
   const directory = realDirectory(input.cwd ?? worktree ?? cwd)
+  // The project's checkout, and the worktrees of other conversations below it, are shared; a
+  // new project being created elsewhere in the workspace is not.
   const shared =
-    isInside(realDirectory(core.cwd), directory) && !(worktree && isInside(worktree, directory))
+    isInside(realDirectory(cwd), directory) && !(worktree && isInside(worktree, directory))
 
   return denial(input, {
     ...process.env,
@@ -109,7 +114,11 @@ export function permissionDenial(
     REGENT_CWD: directory,
     REGENT_WORKSPACE: core.cwd,
     REGENT_WORKTREE_NAME: fs.existsSync(path.join(cwd, '.git')) ? isolation.name : '',
-    REGENT_SCRATCH: JSON.stringify([os.tmpdir(), '/tmp', core.attachments.root]),
+    REGENT_SCRATCH: JSON.stringify([
+      os.tmpdir(),
+      '/tmp',
+      core.attachments.directory(active.run.conversation_key),
+    ]),
     REGENT_SHARED: shared ? '1' : '',
     REGENT_READONLY_MCP: JSON.stringify(core.config.repos.readonly_mcp),
   })

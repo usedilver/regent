@@ -51,7 +51,7 @@ function assertReadOnlyArgs(args: string[]): void {
     FORBIDDEN_FLAGS.some((flag) => flag.startsWith(arg.split('=')[0]))
 
   if (args.some((arg) => forbidden(arg) || CREDENTIAL_FILES.test(arg))) {
-    throw new Error('Git option is not allowed in query mode.')
+    throw new Error('Git option is not allowed by the Git reader.')
   }
 }
 

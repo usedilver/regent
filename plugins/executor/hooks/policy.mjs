@@ -30,12 +30,15 @@ const GIT_STATE = new RegExp(
   COMMAND_START +
     String.raw`git\s+` +
     GIT_OPTIONS +
-    String.raw`(?:add|am|apply|checkout|cherry-pick|clean|commit|merge|mv|push|rebase|reset|restore|revert|rm|stash|switch|branch\s+-[a-zA-Z]|worktree\s+(?:add|remove|move|prune))\b`,
+    String.raw`(?:add|am|apply(?!\s+--(?:check|stat|numstat|summary)\b)|checkout|cherry-pick|clean|commit|merge|mv|push|rebase|reset|restore|revert|rm|switch|stash(?!\s+(?:list|show)\b)|branch\s+(?:-[dDmMcCf]+|--(?:delete|move|copy|force))|worktree\s+(?:add|remove|move|prune))(?![\w-])`,
 )
 const PACKAGE_INSTALL = new RegExp(
   COMMAND_START +
-    String.raw`(?:npm|pnpm|yarn|bun)\s+(?:install|i|add|ci|remove|rm|uninstall|update|upgrade|up|link)\b`,
+    String.raw`(?:npm|pnpm|yarn|bun)\s+(?:install|i|add|remove|rm|uninstall|update|upgrade|up|link)(?![\w-])`,
 )
+/** Installs that reproduce the committed lockfile only bring a pulled checkout up to date. */
+const LOCKED_INSTALL = /--frozen-lockfile\b|--immutable\b/
+const GH_CHECKOUT = new RegExp(COMMAND_START + String.raw`gh\s+pr\s+checkout(?![\w-])`)
 const SQL_MUTATION =
   /\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|merge|call|execute|copy|into|set)\b/i
 
@@ -142,20 +145,39 @@ function redirectsElsewhere(command, env) {
 }
 
 /**
+ * The command as the shell sees it, without heredoc bodies and with multi-word quoted arguments
+ * blanked, so text that merely mentions a command is not mistaken for running it.
+ */
+function commandSkeleton(command) {
+  const text = command.replace(HEREDOC_BODY, '$1')
+
+  try {
+    return parse(text, (name) => `\${${name}}`)
+      .map((word) =>
+        typeof word === 'string' ? (/\s/.test(word) ? "'…'" : word) : (word.op ?? ''),
+      )
+      .join(' ')
+  } catch {
+    return text
+  }
+}
+
+/**
  * The checkout every conversation reads keeps its branch, index and dependencies: a command
  * run there may read, build and fetch, but not move Git state or reinstall packages.
  */
 function sharedCheckoutDenial(command, env) {
   if (env.REGENT_SHARED !== '1') return null
+  const text = commandSkeleton(command)
   const where = env.REGENT_WORKTREE_NAME
     ? ` Call EnterWorktree with name "${env.REGENT_WORKTREE_NAME}" and run it there.`
     : ''
 
-  if (GIT_STATE.test(command)) {
+  if (GIT_STATE.test(text) || GH_CHECKOUT.test(text)) {
     return `Every conversation reads this checkout: do not change its Git state.${where}`
   }
 
-  if (PACKAGE_INSTALL.test(command)) {
+  if (PACKAGE_INSTALL.test(text) && !LOCKED_INSTALL.test(text)) {
     return `Every conversation reads this checkout: do not change its dependencies.${where}`
   }
 
@@ -173,6 +195,7 @@ function recursiveRootDelete(command) {
 }
 
 function bashDenial(command, env) {
+  if (typeof command !== 'string') return null
   if (CREDENTIAL_FILES.test(command)) return 'No leer archivos de credenciales.'
   if (DOWNLOAD_TO_INTERPRETER.test(command)) return 'No canalizar una descarga a un interprete.'
   if (recursiveRootDelete(command)) return 'No borrar recursivamente rutas absolutas o del home.'

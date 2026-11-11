@@ -132,20 +132,21 @@ provider context window or subscription quota.
 
 Core/hook policy keeps two boundaries around that freedom. Edit tools write only inside the
 conversation's worktree, once entered, or in scratch locations (the system temporary directory
-and Regent's attachment directory); `EnterWorktree` is accepted only for the conversation's
-own worktree and `ExitWorktree` is refused. A command run from the shared checkout may read,
-build, fetch and pull, but recognized Git state changes, package installs and output
-redirected outside the worktree are refused, because every conversation reads that
-checkout. These are heuristics over the command text: an elaborate command can still write
+and the conversation's own attachment directory); `EnterWorktree` is accepted only for the conversation's
+own worktree and `ExitWorktree` is refused. A command run from the project's shared checkout
+may read, build, fetch, pull and reinstall the committed lockfile, but recognized Git state
+changes, other package installs and output redirected outside the worktree are refused,
+because every conversation reads that checkout. A new project created elsewhere in the
+workspace is not a shared checkout. These are heuristics over the command text: an elaborate command can still write
 there, so the instruction remains the rule and the check its safety net. `regent_git_read` executes bounded read-only Git argv
 without a shell, disabling executable Git filters, fsmonitor and external diff/textconv.
 It receives a minimal environment, not transport credentials. Trusted project hooks and MCP
 implementations still execute under the operator's account; these guards are not an OS sandbox.
 External services/database credentials must enforce their own data permissions.
 
-The selected project's environment and connections load in both modes, preserving shared
-root context for registered Git submodules. Query reads never prepare nested worktrees.
-An editing worktree starts without submodule checkouts: the executor decides, from the
+The selected project's environment and connections load for every run, preserving shared
+root context for registered Git submodules. Runs in the shared checkout never prepare nested
+worktrees. The conversation's worktree starts without submodule checkouts: the executor decides, from the
 prompt and repository instructions, which submodules a request needs and calls
 `regent_use_repo` for each, which checks out that submodule and its enclosing ones at the
 parent's pinned commits. A new checkout with a `pnpm-lock.yaml` also gets `pnpm install`, so
