@@ -13,6 +13,22 @@ type Status = 'processing' | 'active' | 'suspended'
 
 type ReplyTarget = { channel: string; thread: string | null | undefined }
 
+export type QuestionMessage = {
+  channel: string
+  ts: string
+  thread: string | null
+  text: string
+  blocks: any[]
+}
+
+export function answeredBlocks(blocks: any[], author: string, index: number): any[] {
+  const answer = {
+    type: 'context',
+    elements: [{ type: 'mrkdwn', text: `Respondido por <@${author}>: Opcion ${index + 1}` }],
+  }
+  return [...blocks.filter((block) => block.type !== 'actions'), answer]
+}
+
 export class SlackOutput implements Output {
   api: SlackApi
   activities?: SlackActivities
@@ -77,6 +93,26 @@ export class SlackOutput implements Output {
           })),
         },
       ],
+    })
+  }
+
+  /** Marks a question as answered in place: the buttons give way to who chose which option. */
+  async answered(message: QuestionMessage, author: string, index: number): Promise<void> {
+    await this.api('chat.update', {
+      channel: message.channel,
+      ts: message.ts,
+      text: message.text,
+      blocks: answeredBlocks(message.blocks, author, index),
+    })
+  }
+
+  /** A private note to whoever pressed a button, kept in the question's own thread. */
+  async whisper(message: QuestionMessage, user: string, text: string): Promise<void> {
+    await this.api('chat.postEphemeral', {
+      channel: message.channel,
+      thread_ts: message.thread ?? undefined,
+      user,
+      text,
     })
   }
 

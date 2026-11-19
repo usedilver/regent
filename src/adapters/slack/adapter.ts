@@ -12,7 +12,7 @@ import { slackAttachmentLoader } from './attachments.ts'
 import { gatherHistory, readSlackFile } from './history.ts'
 import { createIdentityResolver } from './identity.ts'
 import { slackImageLoader } from './images.ts'
-import { SlackOutput } from './output.ts'
+import { SlackOutput, type QuestionMessage } from './output.ts'
 import { createRoomApi } from './rooms.ts'
 import { accepts, conversationRoute, type SlackRoute } from './routing.ts'
 import { messageBody } from './thread.ts'
@@ -117,8 +117,35 @@ class SlackInbound {
     await this.core.submit(input)
   }
 
-  /** A button press on a regent_ask_human question. */
-  async answer(body: any, action: any): Promise<string> {
+  /** A button press on a regent_ask_human question; feedback stays in the question's thread. */
+  async press(body: any, action: any): Promise<void> {
+    const index = Number(action.action_id.replace('regent_question_', ''))
+    const message: QuestionMessage = {
+      channel: body.channel?.id,
+      ts: body.message?.ts,
+      thread: body.message?.thread_ts ?? null,
+      text: body.message?.text ?? '',
+      blocks: body.message?.blocks ?? [],
+    }
+    let duplicate: boolean
+
+    try {
+      duplicate = await this.answer(body, action.value, index, message.thread)
+    } catch (error) {
+      return this.output.whisper(message, body.user.id, redact(errorMessage(error)))
+    }
+
+    if (duplicate)
+      return this.output.whisper(message, body.user.id, 'La pregunta ya fue respondida.')
+    await this.output.answered(message, body.user.id, index)
+  }
+
+  private async answer(
+    body: any,
+    id: string,
+    index: number,
+    thread: string | null,
+  ): Promise<boolean> {
     if (body.user?.team_id && body.user.team_id !== this.team) {
       throw new Error('Usuario de otro workspace.')
     }
@@ -128,15 +155,15 @@ class SlackInbound {
     }
 
     const result = await this.core.answerQuestion(
-      action.value,
-      Number(action.action_id.replace('regent_question_', '')),
+      id,
+      index,
       body.user.id,
       body.team?.id,
       body.channel?.id,
-      body.message?.thread_ts ?? null,
+      thread,
     )
 
-    return result.duplicate ? 'La pregunta ya fue respondida.' : 'Respuesta registrada.'
+    return result.duplicate
   }
 
   /** Bot posts, edits, joins and foreign-workspace users never start a run. */
@@ -204,17 +231,11 @@ export function createSlack(config: Config) {
   app.event('agent_session_stopped' as any, ({ event, body }: any) =>
     inbound.sessionStopped(event, body),
   )
-  app.action(/^regent_question_([0-4])$/, async ({ ack, body, action, respond }: any) => {
+  app.action(/^regent_question_([0-4])$/, async ({ ack, body, action }: any) => {
     await ack()
-    let text: string
-
-    try {
-      text = await inbound.answer(body, action)
-    } catch (error) {
-      text = redact(errorMessage(error))
-    }
-
-    await respond({ text, replace_original: false, response_type: 'ephemeral' })
+    await inbound.press(body, action).catch((error) => {
+      console.error(`[slack v2] question answer: ${redact(errorMessage(error))}`)
+    })
   })
   app.error(async (error) => {
     console.error(`[slack v2] ${redact(error.message)}`)
