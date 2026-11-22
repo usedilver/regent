@@ -18,8 +18,18 @@ const INTERNAL_TOOLS = [
   'cancel',
   'cleanup_worktree',
 ].map((tool) => `mcp__regent__regent_${tool}`)
-const DOWNLOAD_TO_INTERPRETER =
-  /\b(?:curl|wget|fetch)\b[\s\S]*\|\s*(?:sudo\s+)?(?:sh|bash|zsh|ash|dash|python[0-9.]*|node|perl|ruby)\b/
+const DOWNLOAD = /\b(?:curl|wget|fetch)\b/
+const SHELL_INTERPRETERS = ['sh', 'bash', 'zsh', 'ash', 'dash']
+const PIPED_INTERPRETER =
+  /\|\s*(?:sudo\s+)?(sh|bash|zsh|ash|dash|python[0-9.]*|node|perl|ruby)\b([^|;&]*)/g
+/** Flags that hand the interpreter its program, so what arrives on stdin is only data. */
+const INLINE_PROGRAM = {
+  shell: /^-[a-zA-Z]*c[a-zA-Z]*$/,
+  python: /^-(?:[a-zA-Z]*c|m)$/,
+  node: /^(?:-e|-p|-pe|--eval|--print)$/,
+  other: /^-[a-zA-Z0-9]*e$/,
+}
+const SHELL_READS_STDIN = /^-[a-zA-Z]*s[a-zA-Z]*$/
 const RM_INVOCATION = /(?:^|[;&|]\s*|\s)rm\s+([^;&|]+)/
 const ABSOLUTE_OR_HOME = /^(?:\/|~|\$HOME|\$\{HOME\})/
 const HEREDOC_BODY = /(<<-?\s*(['"]?)(\w+)\2[^\n]*)\n[\s\S]*?\n\s*\3\b/g
@@ -69,13 +79,24 @@ function readDenial(name, args) {
   return null
 }
 
-/** Scratch locations stay writable from anywhere: temporary files and downloaded attachments. */
+/** Places that stay writable from anywhere: temporary files, attachments and the project's memory. */
 function scratchRoots(env) {
+  let roots = []
+
   try {
-    return JSON.parse(env.REGENT_SCRATCH ?? '[]').filter((root) => fs.existsSync(root))
+    roots = JSON.parse(env.REGENT_SCRATCH ?? '[]')
   } catch {
     return []
   }
+
+  // A root that does not exist yet, such as a memory folder never written, still counts.
+  return roots.flatMap((root) => {
+    try {
+      return [resolveTarget('/', root)]
+    } catch {
+      return []
+    }
+  })
 }
 
 /** How to reach an editable place, for an edit or redirection that missed it. */
@@ -89,7 +110,7 @@ function worktreeHint(env) {
 
 /** Edits land in the conversation's worktree (REGENT_ROOT, once entered) or a scratch location. */
 function editable(target, env) {
-  const roots = scratchRoots(env).map((root) => fs.realpathSync(root))
+  const roots = scratchRoots(env)
   const worktree = env.REGENT_ROOT ? fs.realpathSync(env.REGENT_ROOT) : undefined
   if (worktree && inside(worktree, target)) return true
   // The repository workspace stays protected even when it sits under a scratch location.
@@ -184,21 +205,77 @@ function sharedCheckoutDenial(command, env) {
   return null
 }
 
-/** `rm -rf` (in any flag spelling) aimed at an absolute path or the home directory. */
-function recursiveRootDelete(command) {
+/** A literal path strictly inside the conversation's worktree or a scratch location. */
+function disposable(target, env) {
+  const literal = target.replace(/^(['"])(.*)\1$/, '$2')
+  if (!literal.startsWith('/') || /[$`*?~]/.test(literal)) return false
+  try {
+    const worktree = env.REGENT_ROOT ? [fs.realpathSync(env.REGENT_ROOT)] : []
+    const resolved = resolveTarget('/', literal)
+
+    return [...scratchRoots(env), ...worktree].some(
+      (root) => resolved !== root && inside(root, resolved),
+    )
+  } catch {
+    return false
+  }
+}
+
+/**
+ * `rm -rf` (in any flag spelling) aimed at an absolute path or the home directory, other than
+ * the run's own disposable places.
+ */
+function recursiveRootDelete(command, env) {
   const match = command.match(RM_INVOCATION)
   if (!match) return false
   const parts = match[1].trim().split(/\s+/)
   const flags = parts.filter((part) => part.startsWith('-')).join('')
   const targets = parts.filter((part) => !part.startsWith('-'))
-  return /r/i.test(flags) && /f/i.test(flags) && targets.some((t) => ABSOLUTE_OR_HOME.test(t))
+
+  return (
+    /r/i.test(flags) &&
+    /f/i.test(flags) &&
+    targets.some((target) => ABSOLUTE_OR_HOME.test(target) && !disposable(target, env))
+  )
+}
+
+/** Whether the interpreter takes its program from stdin instead of a flag or a script file. */
+function runsItsInput(interpreter, args) {
+  const shell = SHELL_INTERPRETERS.includes(interpreter)
+  let inline = INLINE_PROGRAM.other
+
+  if (shell) inline = INLINE_PROGRAM.shell
+
+  if (interpreter.startsWith('python')) inline = INLINE_PROGRAM.python
+
+  if (interpreter === 'node') inline = INLINE_PROGRAM.node
+
+  for (const word of args.trim().split(/\s+/).filter(Boolean)) {
+    if (inline.test(word)) return false
+    if (word === '-' || (shell && SHELL_READS_STDIN.test(word))) return true
+    if (!word.startsWith('-')) return false
+  }
+
+  return true
+}
+
+/** A download piped into an interpreter that would execute it; parsing its output is fine. */
+function downloadsIntoInterpreter(command) {
+  const download = command.search(DOWNLOAD)
+  if (download < 0) return false
+
+  return [...command.slice(download).matchAll(PIPED_INTERPRETER)].some((match) =>
+    runsItsInput(match[1], match[2]),
+  )
 }
 
 function bashDenial(command, env) {
   if (typeof command !== 'string') return null
   if (CREDENTIAL_FILES.test(command)) return 'No leer archivos de credenciales.'
-  if (DOWNLOAD_TO_INTERPRETER.test(command)) return 'No canalizar una descarga a un interprete.'
-  if (recursiveRootDelete(command)) return 'No borrar recursivamente rutas absolutas o del home.'
+  if (downloadsIntoInterpreter(command)) return 'No canalizar una descarga a un interprete.'
+  if (recursiveRootDelete(command, env)) {
+    return 'No borrar recursivamente rutas absolutas o del home.'
+  }
   const words = literalCommand(command)
 
   if (words && CREDENTIAL_FILES.test(words.join(' '))) {

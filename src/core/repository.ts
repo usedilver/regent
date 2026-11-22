@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
+import os from 'node:os'
 import { execFileSync } from 'node:child_process'
 
 /** True when `target` is `root` itself or lives below it. Both paths must already be absolute. */
@@ -15,6 +16,16 @@ export function requireSameProject(current: string, target: string): void {
       'Esta conversación está vinculada a otro proyecto. Abre una nueva conversación (un hilo nuevo en Slack) y selecciona allí el proyecto antes de continuar. Los servicios y submódulos del mismo proyecto sí pueden compartir esta sesión.',
     )
   }
+}
+
+/**
+ * Where the CLI keeps a project's memory. Its worktrees share it, so the agent remembers
+ * across conversations and requesters.
+ */
+export function memoryDirectory(project: string): string {
+  const slug = fs.realpathSync(project).replace(/[^a-zA-Z0-9]/g, '-')
+  const home = process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), '.claude')
+  return path.join(home, 'projects', slug, 'memory')
 }
 
 /** Where a project keeps its conversations' worktrees, relative to its root. */

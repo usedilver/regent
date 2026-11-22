@@ -84,8 +84,9 @@ when it was last used; Git remains the source of truth for what exists, and
 `pnpm regent worktrees` lists them.
 A directory change starts a fresh CLI session with a bounded prior-request/result handoff;
 the Regent conversation, history, caller and queued work remain the same. A turn handed to
-a queued continuation closes its activity without posting a reply. Agent runs disable the
-CLI's auto memory, which lives outside the worktree and is shared by every conversation. Legacy sessions
+a queued continuation closes its activity without posting a reply. Agent runs keep the
+CLI's auto memory: it lives outside the worktree, is shared by every conversation of the
+project, and its directory is writable like a scratch location. Legacy sessions
 resume only when their existing worktree matches; a removed worktree is recreated only when the
 executor enters it again.
 

@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { denial } from '../../plugins/executor/hooks/policy.mjs'
 import type { Active, Core } from './core.ts'
-import { isInside, isolationFor } from './repository.ts'
+import { isInside, isolationFor, memoryDirectory } from './repository.ts'
 
 export interface PermissionInput {
   tool_name: string
@@ -144,6 +144,7 @@ export function permissionDenial(
       os.tmpdir(),
       '/tmp',
       core.attachments.directory(active.run.conversation_key),
+      memoryDirectory(cwd),
     ]),
     REGENT_SHARED: shared ? '1' : '',
     REGENT_READONLY_MCP: JSON.stringify(core.config.repos.readonly_mcp),
