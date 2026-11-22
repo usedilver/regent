@@ -129,6 +129,7 @@ con `SIGHUP`, igual que en producción. Otros cambios de configuración requiere
 | `repos.readonly_mcp`                             | Restricciones adicionales del hook; usa también credenciales de solo lectura en la fuente.                                                        |
 | `permission_mode`                                | `bypass` omite los permisos nativos; `native` respeta `allow/ask/deny` y puede denegar solicitudes en modo headless. Los hooks no son un sandbox. |
 | `slack.progress_mode`                            | `auto` para actividades; `plain` para texto actualizado.                                                                                          |
+| `slack.alerts_channel`                           | Canal que recibe el aviso cuando una ejecución termina sin poder cambiar código; `null` no avisa.                                                 |
 | `communication.instructions_file`                | Archivo de comunicación personalizado; se explica abajo.                                                                                          |
 | `models` / `limits`                              | Modelo, concurrencia, duración, inactividad y cancelación por perfil.                                                                             |
 | `budget`                                         | Límites por ejecución y usuario en modo `team`; no limitan una suscripción personal.                                                              |
