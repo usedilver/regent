@@ -35,6 +35,7 @@ import {
   type CleanupPullRequest,
 } from './worktree-cleanup.ts'
 import {
+  isInside,
   isolationFor,
   projectRoot,
   repositoryRequest,
@@ -756,9 +757,17 @@ export class Core {
     const deadline = this.deadlineReason(active, input.tool_name)
     if (deadline) return deadline
     const reason = permissionDenial(this, active, input)
-    if (reason) noteRefusal(active, input.tool_name, reason)
+    if (reason && this.targetsRepository(input)) noteRefusal(active, input.tool_name, reason)
     if (!reason && input.tool_name === 'EnterWorktree') active.enteringWorktree = true
     return reason
+  }
+
+  /** A refused note or scratch file outside the workspace does not keep a run from changing code. */
+  private targetsRepository(input: PermissionInput): boolean {
+    const file = input.tool_input?.file_path ?? input.tool_input?.notebook_path
+    if (typeof file !== 'string') return true
+
+    return isInside(fs.realpathSync(this.cwd), path.resolve(input.cwd ?? this.cwd, file))
   }
 
   // Human gates

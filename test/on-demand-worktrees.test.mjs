@@ -807,6 +807,16 @@ test('a run that ends with a refused edit is recorded as blocked and reported to
   runner.opts.onEvent({ kind: 'tool_result', id: 'edit-1', error: false })
   await f.finish('Listo.')
   assert.deepEqual(blockedEvents(recovered.run.id), [])
+
+  await f.submit('Resume lo que sabes', 'notes')
+  const notes = f.core.active.get('notes')
+  assert.ok(edit(notes, '/var/regent-fixture/outside-the-workspace.md'))
+  await f.finish('Resumen.')
+  assert.deepEqual(
+    blockedEvents(notes.run.id),
+    [],
+    'a refused note outside the workspace is not a blocked run',
+  )
   assert.equal(notices.length, 1)
 })
 
