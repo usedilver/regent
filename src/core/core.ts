@@ -11,7 +11,7 @@ import { AccessPolicy, legacyAccess } from './access-policy.ts'
 import type { WorkspaceActivity } from './activities.ts'
 import { Attachments, type AttachmentLoader } from './attachments.ts'
 import { isStopCommand, type ControlCommand } from './commands.ts'
-import { ensureConversationWorktree } from './conversation-worktree.ts'
+import { ensureConversationWorktree, type ConversationWorktree } from './conversation-worktree.ts'
 import { errorMessage } from './errors.ts'
 import type { HistoryLoader } from './history.ts'
 import type { IdentityResolver } from './identity.ts'
@@ -120,6 +120,7 @@ export class Core {
   cwd: string
   toolsUrl = ''
   active = new Map<string, Active>()
+  private worktreeCreations = new Map<string, Promise<ConversationWorktree>>()
   preparing = new Set<string>()
   secretKeys: string[] = ownEnvKeys()
   stopping = false
@@ -651,12 +652,24 @@ export class Core {
       throw new Error(`Enter this conversation's own worktree: use the name "${expected}".`)
     }
 
-    const worktree = await ensureConversationWorktree(cwd, key, active.abort.signal)
-    this.store.trackWorktree(key, cwd, worktree.name, worktree.dir)
-    if (worktree.created) {
-      this.store.event(active.run.id, 'worktree_created', { directory: worktree.dir })
+    // Project and plugin hooks may ask at the same instant; only one of them creates it.
+    let creation = this.worktreeCreations.get(key)
+
+    if (!creation) {
+      creation = ensureConversationWorktree(cwd, key, active.abort.signal)
+        .then((worktree) => {
+          if (worktree.created) {
+            this.store.event(active.run.id, 'worktree_created', { directory: worktree.dir })
+          }
+
+          return worktree
+        })
+        .finally(() => this.worktreeCreations.delete(key))
+      this.worktreeCreations.set(key, creation)
     }
 
+    const worktree = await creation
+    this.store.trackWorktree(key, cwd, worktree.name, worktree.dir)
     return worktree.dir
   }
 

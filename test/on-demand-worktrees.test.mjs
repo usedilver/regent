@@ -715,6 +715,30 @@ test('the worktree is created at the project root even when the session stands i
   await f.finish()
 })
 
+test('project and plugin hooks asking at the same instant get one worktree', async (t) => {
+  const f = fixture(t)
+  await f.submit('Implementa el cambio')
+  const active = [...f.core.active.values()][0]
+  const isolation = isolationFor(f.repo, 'conversation')
+  const server = createHttp(f.core, () => ({}))
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve) => server.close(resolve)))
+  const request = { name: isolation.name, cwd: f.repo }
+  const answers = await Promise.all([
+    worktreeHook(server, active.token, request),
+    worktreeHook(server, active.token, request),
+    f.core.createWorktree(active.token, isolation.name),
+  ])
+
+  assert.deepEqual(
+    answers.map((answer) => answer.path ?? answer),
+    [isolation.dir, isolation.dir, isolation.dir],
+  )
+  assert.equal(worktreeCount(f.repo), 2)
+  assert.equal(f.store.worktrees().length, 1)
+  await f.finish()
+})
+
 test('a session outside its tracked worktree may leave, and natively created worktrees stay in place', async (t) => {
   const f = fixture(t)
   await f.submit('Implementa el cambio')
