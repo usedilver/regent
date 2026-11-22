@@ -739,6 +739,33 @@ test('project and plugin hooks asking at the same instant get one worktree', asy
   await f.finish()
 })
 
+test('a recreated worktree keeps unmerged work and otherwise restarts from the checkout', async (t) => {
+  const f = fixture(t)
+  await f.submit('Implementa el cambio')
+  const active = [...f.core.active.values()][0]
+  const { name, dir } = isolationFor(f.repo, 'conversation')
+  const branch = `worktree-${name}`
+  const recreate = async () => {
+    git(f.repo, 'worktree', 'remove', '--force', dir)
+    await f.core.createWorktree(active.token, name)
+    return git(dir, 'rev-parse', 'HEAD')
+  }
+
+  await f.core.createWorktree(active.token, name)
+  fs.writeFileSync(path.join(f.repo, 'later.txt'), 'later\n')
+  git(f.repo, 'add', 'later.txt')
+  git(f.repo, 'commit', '-m', 'Later work on the checkout')
+  assert.equal(await recreate(), git(f.repo, 'rev-parse', 'HEAD'), 'a merged branch restarts')
+
+  fs.writeFileSync(path.join(dir, 'pending.txt'), 'pending\n')
+  git(dir, 'add', 'pending.txt')
+  git(dir, 'commit', '-m', 'Unmerged work')
+  const pending = git(dir, 'rev-parse', 'HEAD')
+  assert.equal(await recreate(), pending, 'unmerged work is kept')
+  assert.equal(git(dir, 'branch', '--show-current'), branch)
+  await f.finish()
+})
+
 test('a session outside its tracked worktree may leave, and natively created worktrees stay in place', async (t) => {
   const f = fixture(t)
   await f.submit('Implementa el cambio')

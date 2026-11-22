@@ -51,9 +51,14 @@ export async function ensureConversationWorktree(
     ['for-each-ref', '--format=%(refname)', `refs/heads/${branch}`],
     signal,
   )
+  // A removed worktree leaves its branch behind. Unmerged commits there are work to continue;
+  // a branch the checkout already contains restarts from the checkout instead of from the past.
+  const unmerged = existing
+    ? Number(await workspaceGit(project, ['rev-list', '--count', `HEAD..${existing}`], signal))
+    : 0
   await workspaceGit(
     project,
-    existing ? ['worktree', 'add', dir, branch] : ['worktree', 'add', '-b', branch, dir, 'HEAD'],
+    ['worktree', 'add', ...(unmerged > 0 ? [dir, branch] : ['-B', branch, dir, 'HEAD'])],
     signal,
   )
   await copySetupFiles(project, dir, signal)
