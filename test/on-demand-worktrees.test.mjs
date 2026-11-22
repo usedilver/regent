@@ -4,7 +4,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import { Store } from '../src/storage/store.ts'
 import { Core } from '../src/core/core.ts'
 import { ConfigSchema } from '../src/config.ts'
@@ -39,7 +40,7 @@ function init(repo) {
   git(repo, 'config', 'user.name', 'Fixture')
   git(repo, 'config', 'user.email', 'fixture@example.test')
   fs.writeFileSync(path.join(repo, 'answer.txt'), 'original\n')
-  fs.writeFileSync(path.join(repo, '.gitignore'), '.claude/\n.env\n')
+  fs.writeFileSync(path.join(repo, '.gitignore'), '.claude/\n.worktrees/\n.env\n')
   fs.writeFileSync(path.join(repo, '.mcp.json'), '{"mcpServers":{}}\n')
   git(repo, 'add', '.')
   git(repo, 'commit', '-m', 'Initial')
@@ -66,7 +67,7 @@ function fixture(t, adapter = 'slack') {
     output,
     runner: (opts) => {
       if (opts.worktreeName) {
-        const dir = path.join(opts.cwd, '.claude/worktrees', opts.worktreeName)
+        const dir = path.join(opts.cwd, '.worktrees', opts.worktreeName)
 
         if (!fs.existsSync(path.join(dir, '.git'))) {
           git(opts.cwd, 'worktree', 'add', '-b', opts.worktreeName, dir, 'HEAD')
@@ -138,7 +139,7 @@ for (const adapter of ['slack', 'mcp']) {
     assert.equal(first.opts.cwd, f.repo)
     assert.equal(first.opts.env.DEMAND_ROOT_VALUE, 'source-context')
     assert.ok(first.opts.prompt.includes(`"worktree":{"name":"${isolation.name}","entered":false}`))
-    assert.equal(fs.existsSync(path.join(f.repo, '.claude/worktrees')), false)
+    assert.equal(fs.existsSync(path.join(f.repo, '.worktrees')), false)
     const args = runnerArgs(first.opts)
     assert.equal(args[args.indexOf('--permission-mode') + 1], 'bypassPermissions')
     assert.ok(!args.includes('--tools'), 'every run keeps every native tool')
@@ -284,7 +285,7 @@ test('credential files, unknown tools and the policy endpoint behave the same fo
     () => f.core.tool(active.token, 'regent_preview', { action: 'status' }),
     /Tool desconocida/,
   )
-  assert.equal(fs.existsSync(path.join(f.repo, '.claude/worktrees')), false)
+  assert.equal(fs.existsSync(path.join(f.repo, '.worktrees')), false)
   await f.finish()
 })
 
@@ -352,8 +353,8 @@ test('independent queries use a new conversation and load only their own environ
   assert.equal(f.starts[1].opts.sessionId, null)
   assert.equal(f.starts[1].opts.env.OTHER_ROOT_VALUE, 'independent')
   assert.equal(f.starts[1].opts.env.DEMAND_ROOT_VALUE, undefined)
-  assert.ok(!fs.existsSync(path.join(f.repo, '.claude/worktrees')))
-  assert.ok(!fs.existsSync(path.join(other, '.claude/worktrees')))
+  assert.ok(!fs.existsSync(path.join(f.repo, '.worktrees')))
+  assert.ok(!fs.existsSync(path.join(other, '.worktrees')))
   await f.finish()
 })
 
@@ -382,7 +383,7 @@ test('submodule investigation uses source; editing checks out only the submodule
   })
 
   assert.match(read.output, /original/)
-  assert.ok(!fs.existsSync(path.join(f.repo, '.claude/worktrees')))
+  assert.ok(!fs.existsSync(path.join(f.repo, '.worktrees')))
   await f.finish('Investigated the pinned backend.')
   await f.submit('Implementa el cambio en backend')
   f.enter()
@@ -620,6 +621,122 @@ test('resumed submodules receive newly provisioned ignored setup files without o
     fs.readFileSync(path.join(isolated, 'web/.env'), 'utf8'),
     'RUNTIME=conversation-specific\n',
   )
+  await f.finish()
+})
+
+const WORKTREE_HOOK = fileURLToPath(
+  new URL('../plugins/executor/hooks/worktree.mjs', import.meta.url),
+)
+
+/** Runs the WorktreeCreate hook as the CLI does: the request on stdin, the path on stdout. */
+function worktreeHook(server, token, input) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [WORKTREE_HOOK], {
+      env: {
+        ...process.env,
+        REGENT_TOOLS_URL: `http://127.0.0.1:${server.address().port}/tools`,
+        REGENT_RUN_TOKEN: token,
+      },
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (chunk) => (stdout += chunk))
+    child.stderr.on('data', (chunk) => (stderr += chunk))
+    child.on('close', (code) => resolve({ code, path: stdout.trim(), stderr }))
+    child.stdin.end(JSON.stringify({ hook_event_name: 'WorktreeCreate', ...input }))
+  })
+}
+
+test('the worktree is created at the project root even when the session stands in a submodule', async (t) => {
+  const f = fixture(t)
+  addSubmodule(f, 'child', 'backend/api')
+  fs.writeFileSync(path.join(f.repo, '.worktreeinclude'), '.env\n')
+  git(f.repo, 'add', '.worktreeinclude')
+  git(f.repo, 'commit', '-m', 'Setup files')
+  await f.submit('Implementa el cambio en backend')
+  const active = [...f.core.active.values()][0]
+  const isolation = isolationFor(f.repo, 'conversation')
+  const submodule = path.join(f.repo, 'backend/api')
+  const server = createHttp(f.core, () => ({}))
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise((resolve) => server.close(resolve)))
+
+  assert.equal(isolation.dir, path.join(f.repo, '.worktrees', isolation.name))
+  assert.equal(
+    f.core.permission(active.token, {
+      tool_name: 'EnterWorktree',
+      tool_input: { name: isolation.name },
+      cwd: submodule,
+    }),
+    null,
+  )
+  const created = await worktreeHook(server, active.token, { name: isolation.name, cwd: submodule })
+
+  assert.equal(created.code, 0, created.stderr)
+  assert.equal(created.path, isolation.dir)
+  assert.ok(fs.existsSync(path.join(isolation.dir, '.git')))
+  assert.equal(worktreeCount(f.repo), 2)
+  assert.equal(worktreeCount(submodule), 1)
+  assert.ok(!fs.existsSync(path.join(submodule, '.worktrees')))
+  assert.ok(!fs.existsSync(path.join(submodule, '.claude')))
+  assert.equal(
+    fs.readFileSync(path.join(isolation.dir, '.env'), 'utf8'),
+    'DEMAND_ROOT_VALUE=source-context\n',
+  )
+  assert.match(
+    fs.readFileSync(path.join(f.repo, '.git/info/exclude'), 'utf8'),
+    /^\/\.worktrees\/$/m,
+  )
+
+  const again = await worktreeHook(server, active.token, { name: isolation.name, cwd: f.repo })
+  assert.equal(again.path, isolation.dir)
+  assert.equal(worktreeCount(f.repo), 2)
+
+  const foreign = await worktreeHook(server, active.token, { name: 'another-name', cwd: f.repo })
+  assert.equal(foreign.code, 2)
+  assert.match(foreign.stderr, /own worktree/)
+  assert.equal(worktreeCount(f.repo), 2)
+
+  f.starts.at(-1).opts.onEvent({ kind: 'tool_result', id: 'enter-worktree', error: false })
+  assert.equal(await f.core.prepareWorkspace(active.token, 'Edit'), null)
+  assert.equal(
+    f.core.permission(active.token, {
+      tool_name: 'Edit',
+      tool_input: { file_path: path.join(isolation.dir, 'answer.txt') },
+      cwd: isolation.dir,
+    }),
+    null,
+  )
+  assert.match(f.core.permission(active.token, { tool_name: 'ExitWorktree' }), /aislamiento/)
+  assert.deepEqual(
+    f.store.worktrees().map((row) => [row.key, row.project, row.dir]),
+    [['conversation', f.repo, isolation.dir]],
+  )
+  await f.finish()
+})
+
+test('a session outside its tracked worktree may leave, and natively created worktrees stay in place', async (t) => {
+  const f = fixture(t)
+  await f.submit('Implementa el cambio')
+  const active = [...f.core.active.values()][0]
+  const { name } = isolationFor(f.repo, 'conversation')
+  const native = path.join(f.repo, '.claude/worktrees', name)
+
+  const exit = (cwd) => f.core.permission(active.token, { tool_name: 'ExitWorktree', cwd })
+  const stray = path.join(f.repo, 'backend/api/.claude/worktrees/stray')
+
+  addSubmodule(f, 'child', 'backend/api')
+  git(path.join(f.repo, 'backend/api'), 'worktree', 'add', '-b', 'stray', stray, 'HEAD')
+  assert.match(exit(f.repo), /aislamiento/)
+  assert.match(exit(path.join(f.repo, 'backend/api')), /aislamiento/)
+  assert.equal(exit(stray), null)
+  git(f.repo, 'worktree', 'add', '-b', name, native, 'HEAD')
+  assert.equal(isolationFor(f.repo, 'conversation').dir, native)
+  assert.equal(await f.core.createWorktree(active.token, name), native)
+  assert.ok(!fs.existsSync(path.join(f.repo, '.worktrees')))
+  assert.equal(f.store.worktrees()[0].dir, native)
+  f.store.forgetWorktree('conversation')
+  assert.deepEqual(f.store.worktrees(), [])
   await f.finish()
 })
 

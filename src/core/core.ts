@@ -11,6 +11,7 @@ import { AccessPolicy, legacyAccess } from './access-policy.ts'
 import type { WorkspaceActivity } from './activities.ts'
 import { Attachments, type AttachmentLoader } from './attachments.ts'
 import { isStopCommand, type ControlCommand } from './commands.ts'
+import { ensureConversationWorktree } from './conversation-worktree.ts'
 import { errorMessage } from './errors.ts'
 import type { HistoryLoader } from './history.ts'
 import type { IdentityResolver } from './identity.ts'
@@ -486,6 +487,7 @@ export class Core {
       )
       if (result.state !== 'blocked') {
         this.store.forgetSession(key)
+        this.store.forgetWorktree(key)
         await this.attachments.remove(key).catch(logError)
       }
     } catch (error) {
@@ -626,7 +628,44 @@ export class Core {
     active.executionDir = dir
     const session = this.store.conversation(key)?.session_id
     if (session) this.store.session(key, session, dir)
+    this.trackWorktree(active)
     this.store.event(active.run.id, 'worktree_entered', { directory: dir })
+  }
+
+  /**
+   * Answers the CLI's WorktreeCreate hook: the directory of this conversation's worktree,
+   * created from the project root when it does not exist yet.
+   */
+  async createWorktree(token: string, name: string): Promise<string> {
+    const active = this.byToken(token)
+    if (!active) throw new Error('El run no admite mas herramientas.')
+    const key = active.run.conversation_key
+    const { cwd } = this.isolation(active)
+    const expected = isolationFor(cwd, key).name
+
+    if (!fs.existsSync(path.join(cwd, '.git'))) {
+      throw new Error('This project is not a Git repository, so it has no worktree to enter.')
+    }
+
+    if (name !== expected) {
+      throw new Error(`Enter this conversation's own worktree: use the name "${expected}".`)
+    }
+
+    const worktree = await ensureConversationWorktree(cwd, key, active.abort.signal)
+    this.store.trackWorktree(key, cwd, worktree.name, worktree.dir)
+    if (worktree.created) {
+      this.store.event(active.run.id, 'worktree_created', { directory: worktree.dir })
+    }
+
+    return worktree.dir
+  }
+
+  /** Notes that the run works in the conversation's worktree, whoever created it. */
+  trackWorktree(active: Active): void {
+    const key = active.run.conversation_key
+    const { cwd } = this.isolation(active)
+    const { name, dir } = isolationFor(cwd, key)
+    this.store.trackWorktree(key, cwd, name, dir)
   }
 
   private isolation(active: Active): { cwd: string; dir: string } {

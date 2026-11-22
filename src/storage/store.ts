@@ -20,6 +20,19 @@ export interface GateQuestion {
   options: string[]
 }
 
+export interface ConversationWorktreeRow {
+  key: string
+  project: string
+  name: string
+  dir: string
+  created_at: number
+  used_at: number
+  adapter: string
+  channel: string
+  thread: string | null
+  author: string
+}
+
 type FinalRunState = Exclude<RunState, 'queued' | 'running'>
 type AdapterFilter = string | string[] | undefined
 
@@ -343,6 +356,43 @@ export class Store {
         .run(key)
       this.db.prepare('DELETE FROM gates WHERE conversation_key=?').run(key)
     })
+  }
+
+  // Conversation worktrees
+
+  /** Records the conversation's worktree, or that it was just used. Git decides what exists. */
+  trackWorktree(key: string, project: string, name: string, dir: string): void {
+    const now = Date.now()
+    this.db
+      .prepare(
+        `INSERT INTO conversation_worktrees (conversation_key,project,name,dir,state,created_at,used_at)
+         VALUES (?,?,?,?,'active',?,?)
+         ON CONFLICT(conversation_key) DO UPDATE SET
+           project=excluded.project, name=excluded.name, dir=excluded.dir, used_at=excluded.used_at,
+           created_at=CASE WHEN state='removed' THEN excluded.created_at ELSE created_at END,
+           removed_at=NULL, state='active'`,
+      )
+      .run(key, project, name, dir, now, now)
+  }
+
+  forgetWorktree(key: string): void {
+    this.db
+      .prepare(
+        "UPDATE conversation_worktrees SET state='removed',removed_at=? WHERE conversation_key=? AND state='active'",
+      )
+      .run(Date.now(), key)
+  }
+
+  /** Active worktrees, least recently used first. */
+  worktrees(): ConversationWorktreeRow[] {
+    return this.db
+      .prepare(
+        `SELECT w.conversation_key AS key, w.project, w.name, w.dir, w.created_at, w.used_at,
+                c.adapter, c.channel, c.thread, c.author
+         FROM conversation_worktrees w JOIN conversations c ON c.key=w.conversation_key
+         WHERE w.state='active' ORDER BY w.used_at`,
+      )
+      .all() as unknown as ConversationWorktreeRow[]
   }
 
   // Run lifecycle

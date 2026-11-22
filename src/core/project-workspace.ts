@@ -81,7 +81,11 @@ function ensureDirectory(root: string, directory: string): void {
 }
 
 /** Ignored files the repo lists in .worktreeinclude (local env, certificates) copied once. */
-async function copySetupFiles(source: string, target: string, signal?: AbortSignal): Promise<void> {
+export async function copySetupFiles(
+  source: string,
+  target: string,
+  signal?: AbortSignal,
+): Promise<void> {
   if (!fs.existsSync(path.join(source, '.worktreeinclude'))) return
   const files = (
     await git(

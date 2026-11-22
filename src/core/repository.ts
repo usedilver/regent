@@ -17,14 +17,27 @@ export function requireSameProject(current: string, target: string): void {
   }
 }
 
+/** Where a project keeps its conversations' worktrees, relative to its root. */
+export const WORKTREES_DIRECTORY = '.worktrees'
+/** Where the CLI created them before Regent chose the location; existing ones stay there. */
+const NATIVE_WORKTREES_DIRECTORY = path.join('.claude', 'worktrees')
+
+/**
+ * The worktree a conversation owns in a project: always below the project root, whichever
+ * repository of the project the work happens in.
+ */
 export function isolationFor(repo: string, conversation: string) {
   const root = fs.realpathSync(repo)
   const name = `regent-${createHash('sha256')
     .update(JSON.stringify([root, conversation]))
     .digest('hex')
     .slice(0, 24)}`
+  const native = path.join(root, NATIVE_WORKTREES_DIRECTORY, name)
+  const dir = fs.existsSync(path.join(native, '.git'))
+    ? native
+    : path.join(root, WORKTREES_DIRECTORY, name)
 
-  return { name, dir: path.join(root, '.claude', 'worktrees', name) }
+  return { name, dir }
 }
 
 export function resolveRepository(workspace: string, value: string): string {

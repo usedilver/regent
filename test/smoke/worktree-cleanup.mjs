@@ -32,7 +32,7 @@ try {
     ).trim()
   git(root, 'init', '--bare', path.join(root, 'remote.git'))
   git(repo, 'init', '-b', 'main')
-  fs.writeFileSync(path.join(repo, '.gitignore'), '.claude/worktrees/\n')
+  fs.writeFileSync(path.join(repo, '.gitignore'), '.claude/worktrees/\n.worktrees/\n')
   fs.writeFileSync(
     path.join(repo, 'CLAUDE.md'),
     'Synthetic fixture. Do not delegate, change code, create commits or PRs, or inspect external services. The only requested operation will be conversation worktree cleanup through Regent. No Bash commands are necessary.\n',

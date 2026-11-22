@@ -1,4 +1,5 @@
 import { loadAccess } from './access.ts'
+import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
@@ -13,9 +14,10 @@ import type { Output } from './core/types.ts'
 import { setup, requestArgs } from './setup.ts'
 
 const USAGE =
-  'Uso: pnpm regent setup --repo <ruta> --team <ID> --user <ID> | ask|patch <texto> [--repo <ruta>] [--conversation <id>] | runs | tail <run_id> [--follow]'
+  'Uso: pnpm regent setup --repo <ruta> --team <ID> --user <ID> | ask|patch <texto> [--repo <ruta>] [--conversation <id>] | runs | worktrees | tail <run_id> [--follow]'
 const RECENT_RUNS = 30
 const TAIL_POLL_MS = 500
+const DAY_MS = 24 * 60 * 60 * 1000
 
 /** Replies land on stdout; there is no thread to update. */
 const consoleOutput: Output = {
@@ -116,9 +118,26 @@ async function runRequest(store: Store, intent: 'ask' | 'patch', args: string[])
   }
 }
 
+/** Tracked worktrees, least recently used first; `present` is false once Git no longer has one. */
+function worktreeReport(store: Store): unknown[] {
+  return store.worktrees().map((row) => ({
+    conversation: row.key,
+    author: row.author,
+    project: row.project,
+    worktree: row.name,
+    idle_days: Math.floor((Date.now() - row.used_at) / DAY_MS),
+    present: fs.existsSync(path.join(row.dir, '.git')),
+  }))
+}
+
 async function runCommand(store: Store, command: string, args: string[]): Promise<number> {
   if (command === 'runs') {
     console.table(store.recentRuns(RECENT_RUNS))
+    return 0
+  }
+
+  if (command === 'worktrees') {
+    console.table(worktreeReport(store))
     return 0
   }
 

@@ -78,6 +78,7 @@ export class Turn {
     try {
       const execution = executionContext(this.conversation)
       this.active.executionDir = execution.directory
+      if (execution.isolated) this.core.trackWorktree(this.active)
       const env = agentEnvironment(this.core.config, this.core.secretKeys, this.conversation.cwd)
       assertAuth(this.core.config, env)
       if (this.core.config.auth.mode === 'team') this.reserveBudget()

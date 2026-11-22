@@ -89,7 +89,7 @@ try {
     'For fixture requests use the probe skill. No subagents, no commits, no tests, no extra files. Follow the core execution mode.\n',
   )
   fs.writeFileSync(path.join(repo, 'answer.txt'), 'original\n')
-  fs.writeFileSync(path.join(repo, '.gitignore'), '.env\n.claude/worktrees/\n')
+  fs.writeFileSync(path.join(repo, '.gitignore'), '.env\n.claude/worktrees/\n.worktrees/\n')
   fs.writeFileSync(path.join(repo, '.env'), 'DEMAND_PROBE_TOKEN=' + token + '\n')
   fs.writeFileSync(
     path.join(repo, '.mcp.json'),
@@ -186,7 +186,7 @@ try {
 
   assert.ok(first.result.includes(marker), first.result)
   assert.ok(sqlCalls > 0, 'The query must use the read-only execute_sql wrapper')
-  assert.ok(!fs.existsSync(path.join(repo, '.claude/worktrees')))
+  assert.ok(!fs.existsSync(path.join(repo, '.worktrees')))
   const session = store.conversation('smoke').session_id
   console.log('PASS real question: root skill, env/MCP and no worktree')
   await run(

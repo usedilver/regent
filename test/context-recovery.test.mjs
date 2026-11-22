@@ -61,7 +61,7 @@ function fixture(t, execute = async () => success(), editing = false) {
   git('init', '-b', 'main')
   git('config', 'user.name', 'Fixture')
   git('config', 'user.email', 'fixture@example.test')
-  fs.writeFileSync(path.join(root, '.gitignore'), '.claude/\n.env\n')
+  fs.writeFileSync(path.join(root, '.gitignore'), '.claude/\n.worktrees/\n.env\n')
   fs.writeFileSync(path.join(root, 'work.txt'), 'original')
   git('add', '.')
   git('commit', '-m', 'Initial')
