@@ -861,6 +861,9 @@ test('a run may delete what it created in scratch and in its worktree, and nothi
   for (const command of [
     `rm -rf ${scratch}/build`,
     `rm -rf "${scratch}/never-created"`,
+    `rm -rf ${scratch}/build ${scratch}/other && mkdir -p ${scratch}/build`,
+    `rm -rf ${scratch}/build.*`,
+    `rm -rf ${scratch}/build/*`,
     `rm -rf ${worktree}/node_modules`,
     'rm -rf ./dist',
   ]) {
@@ -872,6 +875,12 @@ test('a run may delete what it created in scratch and in its worktree, and nothi
     `rm -rf ${worktree}`,
     `rm -rf ${scratch}/../escape`,
     `rm -rf ${scratch}/*`,
+    `rm -rf ${scratch}/*/../../escape`,
+    `rm -rf ${scratch}/build/{a,../../../escape}`,
+    `rm -rf ${scratch}/build && rm -rf ~/projects`,
+    `rm -rf ${scratch}/build; rm -rf /etc/regent-fixture`,
+    'rm -rf "/etc/regent-fixture"',
+    'rm -rf "$HOME/projects"',
     'rm -rf /etc/regent-fixture',
     'rm -rf ~/projects',
     'rm -rf $HOME/projects',

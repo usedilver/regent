@@ -30,7 +30,11 @@ const INLINE_PROGRAM = {
   other: /^-[a-zA-Z0-9]*e$/,
 }
 const SHELL_READS_STDIN = /^-[a-zA-Z]*s[a-zA-Z]*$/
-const RM_INVOCATION = /(?:^|[;&|]\s*|\s)rm\s+([^;&|]+)/
+const RM_INVOCATION = /(?:^|[;&|]\s*|\s)rm\s+([^;&|]+)/g
+/** Characters a path may hold and still mean exactly what it spells: no expansion, no substitution. */
+const LITERAL_PATH = /^[\w@%+=:,./-]+$/
+const LITERAL_NAME_PATTERN = /^[\w@%+=:,.*?-]*$/
+const WILDCARD = /[*?]/
 const ABSOLUTE_OR_HOME = /^(?:\/|~|\$HOME|\$\{HOME\})/
 const HEREDOC_BODY = /(<<-?\s*(['"]?)(\w+)\2[^\n]*)\n[\s\S]*?\n\s*\3\b/g
 const COMMAND_START = String.raw`(?:^|[\s;&|(\`])`
@@ -205,13 +209,20 @@ function sharedCheckoutDenial(command, env) {
   return null
 }
 
-/** A literal path strictly inside the conversation's worktree or a scratch location. */
+/**
+ * A path strictly inside the conversation's worktree or a scratch location. A wildcard is
+ * accepted only in the last name, so the folder it applies to is still spelled out.
+ */
 function disposable(target, env) {
-  const literal = target.replace(/^(['"])(.*)\1$/, '$2')
-  if (!literal.startsWith('/') || /[$`*?~]/.test(literal)) return false
+  const wildcard = target.search(WILDCARD)
+  const folder = wildcard < 0 ? target : target.slice(0, wildcard)
+  const pattern = wildcard < 0 ? '' : target.slice(wildcard)
+  if (!folder.startsWith('/') || !LITERAL_PATH.test(folder)) return false
+  if (!LITERAL_NAME_PATTERN.test(pattern)) return false
+
   try {
     const worktree = env.REGENT_ROOT ? [fs.realpathSync(env.REGENT_ROOT)] : []
-    const resolved = resolveTarget('/', literal)
+    const resolved = resolveTarget('/', folder)
 
     return [...scratchRoots(env), ...worktree].some(
       (root) => resolved !== root && inside(root, resolved),
@@ -221,22 +232,26 @@ function disposable(target, env) {
   }
 }
 
+function unquoted(word) {
+  return word.replace(/^(['"])(.*)\1$/, '$2')
+}
+
 /**
  * `rm -rf` (in any flag spelling) aimed at an absolute path or the home directory, other than
  * the run's own disposable places.
  */
 function recursiveRootDelete(command, env) {
-  const match = command.match(RM_INVOCATION)
-  if (!match) return false
-  const parts = match[1].trim().split(/\s+/)
-  const flags = parts.filter((part) => part.startsWith('-')).join('')
-  const targets = parts.filter((part) => !part.startsWith('-'))
+  return [...command.matchAll(RM_INVOCATION)].some((invocation) => {
+    const parts = invocation[1].trim().split(/\s+/)
+    const flags = parts.filter((part) => part.startsWith('-')).join('')
+    const targets = parts.filter((part) => !part.startsWith('-')).map(unquoted)
 
-  return (
-    /r/i.test(flags) &&
-    /f/i.test(flags) &&
-    targets.some((target) => ABSOLUTE_OR_HOME.test(target) && !disposable(target, env))
-  )
+    return (
+      /r/i.test(flags) &&
+      /f/i.test(flags) &&
+      targets.some((target) => ABSOLUTE_OR_HOME.test(target) && !disposable(target, env))
+    )
+  })
 }
 
 /** Whether the interpreter takes its program from stdin instead of a flag or a script file. */
