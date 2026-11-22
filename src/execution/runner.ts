@@ -250,9 +250,12 @@ function erroredServers(event: InitEvent): string[] {
   return Object.keys(event.errors ?? {})
 }
 
+/** A server still connecting at init, or one switched off, has not failed. */
+const UNAVAILABLE_MCP_STATUSES = ['failed', 'needs-auth']
+
 function unconnectedServers(event: InitEvent): string[] {
   return (event.mcpServers ?? [])
-    .filter((server) => server.status && server.status !== 'connected')
+    .filter((server) => UNAVAILABLE_MCP_STATUSES.includes(server.status ?? ''))
     .map((server) => server.name)
 }
 

@@ -73,6 +73,7 @@ function healthReport(core: Core, health: Health): Record<string, unknown> {
 
 function sendMetrics(core: Core, response: ServerResponse): void {
   const lines = core.store.runCounts().map((row) => `regent_runs{state="${row.state}"} ${row.n}`)
+  lines.push(`regent_runs_blocked ${core.store.blockedRuns()}`)
   response.writeHead(200, { 'content-type': 'text/plain; version=0.0.4' })
   response.end(lines.join('\n') + '\n')
 }

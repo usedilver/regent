@@ -140,7 +140,11 @@ provider context window or subscription quota.
 Core/hook policy keeps two boundaries around that freedom. Edit tools write only inside the
 conversation's worktree, once entered, or in scratch locations (the system temporary directory
 and the conversation's own attachment directory); `EnterWorktree` is accepted only for the conversation's
-own worktree and `ExitWorktree` is refused, except to leave a linked worktree Regent does not track. A command run from the project's shared checkout
+own worktree and `ExitWorktree` is refused, except to leave a linked worktree Regent does not track. A run that
+answers normally but ends with an editing or worktree tool refused and never working afterwards
+is recorded as a `run_blocked` event, counted in `/metrics` (`regent_runs_blocked`), flagged in
+`pnpm regent runs`, and announced in `slack.alerts_channel` when one is configured; its state
+stays `completed`, so clients see no new state. A command run from the project's shared checkout
 may read, build, fetch, pull and reinstall the committed lockfile, but recognized Git state
 changes, other package installs and output redirected outside the worktree are refused,
 because every conversation reads that checkout. A new project created elsewhere in the

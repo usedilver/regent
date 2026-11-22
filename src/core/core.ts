@@ -46,6 +46,11 @@ import { CORE_TOOLS, isToolName } from './tools.ts'
 import { Turn } from './turn.ts'
 import type { Conversation, Inbound, Output, Rooms, Run } from './types.ts'
 
+function noteRefusal(active: Active, tool: string, reason: string): void {
+  const refusals = (active.refusals ??= new Map())
+  refusals.set(tool, { reason, attempts: (refusals.get(tool)?.attempts ?? 0) + 1 })
+}
+
 /** Tools the agent may still call once the turn is in its wrap-up margin. */
 const DEADLINE_EXEMPT_TOOLS = new Set([
   'regent_status',
@@ -91,6 +96,15 @@ export interface Active {
   submoduleQueue?: Promise<unknown>
   worktreeRemoval?: CleanupPullRequest[]
   cleanupAbort?: AbortController
+  /** Tool names by call id, to tell which tool a result belongs to. */
+  toolCalls?: Map<string, string>
+  /** Tools whose latest attempt the policy refused; a later successful call clears the entry. */
+  refusals?: Map<string, ToolRefusal>
+}
+
+export interface ToolRefusal {
+  reason: string
+  attempts: number
 }
 
 export interface CoreOptions {
@@ -739,8 +753,10 @@ export class Core {
     }
 
     this.syncWorktree(active)
-    const reason =
-      this.deadlineReason(active, input.tool_name) ?? permissionDenial(this, active, input)
+    const deadline = this.deadlineReason(active, input.tool_name)
+    if (deadline) return deadline
+    const reason = permissionDenial(this, active, input)
+    if (reason) noteRefusal(active, input.tool_name, reason)
     if (!reason && input.tool_name === 'EnterWorktree') active.enteringWorktree = true
     return reason
   }

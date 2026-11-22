@@ -766,6 +766,50 @@ test('a recreated worktree keeps unmerged work and otherwise restarts from the c
   await f.finish()
 })
 
+test('a run that ends with a refused edit is recorded as blocked and reported to the alerts channel', async (t) => {
+  const f = fixture(t)
+  const notices = []
+  f.core.output.notice = async (conversation, text) => void notices.push({ conversation, text })
+  f.core.config.slack.alerts_channel = 'C-ALERTS'
+  const blockedEvents = (runId) =>
+    f.store.db.prepare("SELECT data FROM events WHERE run_id=? AND kind='run_blocked'").all(runId)
+  const edit = (active, file) =>
+    f.core.permission(active.token, {
+      tool_name: 'Edit',
+      tool_input: { file_path: file },
+      cwd: f.repo,
+    })
+
+  await f.submit('Cambia el texto', 'stuck')
+  const stuck = f.core.active.get('stuck')
+  assert.match(edit(stuck, 'answer.txt'), /EnterWorktree/)
+  assert.match(edit(stuck, 'answer.txt'), /EnterWorktree/)
+  await f.finish('No pude editar.')
+  const [recorded] = blockedEvents(stuck.run.id)
+  assert.deepEqual(
+    JSON.parse(recorded.data).tools.map((item) => [item.tool, item.attempts]),
+    [['Edit', 2]],
+  )
+  assert.equal(notices.length, 1)
+  assert.equal(notices[0].conversation.channel, 'C-ALERTS')
+  assert.equal(notices[0].conversation.thread, null)
+  assert.match(notices[0].text, /sin poder cambiar código[\s\S]*Edit \(2×\)/)
+  assert.equal(f.store.blockedRuns(), 1)
+  assert.equal(f.store.recentRuns(5).find((run) => run.id === stuck.run.id).blocked, 1)
+
+  await f.submit('Cambia el texto', 'recovered')
+  const recovered = f.core.active.get('recovered')
+  const runner = f.starts.at(-1)
+  assert.match(edit(recovered, 'answer.txt'), /EnterWorktree/)
+  const isolation = f.enter('recovered')
+  runner.opts.onEvent({ kind: 'tool_use', id: 'edit-1', name: 'Edit' })
+  assert.equal(edit(recovered, path.join(isolation.dir, 'answer.txt')), null)
+  runner.opts.onEvent({ kind: 'tool_result', id: 'edit-1', error: false })
+  await f.finish('Listo.')
+  assert.deepEqual(blockedEvents(recovered.run.id), [])
+  assert.equal(notices.length, 1)
+})
+
 test('a session outside its tracked worktree may leave, and natively created worktrees stay in place', async (t) => {
   const f = fixture(t)
   await f.submit('Implementa el cambio')

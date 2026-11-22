@@ -156,10 +156,19 @@ export class Store {
       .all() as unknown as Array<{ state: RunState; n: number }>
   }
 
+  /** Runs that ended unable to change code although they answered. */
+  blockedRuns(): number {
+    return this.db
+      .prepare("SELECT COUNT(DISTINCT run_id) AS n FROM events WHERE kind='run_blocked'")
+      .get()!.n as number
+  }
+
   recentRuns(limit: number): unknown[] {
     return this.db
       .prepare(
-        'SELECT id,conversation_key,state,cost,error FROM runs ORDER BY created_at DESC LIMIT ?',
+        `SELECT id,conversation_key,state,cost,error,
+                EXISTS(SELECT 1 FROM events WHERE run_id=runs.id AND kind='run_blocked') AS blocked
+         FROM runs ORDER BY created_at DESC LIMIT ?`,
       )
       .all(limit)
   }
