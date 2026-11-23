@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { denial } from '../../plugins/executor/hooks/policy.mjs'
 import type { Active, Core } from './core.ts'
-import { isInside, isolationFor } from './repository.ts'
+import { isInside, isolationFor, memoryDirectory } from './repository.ts'
 
 export interface PermissionInput {
   tool_name: string
@@ -48,6 +48,26 @@ function realDirectory(directory: string): string {
     return fs.realpathSync(directory)
   } catch {
     return directory
+  }
+}
+
+/** Whether a directory belongs to a linked Git worktree rather than a main or submodule checkout. */
+function insideLinkedWorktree(directory: string): boolean {
+  let current = directory
+
+  while (true) {
+    const marker = path.join(current, '.git')
+
+    if (fs.existsSync(marker)) {
+      return (
+        fs.statSync(marker).isFile() &&
+        /\/worktrees\/[^/]+\s*$/.test(fs.readFileSync(marker, 'utf8'))
+      )
+    }
+
+    const parent = path.dirname(current)
+    if (parent === current) return false
+    current = parent
   }
 }
 
@@ -98,7 +118,13 @@ export function permissionDenial(
   }
 
   if (input.tool_name === 'ExitWorktree') {
-    return 'Conserva el aislamiento de esta conversacion; usa regent_use_repo para cambiar de proyecto.'
+    // A session standing in a worktree Regent does not track must be able to leave it.
+    const stray =
+      !worktree && input.cwd !== undefined && insideLinkedWorktree(realDirectory(input.cwd))
+
+    return stray
+      ? null
+      : 'Conserva el aislamiento de esta conversacion; usa regent_use_repo para cambiar de proyecto.'
   }
 
   const directory = realDirectory(input.cwd ?? worktree ?? cwd)
@@ -118,6 +144,7 @@ export function permissionDenial(
       os.tmpdir(),
       '/tmp',
       core.attachments.directory(active.run.conversation_key),
+      memoryDirectory(cwd),
     ]),
     REGENT_SHARED: shared ? '1' : '',
     REGENT_READONLY_MCP: JSON.stringify(core.config.repos.readonly_mcp),

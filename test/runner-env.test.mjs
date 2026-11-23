@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { startRunner } from '../src/execution/runner.ts'
 
-test('agent runs disable the CLI auto memory, even when the operator enabled it', async (t) => {
+test('agent runs keep the CLI auto memory setting the operator chose', async (t) => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'regent-runner-env-'))
   t.after(() => fs.rmSync(cwd, { recursive: true, force: true }))
   const script = `const emit = (x) => console.log(JSON.stringify(x));
@@ -24,5 +24,5 @@ emit({ type: 'result', result: String(process.env.CLAUDE_CODE_DISABLE_AUTO_MEMOR
     env: { ...process.env, CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0' },
     onEvent() {},
   })
-  assert.equal((await handle.done).text, '1')
+  assert.equal((await handle.done).text, '0')
 })

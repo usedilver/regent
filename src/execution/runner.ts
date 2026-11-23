@@ -250,9 +250,12 @@ function erroredServers(event: InitEvent): string[] {
   return Object.keys(event.errors ?? {})
 }
 
+/** A server still connecting at init, or one switched off, has not failed. */
+const UNAVAILABLE_MCP_STATUSES = ['failed', 'needs-auth']
+
 function unconnectedServers(event: InitEvent): string[] {
   return (event.mcpServers ?? [])
-    .filter((server) => server.status && server.status !== 'connected')
+    .filter((server) => UNAVAILABLE_MCP_STATUSES.includes(server.status ?? ''))
     .map((server) => server.name)
 }
 
@@ -350,9 +353,6 @@ function runnerEnv(options: RunnerOptions): NodeJS.ProcessEnv {
     GH_PAGER: 'cat',
     GIT_OPTIONAL_LOCKS: '0',
     GIT_TERMINAL_PROMPT: '0',
-    // Auto memory lives in the operator's shared home, outside the worktree the edit guard
-    // allows, and would mix notes across conversations and requesters.
-    CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
   }
 
   // Do not inherit a parent interactive session or alternate subscription tokens.

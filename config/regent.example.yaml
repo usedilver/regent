@@ -19,6 +19,8 @@ repos:
 slack:
   progress_mode: auto # tarjetas de actividades; plain usa texto actualizado en el mismo mensaje.
   workspace_team_id: T_REPLACE
+  # Channel that hears when a run ends unable to change code (a refused edit that never worked).
+  # alerts_channel: C_REPLACE
 mcp:
   enabled: false
   principals: [] # [{ id: dilver, token_env: REGENT_MCP_TOKEN_DILVER }]; tokens en el entorno privado.

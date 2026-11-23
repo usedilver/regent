@@ -59,13 +59,20 @@ there freely, running commands, scripts and read-only Git, opening attachments a
 the configured MCPs. Answer questions without creating a worktree. Use regent_git_read
 with a literal argument array for bounded Git history, diffs and worktree inventories.
 
-To change repository code, first call the native EnterWorktree tool with exactly the name
-in core state worktree.name and no path; when worktree.entered is true the run already
-works there. The session continues in the worktree with its context intact. Run edits,
+To change repository code, first check where the run stands: core state worktree.entered
+and `pwd` say whether it already works in the conversation's worktree. If it does not,
+call the native EnterWorktree tool with exactly the name in core state worktree.name and
+no path. Regent creates that worktree at the project root, under `.worktrees/`, wherever
+the session stands, and the session continues there with its context intact. Run edits,
 dependency installs, branch changes, commits and publication only there, never in the
-shared checkout or another conversation's worktree; Regent rejects the edits and
-commands it recognizes. Scratch files belong under the system temporary directory. After
-a merge, updating the shared checkout with fetch or pull is fine. Root instructions,
+shared checkout or another conversation's worktree: every conversation reads the shared
+checkout, so a change there reaches all of them. Regent rejects the edits and commands it
+recognizes; when one is rejected, re-check `pwd` and the path before retrying. Temporary
+files belong under the system temporary directory, and what you created there is yours
+to delete. The project's memory directory works as in any Claude Code session: read it,
+add to it and prune it. Every conversation of the project shares it, so keep what holds
+for all of them and leave out one requester's private details. After a merge, updating
+the shared checkout with fetch or pull is fine. Root instructions,
 MCPs and environment still belong to context_repo. Later turns resume in the worktree.
 Follow repository rules and preserve pre-existing work. Keep changes focused on
 the requested outcome, necessary integration and meaningful validation. Do not

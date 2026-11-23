@@ -17,6 +17,7 @@ docs
 log/
 tmp/
 worktrees/
+.worktrees/
 projects/
 
 dist/

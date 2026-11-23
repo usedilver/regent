@@ -100,7 +100,7 @@ async function fixture(options = {}) {
       starts.push(args)
 
       if (args.worktreeName) {
-        const directory = path.join(args.cwd, '.claude/worktrees', args.worktreeName)
+        const directory = path.join(args.cwd, '.worktrees', args.worktreeName)
 
         if (!fs.existsSync(path.join(directory, '.git'))) {
           execFileSync('git', ['-C', args.cwd, 'worktree', 'add', '--detach', directory, 'HEAD'], {
@@ -593,7 +593,7 @@ try {
         })
         await until(() => !f.core.active.size)
         assert.equal(f.starts[0].worktreeName, undefined)
-        assert.ok(!fs.existsSync(path.join(f.repo, '.claude/worktrees')))
+        assert.ok(!fs.existsSync(path.join(f.repo, '.worktrees')))
         const session = f.store.conversation(work.conversation_id).session_id
         await call(client, 'regent_continue', {
           conversation_id: work.conversation_id,

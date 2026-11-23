@@ -100,7 +100,7 @@ try {
     git(project, 'config', '-f', '.gitmodules', `submodule.${service}.ignore`, 'all')
   }
 
-  fs.writeFileSync(path.join(project, '.gitignore'), '.env\n.claude/worktrees/\n')
+  fs.writeFileSync(path.join(project, '.gitignore'), '.env\n.claude/worktrees/\n.worktrees/\n')
   fs.writeFileSync(path.join(project, '.env'), `PROJECT_SMOKE_TOKEN=${token}\n`)
   fs.writeFileSync(
     path.join(project, '.mcp.json'),

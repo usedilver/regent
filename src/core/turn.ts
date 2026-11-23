@@ -36,6 +36,15 @@ type Execution = ReturnType<typeof executionContext>
 type PreparedHistory = Awaited<ReturnType<History['prepare']>>
 type Visual = Awaited<ReturnType<typeof prepareImages>>
 type FinalState = Exclude<RunState, 'queued' | 'running'>
+/** Tools a run needs in order to change code: the editors and the way into its worktree. */
+const CODE_CHANGING_TOOLS = new Set([
+  'Edit',
+  'Write',
+  'MultiEdit',
+  'NotebookEdit',
+  'EnterWorktree',
+  'ExitWorktree',
+])
 
 /**
  * One run from the moment it leaves the queue until its final reply is published. The Core owns
@@ -78,6 +87,7 @@ export class Turn {
     try {
       const execution = executionContext(this.conversation)
       this.active.executionDir = execution.directory
+      if (execution.isolated) this.core.trackWorktree(this.active)
       const env = agentEnvironment(this.core.config, this.core.secretKeys, this.conversation.cwd)
       assertAuth(this.core.config, env)
       if (this.core.config.auth.mode === 'team') this.reserveBudget()
@@ -311,12 +321,14 @@ export class Turn {
       }
     } else if (event.kind === 'tool_use') {
       if (event.name === 'EnterWorktree') this.enteringCall = event.id
+      ;(this.active.toolCalls ??= new Map()).set(event.id, event.name)
       this.active.lastTool = event.name
       this.active.toolUses++
       output.activity?.(this.conversation, this.run, event)
     } else if (event.kind === 'tool_result') {
       // A failed entry leaves the run where it was, whatever Git left on disk.
       if (event.error && event.id === this.enteringCall) this.active.enteringWorktree = false
+      if (!event.error) this.active.refusals?.delete(this.active.toolCalls?.get(event.id) ?? '')
       this.core.syncWorktree(this.active)
       output.activity?.(this.conversation, this.run, event)
     } else if (event.kind === 'text_delta') {
@@ -472,6 +484,7 @@ export class Turn {
     }
     state = this.finalState(result.state)
     error = this.stopReason() ?? result.error
+    this.reportBlocked(state)
 
     this.core.store.finish(this.run.id, state, reviewed.text, error, () => {
       const delivered = state === 'completed' || state === 'waiting_human'
@@ -581,6 +594,40 @@ export class Turn {
 
     return (
       executionFailure(message) ?? { source: 'regent', code: 'execution_failed', detail: message }
+    )
+  }
+
+  /**
+   * A run that answered normally may still have ended unable to change code: an editing or
+   * worktree tool was refused and never worked afterwards. The record and the operators'
+   * channel make that visible, since the reply alone reads as a finished turn.
+   */
+  private reportBlocked(state: RunState): void {
+    if (state !== 'completed' && state !== 'waiting_human') return
+    const tools = [...(this.active.refusals ?? [])]
+      .filter(([tool]) => CODE_CHANGING_TOOLS.has(tool))
+      .map(([tool, refusal]) => ({ tool, ...refusal }))
+    if (!tools.length) return
+
+    this.core.store.event(this.run.id, 'run_blocked', { tools })
+    const channel = this.core.config.slack.alerts_channel
+    if (!channel) return
+
+    const refused = tools
+      .map((item) => `${item.tool} (${item.attempts}×): ${item.reason}`)
+      .join('\n')
+    const destination: Conversation = {
+      ...this.conversation,
+      adapter: 'slack',
+      key: `alerts:${channel}`,
+      channel,
+      thread: null,
+    }
+    this.core.publish(this.active, () =>
+      this.core.output.notice(
+        destination,
+        `Una ejecución terminó sin poder cambiar código.\nRun: ${this.run.id}\nAutor: ${this.run.author}\nProyecto: ${this.conversation.cwd}\n${refused}`,
+      ),
     )
   }
 

@@ -49,6 +49,8 @@ export const ConfigSchema = z
         progress_mode: z.enum(['auto', 'plain']).default('auto'),
         workspace_team_id: z.string().min(1),
         allowed_users: z.array(z.string().min(1)).default([]),
+        /** Channel that hears about runs ending unable to change code; none when null. */
+        alerts_channel: z.string().min(1).nullable().default(null),
       })
       .strict(),
     mcp: z

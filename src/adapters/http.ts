@@ -3,13 +3,14 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { z } from 'zod'
 import type { Core } from '../core/core.ts'
+import { errorMessage } from '../core/errors.ts'
 import { ToolSchemas } from '../core/tool-schemas.ts'
 import { BodyTooLarge, InvalidJson, readJsonBody } from './body.ts'
 import type { ExternalMcp } from './mcp/server.ts'
 
 const MAX_BODY_BYTES = 1024 * 1024
 /** Routes only the agent's own CLI process reaches, authenticated by its run token. */
-const RUN_ROUTES = ['/tools', '/hook-denial', '/tool-policy', '/completion-check']
+const RUN_ROUTES = ['/tools', '/hook-denial', '/tool-policy', '/worktree', '/completion-check']
 
 const TOOL_DESCRIPTIONS: Record<string, string> = {
   regent_cleanup_worktree:
@@ -30,6 +31,7 @@ const PolicyInput = z.object({
   cwd: z.string().optional(),
 })
 const HookDenial = z.object({ reason: z.string().max(4000) })
+const WorktreeRequest = z.object({ name: z.string().min(1).max(200) })
 
 type Health = () => Record<string, unknown>
 type Send = (code: number, value: unknown) => void
@@ -71,6 +73,7 @@ function healthReport(core: Core, health: Health): Record<string, unknown> {
 
 function sendMetrics(core: Core, response: ServerResponse): void {
   const lines = core.store.runCounts().map((row) => `regent_runs{state="${row.state}"} ${row.n}`)
+  lines.push(`regent_runs_blocked ${core.store.blockedRuns()}`)
   response.writeHead(200, { 'content-type': 'text/plain; version=0.0.4' })
   response.end(lines.join('\n') + '\n')
 }
@@ -115,6 +118,18 @@ async function handleRunRequest(
     }
 
     return send(200, { reason })
+  }
+
+  if (request.url === '/worktree') {
+    const { name } = WorktreeRequest.parse(payload)
+
+    try {
+      return send(200, { path: await core.createWorktree(token, name) })
+    } catch (error) {
+      const reason = errorMessage(error)
+      core.store.event(active.run.id, 'worktree_refused', { reason })
+      return send(409, { error: reason })
+    }
   }
 
   if (request.url === '/hook-denial') {

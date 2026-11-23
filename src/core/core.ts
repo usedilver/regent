@@ -11,6 +11,7 @@ import { AccessPolicy, legacyAccess } from './access-policy.ts'
 import type { WorkspaceActivity } from './activities.ts'
 import { Attachments, type AttachmentLoader } from './attachments.ts'
 import { isStopCommand, type ControlCommand } from './commands.ts'
+import { ensureConversationWorktree, type ConversationWorktree } from './conversation-worktree.ts'
 import { errorMessage } from './errors.ts'
 import type { HistoryLoader } from './history.ts'
 import type { IdentityResolver } from './identity.ts'
@@ -34,6 +35,7 @@ import {
   type CleanupPullRequest,
 } from './worktree-cleanup.ts'
 import {
+  isInside,
   isolationFor,
   projectRoot,
   repositoryRequest,
@@ -44,6 +46,11 @@ import { RoomTransfers } from './rooms.ts'
 import { CORE_TOOLS, isToolName } from './tools.ts'
 import { Turn } from './turn.ts'
 import type { Conversation, Inbound, Output, Rooms, Run } from './types.ts'
+
+function noteRefusal(active: Active, tool: string, reason: string): void {
+  const refusals = (active.refusals ??= new Map())
+  refusals.set(tool, { reason, attempts: (refusals.get(tool)?.attempts ?? 0) + 1 })
+}
 
 /** Tools the agent may still call once the turn is in its wrap-up margin. */
 const DEADLINE_EXEMPT_TOOLS = new Set([
@@ -90,6 +97,15 @@ export interface Active {
   submoduleQueue?: Promise<unknown>
   worktreeRemoval?: CleanupPullRequest[]
   cleanupAbort?: AbortController
+  /** Tool names by call id, to tell which tool a result belongs to. */
+  toolCalls?: Map<string, string>
+  /** Tools whose latest attempt the policy refused; a later successful call clears the entry. */
+  refusals?: Map<string, ToolRefusal>
+}
+
+export interface ToolRefusal {
+  reason: string
+  attempts: number
 }
 
 export interface CoreOptions {
@@ -119,6 +135,7 @@ export class Core {
   cwd: string
   toolsUrl = ''
   active = new Map<string, Active>()
+  private worktreeCreations = new Map<string, Promise<ConversationWorktree>>()
   preparing = new Set<string>()
   secretKeys: string[] = ownEnvKeys()
   stopping = false
@@ -486,6 +503,7 @@ export class Core {
       )
       if (result.state !== 'blocked') {
         this.store.forgetSession(key)
+        this.store.forgetWorktree(key)
         await this.attachments.remove(key).catch(logError)
       }
     } catch (error) {
@@ -626,7 +644,56 @@ export class Core {
     active.executionDir = dir
     const session = this.store.conversation(key)?.session_id
     if (session) this.store.session(key, session, dir)
+    this.trackWorktree(active)
     this.store.event(active.run.id, 'worktree_entered', { directory: dir })
+  }
+
+  /**
+   * Answers the CLI's WorktreeCreate hook: the directory of this conversation's worktree,
+   * created from the project root when it does not exist yet.
+   */
+  async createWorktree(token: string, name: string): Promise<string> {
+    const active = this.byToken(token)
+    if (!active) throw new Error('El run no admite mas herramientas.')
+    const key = active.run.conversation_key
+    const { cwd } = this.isolation(active)
+    const expected = isolationFor(cwd, key).name
+
+    if (!fs.existsSync(path.join(cwd, '.git'))) {
+      throw new Error('This project is not a Git repository, so it has no worktree to enter.')
+    }
+
+    if (name !== expected) {
+      throw new Error(`Enter this conversation's own worktree: use the name "${expected}".`)
+    }
+
+    // Project and plugin hooks may ask at the same instant; only one of them creates it.
+    let creation = this.worktreeCreations.get(key)
+
+    if (!creation) {
+      creation = ensureConversationWorktree(cwd, key, active.abort.signal)
+        .then((worktree) => {
+          if (worktree.created) {
+            this.store.event(active.run.id, 'worktree_created', { directory: worktree.dir })
+          }
+
+          return worktree
+        })
+        .finally(() => this.worktreeCreations.delete(key))
+      this.worktreeCreations.set(key, creation)
+    }
+
+    const worktree = await creation
+    this.store.trackWorktree(key, cwd, worktree.name, worktree.dir)
+    return worktree.dir
+  }
+
+  /** Notes that the run works in the conversation's worktree, whoever created it. */
+  trackWorktree(active: Active): void {
+    const key = active.run.conversation_key
+    const { cwd } = this.isolation(active)
+    const { name, dir } = isolationFor(cwd, key)
+    this.store.trackWorktree(key, cwd, name, dir)
   }
 
   private isolation(active: Active): { cwd: string; dir: string } {
@@ -687,10 +754,20 @@ export class Core {
     }
 
     this.syncWorktree(active)
-    const reason =
-      this.deadlineReason(active, input.tool_name) ?? permissionDenial(this, active, input)
+    const deadline = this.deadlineReason(active, input.tool_name)
+    if (deadline) return deadline
+    const reason = permissionDenial(this, active, input)
+    if (reason && this.targetsRepository(input)) noteRefusal(active, input.tool_name, reason)
     if (!reason && input.tool_name === 'EnterWorktree') active.enteringWorktree = true
     return reason
+  }
+
+  /** A refused note or scratch file outside the workspace does not keep a run from changing code. */
+  private targetsRepository(input: PermissionInput): boolean {
+    const file = input.tool_input?.file_path ?? input.tool_input?.notebook_path
+    if (typeof file !== 'string') return true
+
+    return isInside(fs.realpathSync(this.cwd), path.resolve(input.cwd ?? this.cwd, file))
   }
 
   // Human gates

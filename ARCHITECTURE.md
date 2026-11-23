@@ -73,12 +73,20 @@ The runner launches the unmodified official CLI. There is one execution mode. A 
 starts in the selected project's shared checkout without a worktree and answers from there.
 To change code, the executor calls the CLI's native `EnterWorktree` with the name Regent
 assigns the conversation; the same session continues in that worktree, and later runs start
-in it with `--worktree`. `src/core/execution-context.ts` selects the location and
-`conversations.session_cwd` binds the persisted CLI session to it (schema 12).
+in it with `--worktree`. The CLI does not choose where it lives: the executor plugin's
+`WorktreeCreate` hook asks the core, which creates it from the project root at
+`.worktrees/<name>` and returns that path. A session that moved into a submodule therefore
+still gets its worktree at the project root, never inside the submodule. Worktrees the CLI
+created under `.claude/worktrees/` before this stay where they are. `src/core/execution-context.ts`
+selects the location and `conversations.session_cwd` binds the persisted CLI session to it
+(schema 12). `conversation_worktrees` (schema 13) records each conversation's worktree and
+when it was last used; Git remains the source of truth for what exists, and
+`pnpm regent worktrees` lists them.
 A directory change starts a fresh CLI session with a bounded prior-request/result handoff;
 the Regent conversation, history, caller and queued work remain the same. A turn handed to
-a queued continuation closes its activity without posting a reply. Agent runs disable the
-CLI's auto memory, which lives outside the worktree and is shared by every conversation. Legacy sessions
+a queued continuation closes its activity without posting a reply. Agent runs keep the
+CLI's auto memory: it lives outside the worktree, is shared by every conversation of the
+project, and its directory is writable like a scratch location. Legacy sessions
 resume only when their existing worktree matches; a removed worktree is recreated only when the
 executor enters it again.
 
@@ -133,7 +141,11 @@ provider context window or subscription quota.
 Core/hook policy keeps two boundaries around that freedom. Edit tools write only inside the
 conversation's worktree, once entered, or in scratch locations (the system temporary directory
 and the conversation's own attachment directory); `EnterWorktree` is accepted only for the conversation's
-own worktree and `ExitWorktree` is refused. A command run from the project's shared checkout
+own worktree and `ExitWorktree` is refused, except to leave a linked worktree Regent does not track. A run that
+answers normally but ends with an editing or worktree tool refused and never working afterwards
+is recorded as a `run_blocked` event, counted in `/metrics` (`regent_runs_blocked`), flagged in
+`pnpm regent runs`, and announced in `slack.alerts_channel` when one is configured; its state
+stays `completed`, so clients see no new state. A command run from the project's shared checkout
 may read, build, fetch, pull and reinstall the committed lockfile, but recognized Git state
 changes, other package installs and output redirected outside the worktree are refused,
 because every conversation reads that checkout. A new project created elsewhere in the
