@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 
 /** Highest `PRAGMA user_version` this server understands. Bump it with every new migration. */
-export const SCHEMA_VERSION = 13
+export const SCHEMA_VERSION = 14
 
 const BASE_SCHEMA = `
   CREATE TABLE IF NOT EXISTS conversations (
@@ -194,6 +194,19 @@ const MIGRATIONS: Migration[] = [
         created_at INTEGER NOT NULL, used_at INTEGER NOT NULL, removed_at INTEGER
       );
       CREATE INDEX IF NOT EXISTS conversation_worktrees_state ON conversation_worktrees(state,used_at);
+    `),
+  },
+  {
+    version: 14,
+    apply: sql(`
+      CREATE TABLE IF NOT EXISTS thread_proposals (
+        id TEXT PRIMARY KEY, conversation_key TEXT NOT NULL REFERENCES conversations(key),
+        project TEXT NOT NULL, summary TEXT NOT NULL, author TEXT NOT NULL, team TEXT,
+        channel TEXT NOT NULL, thread TEXT, run_id TEXT, state TEXT NOT NULL DEFAULT 'pending',
+        message_ts TEXT, opened_channel TEXT, opened_thread TEXT, resume_run_id TEXT,
+        created_at INTEGER NOT NULL, decided_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS thread_proposals_conversation ON thread_proposals(conversation_key,state);
     `),
   },
 ]

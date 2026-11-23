@@ -13,7 +13,7 @@ export function isInside(root: string, target: string): boolean {
 export function requireSameProject(current: string, target: string): void {
   if (current !== target) {
     throw new Error(
-      'Esta conversación está vinculada a otro proyecto. Abre una nueva conversación (un hilo nuevo en Slack) y selecciona allí el proyecto antes de continuar. Los servicios y submódulos del mismo proyecto sí pueden compartir esta sesión.',
+      'Esta conversación está vinculada a otro proyecto. Otro proyecto necesita una nueva conversación: en Slack, regent_propose_thread pide al solicitante confirmar un hilo nuevo; desde MCP, regent_start con el repo. Los servicios y submódulos del mismo proyecto sí comparten esta sesión.',
     )
   }
 }

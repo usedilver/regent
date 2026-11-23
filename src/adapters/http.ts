@@ -13,6 +13,8 @@ const MAX_BODY_BYTES = 1024 * 1024
 const RUN_ROUTES = ['/tools', '/hook-denial', '/tool-policy', '/worktree', '/completion-check']
 
 const TOOL_DESCRIPTIONS: Record<string, string> = {
+  regent_propose_thread:
+    'Slack only. Propose continuing in a new thread when the request needs changes in an independent project (a different project root). Never for a submodule, service or worktree of this project: those share this thread through regent_use_repo. Never only to read another project: read it from here. Regent shows the requester buttons and opens the thread only if they press "Abrir hilo nuevo"; then end the turn. Call it once: not again while one is pending or after they chose to stay, unless they ask. summary must let the new thread continue without this one: goal, decisions, relevant paths and links.',
   regent_cleanup_worktree:
     "Only when the user requests removal of this conversation's worktree. Complete and verify other requested actions first and preserve their outcomes in the final reply. Runtime cleanup runs after the CLI exits: it checks local work/remote commits and removes nested checkouts. No other worktree paths, history deletion or branch removal. Include known pull_requests by relative directory and number after source-branch deletion, including cancellation without merge; the remote pull ref supports commit verification. No PR monitoring or age-based cleanup. End the turn after calling.",
   regent_read_history:

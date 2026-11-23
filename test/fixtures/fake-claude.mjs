@@ -49,6 +49,7 @@ if (scenario === 'hang' || scenario === 'ignore-signals') {
         'regent_create_room',
         'regent_get_attachment',
         'regent_git_read',
+        'regent_propose_thread',
         'regent_read_history',
         'regent_status',
         'regent_use_repo',

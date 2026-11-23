@@ -12,6 +12,7 @@ import { agentEnvironment } from './agent-env.ts'
 import type { Active, Core } from './core.ts'
 import { errorMessage } from './errors.ts'
 import { executionContext } from './execution-context.ts'
+import { newEntries, sharedCheckoutEntries } from './shared-checkout.ts'
 import { History, type AttachmentSaver } from './history.ts'
 import { prepareImages } from './images.ts'
 import { resolveIdentity, type Identity } from './identity.ts'
@@ -62,6 +63,8 @@ export class Turn {
   private runTimeout?: NodeJS.Timeout
   private heartbeat?: NodeJS.Timeout
   private deadlineWarning?: NodeJS.Timeout
+  /** The shared checkout as it was when the run started, to tell what the run changed there. */
+  private sharedBefore?: Promise<Set<string> | undefined>
   /** The id of the agent's own EnterWorktree call, to tell its result from other tools'. */
   private enteringCall?: string
 
@@ -83,6 +86,7 @@ export class Turn {
 
   async execute(): Promise<void> {
     this.runTimeout = setTimeout(() => this.expire(), this.timeoutMs)
+    this.sharedBefore = sharedCheckoutEntries(this.conversation.cwd)
 
     try {
       const execution = executionContext(this.conversation)
@@ -485,6 +489,7 @@ export class Turn {
     state = this.finalState(result.state)
     error = this.stopReason() ?? result.error
     this.reportBlocked(state)
+    this.active.sharedCheck = this.core.trackAfterRun(this.reportSharedChanges())
 
     this.core.store.finish(this.run.id, state, reviewed.text, error, () => {
       const delivered = state === 'completed' || state === 'waiting_human'
@@ -602,6 +607,39 @@ export class Turn {
    * worktree tool was refused and never worked afterwards. The record and the operators'
    * channel make that visible, since the reply alone reads as a finished turn.
    */
+  /**
+   * Every conversation reads the shared checkout, so a change left there reaches all of them.
+   * The policy refuses the edits it recognizes; this catches any other path. Another run of the
+   * same project may have made the change, which the notice says.
+   */
+  private async reportSharedChanges(): Promise<void> {
+    const before = await this.sharedBefore
+    const after = before && (await sharedCheckoutEntries(this.conversation.cwd))
+    if (!before || !after) return
+    const files = newEntries(before, after)
+    if (!files.length) return
+
+    this.core.store.event(this.run.id, 'shared_checkout_changed', { files })
+    const channel = this.core.config.slack.alerts_channel
+    if (!channel) return
+
+    const destination: Conversation = {
+      ...this.conversation,
+      adapter: 'slack',
+      key: `alerts:${channel}`,
+      channel,
+      thread: null,
+    }
+    await this.core.output
+      .notice(
+        destination,
+        `La carpeta compartida de un proyecto quedó modificada al terminar una ejecución (puede venir de otra ejecución simultánea del mismo proyecto).\nRun: ${this.run.id}\nAutor: ${this.run.author}\nProyecto: ${this.conversation.cwd}\n${files.join('\n')}`,
+      )
+      .catch((error) => {
+        this.core.store.event(this.run.id, 'delivery_error', { message: String(error) })
+      })
+  }
+
   private reportBlocked(state: RunState): void {
     if (state !== 'completed' && state !== 'waiting_human') return
     const tools = [...(this.active.refusals ?? [])]

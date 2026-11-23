@@ -39,4 +39,8 @@ export const ToolSchemas = {
     options: z.array(z.string().max(200)).max(5).optional(),
   }),
   regent_cancel: z.object({ reason: z.string().min(1).max(2000) }),
+  regent_propose_thread: z.object({
+    repo: z.string().min(1).max(500),
+    summary: z.string().min(1).max(4000),
+  }),
 }

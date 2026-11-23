@@ -20,6 +20,27 @@ export interface GateQuestion {
   options: string[]
 }
 
+export type ThreadProposalState = 'pending' | 'opening' | 'opened' | 'declined' | 'failed'
+
+export interface ThreadProposal {
+  id: string
+  conversation_key: string
+  project: string
+  summary: string
+  author: string
+  team: string | null
+  channel: string
+  thread: string | null
+  run_id: string | null
+  state: ThreadProposalState
+  message_ts: string | null
+  opened_channel: string | null
+  opened_thread: string | null
+  resume_run_id: string | null
+  created_at: number
+  decided_at: number | null
+}
+
 export interface ConversationWorktreeRow {
   key: string
   project: string
@@ -129,6 +150,14 @@ export class Store {
     return row ? { runId: row.run_id as string | null } : undefined
   }
 
+  /** Records an inbound message that starts no run, so a retried delivery is not handled twice. */
+  recordInbound(adapter: string, eventId: string): boolean {
+    const result = this.db
+      .prepare('INSERT OR IGNORE INTO inbound VALUES(?,?,NULL)')
+      .run(adapter, eventId)
+    return result.changes === 1
+  }
+
   hasQueued(key: string): boolean {
     return this.hasRunIn(key, ['queued'])
   }
@@ -154,6 +183,75 @@ export class Store {
     return this.db
       .prepare('SELECT state,COUNT(*) AS n FROM runs GROUP BY state')
       .all() as unknown as Array<{ state: RunState; n: number }>
+  }
+
+  proposeThread(
+    proposal: Pick<
+      ThreadProposal,
+      | 'id'
+      | 'conversation_key'
+      | 'project'
+      | 'summary'
+      | 'author'
+      | 'team'
+      | 'channel'
+      | 'thread'
+      | 'run_id'
+    >,
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO thread_proposals
+           (id,conversation_key,project,summary,author,team,channel,thread,run_id,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      )
+      .run(
+        proposal.id,
+        proposal.conversation_key,
+        proposal.project,
+        redact(proposal.summary),
+        proposal.author,
+        proposal.team,
+        proposal.channel,
+        proposal.thread,
+        proposal.run_id,
+        Date.now(),
+      )
+  }
+
+  threadProposal(id: string): ThreadProposal | undefined {
+    return this.db.prepare('SELECT * FROM thread_proposals WHERE id=?').get(id) as unknown as
+      | ThreadProposal
+      | undefined
+  }
+
+  /** This conversation's proposals, newest first. */
+  threadProposals(key: string): ThreadProposal[] {
+    return this.db
+      .prepare('SELECT * FROM thread_proposals WHERE conversation_key=? ORDER BY created_at DESC')
+      .all(key) as unknown as ThreadProposal[]
+  }
+
+  /** Moves a proposal out of `from` only once, so a double click cannot open two threads. */
+  claimThreadProposal(id: string, from: ThreadProposalState, to: ThreadProposalState): boolean {
+    const result = this.db
+      .prepare('UPDATE thread_proposals SET state=?,decided_at=? WHERE id=? AND state=?')
+      .run(to, Date.now(), id, from)
+    return result.changes === 1
+  }
+
+  updateThreadProposal(
+    id: string,
+    fields: Partial<
+      Pick<
+        ThreadProposal,
+        'state' | 'message_ts' | 'opened_channel' | 'opened_thread' | 'resume_run_id'
+      >
+    >,
+  ): void {
+    for (const [column, value] of Object.entries(fields)) {
+      this.db.prepare(`UPDATE thread_proposals SET ${column}=? WHERE id=?`).run(value ?? null, id)
+    }
   }
 
   /** Runs that ended unable to change code although they answered. */

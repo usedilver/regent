@@ -16,6 +16,7 @@ import {
 import { RoomTransfers } from './rooms.ts'
 import { ToolSchemas } from './tool-schemas.ts'
 import type { Conversation } from './types.ts'
+import { proposeThread, threadLink } from './thread-proposals.ts'
 
 export type ToolName = keyof typeof ToolSchemas
 
@@ -256,6 +257,35 @@ async function status({ core, active, conversation, input }: ToolCall) {
   return { ok: true }
 }
 
+async function proposeThreadTool({ core, active, conversation, input }: ToolCall) {
+  const args = ToolSchemas.regent_propose_thread.parse(input)
+  const result = await proposeThread(core, {
+    conversation,
+    author: active.run.author,
+    team: conversation.team,
+    repo: args.repo,
+    summary: args.summary,
+    runId: active.run.id,
+  })
+
+  if ('opened' in result) {
+    return {
+      existing_thread: await threadLink(core, result.opened),
+      instruction:
+        'A thread for that project already exists: give the requester its link. Do not propose another.',
+    }
+  }
+
+  active.waiting = true
+  setTimeout(() => active.controller?.cancel('Esperando confirmacion del hilo'), CANCEL_DELAY_MS)
+
+  return {
+    waiting_human: true,
+    instruction:
+      'End the turn now. Regent opens the thread only if the requester presses "Abrir hilo nuevo"; a text reply does not open it.',
+  }
+}
+
 async function askHuman({ core, active, conversation, input }: ToolCall) {
   const args = ToolSchemas.regent_ask_human.parse(input)
   active.waiting = true
@@ -319,6 +349,7 @@ export const CORE_TOOLS: Record<ToolName, Handler> = {
   regent_ask_human: askHuman,
   regent_cancel: cancel,
   regent_cleanup_worktree: cleanupWorktree,
+  regent_propose_thread: proposeThreadTool,
 }
 
 export function isToolName(name: string): name is ToolName {
