@@ -43,9 +43,10 @@ import {
   resolveRepository,
 } from './repository.ts'
 import { RoomTransfers } from './rooms.ts'
+import { proposeThread, threadLink } from './thread-proposals.ts'
 import { CORE_TOOLS, isToolName } from './tools.ts'
 import { Turn } from './turn.ts'
-import type { Conversation, Inbound, Output, Rooms, Run } from './types.ts'
+import type { Conversation, Inbound, Output, Rooms, Run, Threads } from './types.ts'
 
 function noteRefusal(active: Active, tool: string, reason: string): void {
   const refusals = (active.refusals ??= new Map())
@@ -56,6 +57,7 @@ function noteRefusal(active: Active, tool: string, reason: string): void {
 const DEADLINE_EXEMPT_TOOLS = new Set([
   'regent_status',
   'regent_ask_human',
+  'regent_propose_thread',
   'regent_cancel',
   'TaskOutput',
   'TaskStop',
@@ -88,6 +90,8 @@ export interface Active {
   abort: AbortController
   operations: Set<Promise<unknown>>
   resumeAfterWait?: boolean
+  /** The end-of-run check of the shared checkout, awaited by tests. */
+  sharedCheck?: Promise<void>
   /** The agent was allowed to enter the conversation's worktree and may be working there. */
   enteringWorktree?: boolean
   executionDir?: string
@@ -145,6 +149,9 @@ export class Core {
   defaultCwd: string
   historyLoader?: HistoryLoader
   rooms?: Rooms
+  threads?: Threads
+  /** End-of-run checks still running after their run finished; close waits for them. */
+  readonly afterRun = new Set<Promise<void>>()
   /** Maps a Slack author id to a real identity. Set by the adapter. */
   identities?: IdentityResolver
   imageLoader?: ImageLoader
@@ -198,6 +205,8 @@ export class Core {
 
     const previous = this.store.inboundRun(input.adapter, input.eventId)
     if (previous) return { duplicate: true, runId: previous.runId, command: null }
+    const proposal = await this.proposeForSelection(input)
+    if (proposal) return proposal
 
     const request = this.resolveRequest(input)
     const accepted = this.store.accept(
@@ -222,6 +231,58 @@ export class Core {
     }
 
     return accepted
+  }
+
+  /**
+   * A requester who selects another independent project inside an existing Slack thread gets the
+   * same confirmation the agent would propose, instead of an error. Same-project selections and
+   * anything unresolvable fall through to resolveRequest unchanged.
+   */
+  private async proposeForSelection(input: Inbound): Promise<Accepted | undefined> {
+    if (input.adapter !== 'slack' || !this.threads) return undefined
+    const existing = this.store.conversation(input.key)
+    if (!existing) return undefined
+    let selection: { text: string; repo?: string }
+    let project: string
+
+    try {
+      selection = repositoryRequest(input.text)
+      const requested = input.repo ?? selection.repo
+      if (!requested) return undefined
+      project = projectRoot(this.cwd, resolveRepository(this.cwd, requested))
+    } catch {
+      return undefined
+    }
+
+    if (project === existing.cwd) return undefined
+    if (!this.store.recordInbound(input.adapter, input.eventId)) {
+      return { duplicate: true, runId: null, command: null }
+    }
+
+    const conversation = { ...existing, thread: input.replyThread ?? input.thread ?? null }
+    const result = await proposeThread(this, {
+      conversation,
+      author: input.author,
+      team: input.team,
+      repo: project,
+      summary: selection.text,
+    })
+
+    if ('opened' in result) {
+      await this.output.notice(
+        conversation,
+        `Ese proyecto ya tiene su hilo: ${await threadLink(this, result.opened)}`,
+      )
+    }
+
+    if ('pending' in result) {
+      await this.output.notice(
+        conversation,
+        'Ya te propuse abrir ese hilo; usa los botones de arriba.',
+      )
+    }
+
+    return { duplicate: false, runId: null, command: null }
   }
 
   /** Parses explicit execution options and repository selection without interpreting the request. */
@@ -843,5 +904,13 @@ export class Core {
     }
 
     await Promise.allSettled(active.map((a) => a.done))
+    await Promise.allSettled([...this.afterRun])
+  }
+
+  /** Keeps work that outlives its run, such as the shared-checkout check, until it settles. */
+  trackAfterRun(work: Promise<void>): Promise<void> {
+    this.afterRun.add(work)
+    void work.finally(() => this.afterRun.delete(work))
+    return work
   }
 }

@@ -85,6 +85,23 @@ export interface Output {
   flush?(): Promise<void>
 }
 
+/** What the requester sees when the agent proposes continuing in another project's thread. */
+export interface ThreadProposalMessage {
+  id: string
+  project: string
+  current: string
+  summary: string
+}
+
+/** Slack threads Regent opens for another project, only after the requester confirms. */
+export interface Threads {
+  propose(conversation: Conversation, proposal: ThreadProposalMessage): Promise<string>
+  open(channel: string, text: string): Promise<string>
+  permalink(channel: string, ts: string): Promise<string | undefined>
+  settle(channel: string, ts: string, text: string): Promise<void>
+  whisper(channel: string, thread: string | null, user: string, text: string): Promise<void>
+}
+
 export interface Rooms {
   create(name: string): Promise<string>
   find(name: string): Promise<string | undefined>

@@ -145,7 +145,11 @@ own worktree and `ExitWorktree` is refused, except to leave a linked worktree Re
 answers normally but ends with an editing or worktree tool refused and never working afterwards
 is recorded as a `run_blocked` event, counted in `/metrics` (`regent_runs_blocked`), flagged in
 `pnpm regent runs`, and announced in `slack.alerts_channel` when one is configured; its state
-stays `completed`, so clients see no new state. A command run from the project's shared checkout
+stays `completed`, so clients see no new state. Each run also snapshots `git status` of the
+project's shared checkout when it starts and again when it ends (`src/core/shared-checkout.ts`);
+entries that appeared in between, outside `.worktrees/` and `.claude/`, are recorded as a
+`shared_checkout_changed` event and announced in the same channel. A concurrent run of the
+same project can be the source, which the notice states. A command run from the project's shared checkout
 may read, build, fetch, pull and reinstall the committed lockfile, but recognized Git state
 changes, other package installs and output redirected outside the worktree are refused,
 because every conversation reads that checkout. A new project created elsewhere in the
@@ -179,10 +183,20 @@ remain compatible when source files move.
 
 The initial request selects the conversation's project. Later explicit selections and
 `regent_use_repo` may resolve services and registered submodules in that same project,
-but reject a different independent project before changing state or queuing work. The
-user starts a new conversation/thread for that project; MCP clients use `regent_start`
-with `repo`. Execution-profile changes within the selected project retain their normal
-handoff and authorization checks.
+but reject a different independent project before changing state or queuing work. In
+Slack, a different independent project is reached through a confirmed new thread
+(`src/core/thread-proposals.ts`, schema 14 `thread_proposals`): the executor calls
+`regent_propose_thread`, or the requester selects that project with `repo:` in the
+thread, and Regent posts a proposal with "Abrir hilo nuevo" and "Seguir aquí" buttons.
+Only the requester who triggered it can press them, the first press wins, and nothing is
+opened without the open button: a text reply leaves it pending. Opening posts a new
+top-level message in the same channel or DM, starts a conversation there bound to the
+other project with the proposal's summary, and links both threads. Anything inside the
+current project, including submodules, services and worktrees, is refused, as is a second
+proposal while one is pending, a repeat right after the requester chose to stay, and a
+proposal for a project whose thread already exists, which returns its link. Proposals
+expire after a day. MCP clients use `regent_start` with `repo`. Execution-profile
+changes within the selected project retain their normal handoff and authorization checks.
 
 Repository instructions guide the development and validation appropriate to a request.
 The optional `regent_status.phase` labels transitions for immediate progress updates; repeated

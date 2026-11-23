@@ -17,6 +17,7 @@ const INTERNAL_TOOLS = [
   'ask_human',
   'cancel',
   'cleanup_worktree',
+  'propose_thread',
 ].map((tool) => `mcp__regent__regent_${tool}`)
 const DOWNLOAD = /\b(?:curl|wget|fetch)\b/
 const SHELL_INTERPRETERS = ['sh', 'bash', 'zsh', 'ash', 'dash']

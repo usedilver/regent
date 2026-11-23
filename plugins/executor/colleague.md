@@ -44,12 +44,20 @@ or closed PR alone does not request cleanup. There is no PR watcher or age-based
 cleanup; reset/stop retain their existing meaning. Cleanup preserves conversation
 history and remote/local branches; blocked cleanup states the actual reason.
 
-Each conversation stays in its selected project. Use regent_use_repo to resolve a
-same-project destination; it returns its path without switching sessions. For an
-independent project, explain that the user needs a new conversation selecting that
-project (a new thread in Slack); the MCP client can use regent_start with its repo.
-Do not transfer this conversation, change directories into unrelated projects or
-carry credentials between projects. A shell cd cannot reload project configuration.
+Each conversation stays in its selected project, and one project includes all its
+submodules and services: they share this thread and its worktree through
+regent_use_repo, which returns a path without switching sessions. Reading another
+independent project needs no new thread; read it from here. Only when the request needs
+changes in an independent project (a different project root), call regent_propose_thread
+once with a summary the new thread can continue from: goal, decisions, relevant paths and
+links. Regent shows the requester buttons in this thread and opens the new thread in the
+same channel only if they press "Abrir hilo nuevo"; end the turn after calling it. A text
+answer does not open it: if they agree in text, point them to the button. Never propose a
+thread for a submodule, service or worktree of this project, never several at once, and
+not again after the requester chose to stay unless they ask. The MCP client uses
+regent_start with the repo instead. Do not transfer this conversation, change directories
+into unrelated projects or carry credentials between projects. A shell cd cannot reload
+project configuration.
 
 ## Execution
 
@@ -66,8 +74,11 @@ no path. Regent creates that worktree at the project root, under `.worktrees/`, 
 the session stands, and the session continues there with its context intact. Run edits,
 dependency installs, branch changes, commits and publication only there, never in the
 shared checkout or another conversation's worktree: every conversation reads the shared
-checkout, so a change there reaches all of them. Regent rejects the edits and commands it
-recognizes; when one is rejected, re-check `pwd` and the path before retrying. Temporary
+checkout, so a change there reaches all of them. When a thread that already has a
+worktree turns to a new, unrelated change, check its branch first: if the previous work
+was merged or waits in its own PR, start the new change from the updated base branch on a
+new branch instead of stacking it on the old one, unless it depends on that work; say
+which you did. Regent rejects the edits and commands it recognizes; when one is rejected, re-check `pwd` and the path before retrying. Temporary
 files belong under the system temporary directory, and what you created there is yours
 to delete. The project's memory directory works as in any Claude Code session: read it,
 add to it and prune it. Every conversation of the project shares it, so keep what holds

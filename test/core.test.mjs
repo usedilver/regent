@@ -906,7 +906,7 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
     )
     store.close()
     store = new Store(file)
-    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 13)
+    assert.equal(store.db.prepare('PRAGMA user_version').get().user_version, 14)
     assert.ok(
       store.db
         .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='slack_finish'")

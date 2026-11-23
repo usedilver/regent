@@ -14,6 +14,8 @@ import { createIdentityResolver } from './identity.ts'
 import { slackImageLoader } from './images.ts'
 import { SlackOutput, type QuestionMessage } from './output.ts'
 import { createRoomApi } from './rooms.ts'
+import { createThreadApi, THREAD_OPEN_ACTION, THREAD_STAY_ACTION } from './threads.ts'
+import { answerThread } from '../../core/thread-proposals.ts'
 import { accepts, conversationRoute, type SlackRoute } from './routing.ts'
 import { messageBody } from './thread.ts'
 
@@ -52,6 +54,7 @@ class SlackInbound {
       this.config.slack.progress_mode === 'plain',
     )
     core.rooms = rooms
+    core.threads = createThreadApi(api)
     const auth = await api('auth.test', {})
     if (auth.team_id !== team) throw new Error('El token Slack pertenece a otro workspace.')
     this.botId = auth.user_id
@@ -138,6 +141,40 @@ class SlackInbound {
     if (duplicate)
       return this.output.whisper(message, body.user.id, 'La pregunta ya fue respondida.')
     await this.output.answered(message, body.user.id, index)
+  }
+
+  /** A button press on a proposal to continue in another project's thread. */
+  async thread(body: any, action: any): Promise<void> {
+    const channel = body.channel?.id
+    const thread = body.message?.thread_ts ?? null
+
+    try {
+      if (body.user?.team_id && body.user.team_id !== this.team) {
+        throw new Error('Usuario de otro workspace.')
+      }
+
+      if (!(await this.access.allowed(body.user.id))) {
+        throw new Error('Usuario fuera de la configuracion autorizada.')
+      }
+
+      const result = await answerThread(this.core, {
+        id: action.value,
+        open: action.action_id === THREAD_OPEN_ACTION,
+        user: body.user.id,
+        team: body.team?.id,
+        channel,
+      })
+      if (result.duplicate) {
+        await this.core.threads?.whisper(
+          channel,
+          thread,
+          body.user.id,
+          'Esa propuesta ya fue respondida.',
+        )
+      }
+    } catch (error) {
+      await this.core.threads?.whisper(channel, thread, body.user.id, redact(errorMessage(error)))
+    }
   }
 
   private async answer(
@@ -237,6 +274,15 @@ export function createSlack(config: Config) {
       console.error(`[slack v2] question answer: ${redact(errorMessage(error))}`)
     })
   })
+  app.action(
+    new RegExp(`^(${THREAD_OPEN_ACTION}|${THREAD_STAY_ACTION})$`),
+    async ({ ack, body, action }: any) => {
+      await ack()
+      await inbound.thread(body, action).catch((error) => {
+        console.error(`[slack v2] thread proposal: ${redact(errorMessage(error))}`)
+      })
+    },
+  )
   app.error(async (error) => {
     console.error(`[slack v2] ${redact(error.message)}`)
   })
