@@ -7,6 +7,7 @@ import type { ImageInput } from '../core/images.ts'
 import { createSystemPrompt } from './prompt.ts'
 import { executionFailure, type ExecutionFailure } from './failures.ts'
 import { BackgroundTasks } from './background-tasks.ts'
+import { ReplyText } from './reply-text.ts'
 
 type ToolEvent = { id: string; parentId?: string | null }
 type McpConnection = { name: string; status?: string }
@@ -399,7 +400,7 @@ class RunnerSession {
   private reason = ''
   private fatal = ''
   private stderr = ''
-  private streamed = ''
+  private readonly reply = new ReplyText()
   private result?: ResultEvent
   private lastEvent = Date.now()
   private readonly backgroundTasks = new BackgroundTasks()
@@ -482,6 +483,7 @@ class RunnerSession {
 
     try {
       this.backgroundTasks.observe(raw)
+      this.reply.observe(raw)
       this.lastEvent = Date.now()
       for (const event of normalizeEvent(raw)) this.onEvent(event)
     } catch (error) {
@@ -492,7 +494,6 @@ class RunnerSession {
   private onEvent(event: RunnerEvent): void {
     this.options.onEvent(event)
     if (event.kind === 'init') this.checkMcp(event)
-    if (event.kind === 'text_delta') this.streamed += event.text
     if (event.kind === 'result') this.result = event
   }
 
@@ -533,7 +534,7 @@ class RunnerSession {
 
     return {
       state,
-      text: this.result?.text || this.streamed,
+      text: this.reply.text(this.result?.text),
       error,
       cost: this.result?.cost ?? 0,
       usage: this.result?.usage ?? {},
