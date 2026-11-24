@@ -206,7 +206,15 @@ Runtime workspace preparation uses the shared activity timeline, including succe
 it does not post a separate conversational notice. Slack delivery and MCP replay use the
 same activity state, without publishing workspace paths or setup values.
 Routine status, queue and retry updates use that activity timeline too. Slack does not
-publish heartbeat messages or intermediate model prose. Explicit questions, actionable
+publish heartbeat messages or stream partial model prose. The runner retains all top-level
+assistant text blocks, including answers written before later tool calls or background
+continuations, and delivers them together at the end. The CLI's last result supplements
+that text instead of replacing it; streamed/completed copies and the repeated final text
+are not delivered twice. Thinking, subagent text and tool results are excluded. This
+preserves answers even when the executor ends with a brief acknowledgement after using
+another tool. The complete redacted response uses the existing persisted run result and
+durable paginated delivery, including retries after restart. Routine progress belongs in
+`regent_status`, not assistant prose. Explicit questions, actionable
 notices (including context recovery and execution limits) and final outcomes remain
 conversational messages. Legacy heartbeat receipts are retained only for cleanup.
 The 45-second heartbeat renews native `processing` status while a run is active,

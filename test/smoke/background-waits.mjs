@@ -73,9 +73,9 @@ try {
     'The quiet wait must exceed the inactivity window',
   )
   assert.match(result.text, /READY/)
-  assert.doesNotMatch(result.text, /WAITING/)
+  assert.match(result.text, /WAITING/)
   console.log(
-    'PASS real CLI: quiet background task exceeds inactivity window, resumes and delivers its final result.',
+    'PASS real CLI: quiet background task exceeds inactivity window, resumes and preserves both assistant responses.',
   )
 } finally {
   handle?.cancel()

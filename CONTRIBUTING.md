@@ -28,6 +28,11 @@ unmodified CLI, a temporary repository and a synthetic project MCP. It incurs no
 usage, keeps source files unchanged and removes its temporary files; it never inspects or copies
 authentication files.
 Simulated tests are the default in CI.
+`REGENT_SMOKE=1 node test/smoke/reply-delivery.mjs` asks the official CLI to write a
+report, call a synthetic MCP tool, then emit a short closing. It verifies the complete
+reply reaches the simulated Slack adapter exactly once. It uses normal operator
+authentication and provider usage, a temporary directory and a loopback MCP fixture;
+it never sends real Slack messages or reads authentication files.
 `REGENT_SMOKE=1 node test/smoke/background-waits.mjs` runs a synthetic 35-second
 background shell command with the official CLI and normal operator authentication.
 It checks a quiet wait longer than the inactivity window, the automatic follow-up
