@@ -45,6 +45,7 @@ import {
 import { RoomTransfers } from './rooms.ts'
 import { proposeThread, threadLink } from './thread-proposals.ts'
 import { CORE_TOOLS, isToolName } from './tools.ts'
+import { BackgroundTasks } from '../execution/background-tasks.ts'
 import { Turn } from './turn.ts'
 import type { Conversation, Inbound, Output, Rooms, Run, Threads } from './types.ts'
 
@@ -55,6 +56,7 @@ function noteRefusal(active: Active, tool: string, reason: string): void {
 
 /** Tools the agent may still call once the turn is in its wrap-up margin. */
 const DEADLINE_EXEMPT_TOOLS = new Set([
+  'regent_reply',
   'regent_status',
   'regent_ask_human',
   'regent_propose_thread',
@@ -100,6 +102,7 @@ export interface Active {
   /** Serializes submodule checkouts so nested or concurrent requests never race. */
   submoduleQueue?: Promise<unknown>
   worktreeRemoval?: CleanupPullRequest[]
+  replyRequired?: boolean
   cleanupAbort?: AbortController
   /** Tool names by call id, to tell which tool a result belongs to. */
   toolCalls?: Map<string, string>
@@ -536,6 +539,42 @@ export class Core {
 
   // Tools
 
+  completionDecision(
+    token: string,
+    backgroundTasks?: unknown[],
+  ): { decision: 'allow' | 'block'; reason?: string } {
+    const active = this.byToken(token)
+    if (!active) throw new Error('Run inexistente o terminado.')
+    active.replyRequired = true
+    if (
+      active.waiting ||
+      active.cancelled ||
+      active.contextChanged ||
+      active.resumeAfterWait ||
+      this.stopping
+    ) {
+      return { decision: 'allow' }
+    }
+    const background = new BackgroundTasks()
+    if (backgroundTasks)
+      background.observe({
+        type: 'system',
+        subtype: 'background_tasks_changed',
+        tasks: backgroundTasks.map((task: any) => ({
+          task_id: task?.task_id ?? task?.id,
+          ambient: task?.ambient ?? task?.is_ambient,
+        })),
+      })
+    if (background.running || active.controller?.hasBackgroundTasks?.())
+      return { decision: 'allow' }
+    if (this.store.preparedReply(active.run.id)) return { decision: 'allow' }
+    return {
+      decision: 'block',
+      reason:
+        "Before ending, call mcp__regent__regent_reply with the complete user-facing result in the user's language. Consolidate the findings already produced; do not send progress, tool narration or an acknowledgement that the result was delivered. Report verified outcomes only. Regent will add the actual worktree cleanup result after you exit.",
+    }
+  }
+
   /** Only called after the CLI has exited, outside the checkout being removed. */
   async cleanupWorktree(
     key: string,
@@ -609,7 +648,7 @@ export class Core {
     if (!isToolName(name)) throw new Error(`Tool desconocida: ${name}`)
     if (
       active.worktreeRemoval !== undefined &&
-      !['regent_status', 'regent_cleanup_worktree', 'regent_cancel'].includes(name)
+      !['regent_reply', 'regent_status', 'regent_cleanup_worktree', 'regent_cancel'].includes(name)
     ) {
       throw new Error('La limpieza ya fue solicitada; termina el turno para que Regent la ejecute.')
     }
@@ -757,7 +796,7 @@ export class Core {
     this.store.trackWorktree(key, cwd, name, dir)
   }
 
-  private isolation(active: Active): { cwd: string; dir: string } {
+  isolation(active: Active): { cwd: string; dir: string } {
     const cwd = this.store.conversation(active.run.conversation_key)?.cwd ?? this.defaultCwd
     return { cwd, dir: isolationFor(cwd, active.run.conversation_key).dir }
   }

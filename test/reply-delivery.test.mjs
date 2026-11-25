@@ -3,208 +3,61 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
-import { startRunner } from '../src/execution/runner.ts'
 import { Core } from '../src/core/core.ts'
 import { ConfigSchema } from '../src/config.ts'
 import { Store } from '../src/storage/store.ts'
 import { DurableOutput } from '../src/storage/delivery.ts'
 import { SlackOutput } from '../src/adapters/slack/output.ts'
+import { createHttp } from '../src/adapters/http.ts'
 import { replyPayloads } from '../src/adapters/slack/format.ts'
+import { checkReply } from '../plugins/executor/hooks/reply.mjs'
 
-const report = '# Resultado\n\nSe encontraron tres dependencias que deben migrarse.'
-const acknowledgement = 'Análisis entregado y memoria actualizada.'
-const assistant = (id, text, extra = {}) => ({
-  type: 'assistant',
-  message: { id, content: [{ type: 'text', text }] },
-  ...extra,
-})
-const delta = (text, extra = {}) => ({
-  type: 'stream_event',
-  event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } },
-  ...extra,
-})
-const result = (text) => ({ type: 'result', result: text, total_cost_usd: 0 })
-const edit = {
-  type: 'assistant',
-  message: {
-    content: [{ type: 'tool_use', id: 'edit', name: 'Edit', input: { file_path: '/fixture' } }],
-  },
+const report = '# Resultado\n\nInforme completo en español.'
+const narration = "I'll investigate this now."
+const acknowledgement = 'Análisis entregado.'
+const input = {
+  adapter: 'slack',
+  eventId: 'request',
+  key: 'slack:C:1',
+  channel: 'C',
+  thread: '1',
+  author: 'U',
+  team: 'T',
+  text: 'Revisa el proyecto',
 }
-const edited = {
-  type: 'user',
-  message: { content: [{ type: 'tool_result', tool_use_id: 'edit', content: 'Updated' }] },
-}
-const incident = (text = report) => [
-  delta(text),
-  assistant('report', text),
-  edit,
-  edited,
-  delta(acknowledgement),
-  assistant('closing', acknowledgement),
-  result(acknowledgement),
-]
-
-function fixture(t, events) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-reply-')))
-  const script = `const events = ${JSON.stringify(events)};
-console.log(JSON.stringify({type:'system',subtype:'init',session_id:'fixture',mcp_servers:[]}));
-for (const event of events) console.log(JSON.stringify(event));`
-  const options = {
-    cwd: root,
-    prompt: 'Review the fixture',
-    runId: 'fixture',
-    toolsUrl: 'http://127.0.0.1:1/tools',
-    token: 'synthetic',
-    readonlyMcp: [],
-    command: process.execPath,
-    prefixArgs: ['-e', script, '--'],
-    timeoutMs: 5000,
-    stallMs: 2000,
-    graceMs: 30,
-    onEvent() {},
-  }
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
-  return { root, options }
-}
-
-test('report → memory tool → acknowledgement preserves the report exactly once', async (t) => {
-  const { options } = fixture(t, incident())
-  const reply = await startRunner(options).done
-  assert.equal(reply.state, 'completed', reply.error)
-  assert.equal(reply.text, `${report}\n\n${acknowledgement}`)
-})
-
-test('completed assistant messages work without partial streaming', async (t) => {
-  const { options } = fixture(
-    t,
-    incident().filter((event) => event.type !== 'stream_event'),
-  )
-  assert.equal((await startRunner(options).done).text, `${report}\n\n${acknowledgement}`)
-})
-
-test('a normal streamed final is not duplicated', async (t) => {
-  const { options } = fixture(t, [delta(report), assistant('report', report), result(report)])
-  assert.equal((await startRunner(options).done).text, report)
-})
-
-test('multiple text blocks and cumulative snapshots preserve order without duplicates', async (t) => {
-  const first = 'Primera parte.'
-  const second = 'Segunda parte.'
-  const completed = {
-    type: 'assistant',
-    message: {
-      id: 'multi',
-      content: [
-        { type: 'text', text: first },
-        { type: 'text', text: second },
-      ],
-    },
-  }
-  const { options } = fixture(t, [
-    { type: 'stream_event', event: { type: 'message_start', message: { id: 'multi' } } },
-    {
-      type: 'stream_event',
-      event: {
-        type: 'content_block_start',
-        index: 0,
-        content_block: { type: 'text', text: first },
-      },
-    },
-    {
-      type: 'stream_event',
-      event: { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } },
-    },
-    delta(second),
-    completed,
-    completed,
-    result(`${first}\n\n${second}`),
-  ])
-  assert.equal((await startRunner(options).done).text, `${first}\n\n${second}`)
-})
-
-test('a background continuation cannot replace an earlier answer with a short final', async (t) => {
-  const { options } = fixture(t, [
-    delta(report),
-    assistant('report', report),
-    result(report),
-    assistant('replay', 'PRIVATE_REPLAY', { isReplay: true }),
-    edit,
-    edited,
-    delta(acknowledgement),
-    assistant('closing', acknowledgement),
-    result(acknowledgement),
-  ])
-  assert.equal((await startRunner(options).done).text, `${report}\n\n${acknowledgement}`)
-})
-
-test('thinking, tool results and subagent prose never enter the reply', async (t) => {
-  const { options } = fixture(t, [
-    {
-      type: 'assistant',
-      message: { content: [{ type: 'thinking', thinking: 'PRIVATE_REASONING' }] },
-    },
-    delta('PRIVATE_SUBAGENT', { parent_tool_use_id: 'agent' }),
-    assistant('child', 'PRIVATE_SUBAGENT', { parent_tool_use_id: 'agent' }),
-    {
-      type: 'user',
-      message: {
-        content: [{ type: 'tool_result', tool_use_id: 'query', content: 'PRIVATE_TOOL' }],
-      },
-    },
-    ...incident(),
-  ])
-  assert.equal((await startRunner(options).done).text, `${report}\n\n${acknowledgement}`)
-})
-
-test('stream-only output keeps earlier text when the result is shorter', async (t) => {
-  const { options } = fixture(t, [
-    delta(report),
-    edit,
-    edited,
-    delta(acknowledgement),
-    result(acknowledgement),
-  ])
-  const reply = await startRunner(options).done
-  assert.ok(reply.text.includes(report))
-  assert.equal(reply.text.split(acknowledgement).length - 1, 1)
-})
-
-test('final error text is preserved alongside earlier findings', async (t) => {
-  const { options } = fixture(t, [
-    delta(report),
-    assistant('report', report),
-    { ...result('Provider unavailable'), is_error: true, errors: ['Provider unavailable'] },
-  ])
-  const reply = await startRunner(options).done
-  assert.equal(reply.state, 'failed')
-  assert.equal(reply.text, `${report}\n\nProvider unavailable`)
-})
 
 async function until(predicate) {
-  const deadline = Date.now() + 5000
+  const end = Date.now() + 5000
   while (!predicate()) {
-    if (Date.now() >= deadline) throw new Error('Reply delivery timed out')
+    if (Date.now() > end) throw new Error('Reply test timed out')
     await new Promise((resolve) => setTimeout(resolve, 5))
   }
 }
 
-test('the full reply survives durable Slack pagination, network failure and restart', async (t) => {
-  const longReport = report + '\n\n' + 'Hallazgo verificable. '.repeat(800)
-  const secret = 'sk-ant-synthetic-reply-secret'
-  const { root, options } = fixture(t, incident(`${longReport}\n${secret}`))
+async function fixture(t, { text = report, missing = false, cleanup = false, api } = {}) {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'regent-prepared-reply-')))
   const database = path.join(root, 'test.sqlite')
-  let store = new Store(database)
+  const store = new Store(database)
   const posts = []
-  let offline = true
-  const api = async (method, args) => {
-    if (method !== 'chat.postMessage') return {}
-    if (offline && posts.length === 1) throw new Error('synthetic network failure')
-    posts.push(args)
-    return { ts: `receipt-${posts.length}` }
-  }
-  const slack = new SlackOutput(api)
+  const slack = new SlackOutput(
+    api ??
+      (async (method, args) => {
+        if (method === 'chat.postMessage') posts.push(args)
+        return { ts: `receipt-${posts.length}` }
+      }),
+  )
   slack.store = store
-  let output = new DurableOutput(store, slack)
+  const output = new DurableOutput(store, slack)
+  const script = `const emit=x=>console.log(JSON.stringify(x));
+const config=JSON.parse(process.argv[process.argv.indexOf('--mcp-config')+1]).mcpServers.regent;
+async function call(name,args){const response=await fetch(config.url,{method:'POST',headers:{...config.headers,'content-type':'application/json',accept:'application/json, text/event-stream'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name,arguments:args}})});const body=await response.json();if(body.error||body.result?.isError)throw new Error(JSON.stringify(body));}
+emit({type:'system',subtype:'init',session_id:'fixture',mcp_servers:[],tools:['mcp__regent__regent_reply']});
+emit({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:${JSON.stringify(narration)}}}});
+emit({type:'assistant',message:{id:'progress',content:[{type:'text',text:'Listo, limpié el servidor.'}]}});
+${cleanup ? "await call('regent_cleanup_worktree',{});" : ''}
+${missing ? '' : `await call('regent_reply',{text:${JSON.stringify(text)}});`}
+emit({type:'assistant',message:{content:[{type:'tool_use',name:'Edit',id:'memory',input:{}}]}});
+emit({type:'result',result:${JSON.stringify(acknowledgement)},total_cost_usd:0});`
   const core = new Core({
     store,
     output,
@@ -215,54 +68,144 @@ test('the full reply survives durable Slack pagination, network failure and rest
       slack: { workspace_team_id: 'T', allowed_users: ['U'] },
     }),
     runnerOverrides: {
-      command: options.command,
-      prefixArgs: options.prefixArgs,
-      stallMs: options.stallMs,
+      command: process.execPath,
+      prefixArgs: ['--input-type=module', '-e', script, '--'],
+      stallMs: 2000,
     },
   })
+  const server = createHttp(core, () => ({}))
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  core.toolsUrl = `http://127.0.0.1:${server.address().port}/tools`
   t.after(async () => {
     await core.close()
     await output.close()
+    await new Promise((resolve) => server.close(resolve))
     store.close()
+    fs.rmSync(root, { recursive: true, force: true })
   })
-  const accepted = await core.submit({
-    adapter: 'slack',
-    eventId: 'incident',
-    key: 'slack:C:1',
-    channel: 'C',
-    thread: '1',
-    author: 'U',
-    team: 'T',
-    text: 'Review the fixture',
+  return { root, database, core, store, output, slack, posts }
+}
+
+async function run(f) {
+  const accepted = await f.core.submit(input)
+  await until(() => !f.core.active.size)
+  await f.output.flush()
+  return f.store.run(accepted.runId)
+}
+
+test('a saved report survives a later tool and short closing; English narration stays private', async (t) => {
+  const f = await fixture(t)
+  const result = await run(f)
+  assert.equal(result.state, 'completed', result.error)
+  assert.equal(result.result, report)
+  assert.equal(f.posts.map((post) => post.text).join(''), report)
+  assert.equal(f.store.preparedReply(result.id), report)
+  assert.doesNotMatch(JSON.stringify(f.posts), /investigate|limpié|Análisis entregado/)
+})
+
+test('missing prepared reply fails visibly instead of delivering an acknowledgement', async (t) => {
+  const f = await fixture(t, { missing: true })
+  const result = await run(f)
+  assert.equal(result.state, 'failed')
+  assert.match(result.error, /sin preparar/)
+  assert.match(f.posts[0].text, /incompleto/)
+  assert.doesNotMatch(JSON.stringify(f.posts), /investigate|limpié|Análisis entregado/)
+})
+
+test('the verified cleanup result cannot be contradicted by discarded intermediate prose', async (t) => {
+  const f = await fixture(t, { cleanup: true })
+  f.core.cleanupWorktree = async () => ({
+    state: 'blocked',
+    message: 'No eliminé el worktree: hay trabajo sin respaldo.',
   })
-  await until(() => !core.active.size)
-  await output.flush()
-  const run = store.run(accepted.runId)
-  assert.ok(run.result.includes(longReport), 'The persisted reply must include the full report')
-  assert.ok(run.result.includes('[REDACTED]'))
-  assert.ok(!run.result.includes(secret))
+  const result = await run(f)
+  assert.equal(result.result, `No eliminé el worktree: hay trabajo sin respaldo.\n\n${report}`)
+  assert.doesNotMatch(JSON.stringify(f.posts), /limpié el servidor/)
+})
+
+test('prepared replies replace earlier drafts and survive reopening SQLite', async (t) => {
+  const f = await fixture(t)
+  const result = await run(f)
+  f.store.prepareReply(result.id, 'Versión corregida')
+  const reader = new Store(f.database)
+  try {
+    assert.equal(reader.preparedReply(result.id), 'Versión corregida')
+  } finally {
+    reader.close()
+  }
+})
+
+test('Stop requests consolidation until the complete reply is saved, and permits required waits', async (t) => {
+  const f = await fixture(t)
+  let finish
+  let background = false
+  f.core.runner = (options) => ({
+    done: new Promise((resolve) => {
+      finish = resolve
+    }),
+    cancel() {
+      finish({ state: 'interrupted', text: '', error: 'stopped', cost: 0, usage: {} })
+    },
+    hasBackgroundTasks: () => background,
+  })
+  const accepted = await f.core.submit(input)
+  await until(() => f.core.active.get(input.key)?.controller)
+  const active = f.core.active.get(input.key)
+  assert.equal(f.core.completionDecision(active.token).decision, 'block')
   assert.equal(
-    store.db.prepare("SELECT state FROM deliveries WHERE kind='finish'").get().state,
+    f.core.completionDecision(active.token, [{ id: 'background', is_ambient: false }]).decision,
+    'allow',
+  )
+  const blocked = await checkReply({ hook_event_name: 'Stop' }, f.core.toolsUrl, active.token)
+  assert.match(blocked.reason, /complete user-facing result/)
+  background = true
+  assert.equal(f.core.completionDecision(active.token).decision, 'allow')
+  await assert.rejects(
+    f.core.tool(active.token, 'regent_reply', { text: report }),
+    /trabajo de fondo/,
+  )
+  background = false
+  active.waiting = true
+  assert.equal(f.core.completionDecision(active.token).decision, 'allow')
+  active.waiting = false
+  await f.core.tool(active.token, 'regent_reply', { text: report })
+  assert.equal(await checkReply({ hook_event_name: 'Stop' }, f.core.toolsUrl, active.token), null)
+  finish({ state: 'completed', text: acknowledgement, error: '', cost: 0, usage: {} })
+  await until(() => !f.core.active.size)
+  assert.equal(f.store.run(accepted.runId).result, report)
+})
+
+test('the full saved reply survives paginated delivery failure and a delegate restart', async (t) => {
+  const longReport = report + '\n\n' + 'Hallazgo verificable. '.repeat(800)
+  const secret = 'sk-ant-synthetic-reply-secret'
+  const posts = []
+  let offline = true
+  const api = async (method, args) => {
+    if (method !== 'chat.postMessage') return {}
+    if (offline && posts.length === 1) throw new Error('synthetic network failure')
+    posts.push(args)
+    return { ts: `receipt-${posts.length}` }
+  }
+  const f = await fixture(t, { text: `${longReport}\n${secret}`, api })
+  const result = await run(f)
+  assert.equal(result.state, 'completed')
+  assert.ok(result.result.includes(longReport))
+  assert.ok(!result.result.includes(secret))
+  assert.ok(f.store.preparedReply(result.id).includes('[REDACTED]'))
+  assert.equal(posts.length, 1)
+  assert.equal(
+    f.store.db.prepare("SELECT state FROM deliveries WHERE kind='finish'").get().state,
     'pending',
   )
-  assert.equal(posts.length, 1)
-  await core.close()
-  await output.close()
-  store.close()
-
-  store = new Store(database)
   const resumed = new SlackOutput(api)
-  resumed.store = store
-  output = new DurableOutput(store, resumed)
+  resumed.store = f.store
+  const recovered = new DurableOutput(f.store, resumed)
   offline = false
-  await output.flush()
+  await recovered.flush()
+  await recovered.close()
   assert.deepEqual(
     posts.map((post) => post.text),
-    replyPayloads(run.result).map((page) => page.text),
+    replyPayloads(result.result).map((page) => page.text),
   )
   assert.ok(posts.every((post) => post.channel === 'C' && post.thread_ts === '1'))
-  assert.equal(
-    store.db.prepare("SELECT state FROM deliveries WHERE kind='finish'").get().state,
-    'sent',
-  )
 })

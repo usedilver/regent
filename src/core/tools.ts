@@ -17,8 +17,36 @@ import { RoomTransfers } from './rooms.ts'
 import { ToolSchemas } from './tool-schemas.ts'
 import type { Conversation } from './types.ts'
 import { proposeThread, threadLink } from './thread-proposals.ts'
+import { publishGitBranch } from './git-publication.ts'
 
 export type ToolName = keyof typeof ToolSchemas
+
+async function prepareReply({ core, active, input }: ToolCall) {
+  const { text } = ToolSchemas.regent_reply.parse(input)
+  active.replyRequired = true
+  if (active.controller?.hasBackgroundTasks?.()) {
+    throw new Error('Espera el trabajo de fondo antes de preparar la respuesta definitiva.')
+  }
+  core.store.prepareReply(active.run.id, text)
+  return {
+    stored: true,
+    instruction:
+      'Your complete reply is saved. End the turn; do not repeat it. Call regent_reply again only to replace it with a corrected complete reply.',
+  }
+}
+
+async function publishGit({ core, active, input }: ToolCall) {
+  const args = ToolSchemas.regent_git_publish.parse(input)
+  core.syncWorktree(active)
+  const { cwd, dir } = core.isolation(active)
+  if (cwd === dir) throw new Error('Publica solo desde el worktree de esta conversación.')
+  const directory = fs.realpathSync(path.resolve(dir, args.directory))
+  if (!isInside(dir, directory))
+    throw new Error('El repositorio está fuera del worktree de esta conversación.')
+  const result = await publishGitBranch(directory, args.action, args.branch, active.abort.signal)
+  core.store.event(active.run.id, 'git_publication', result)
+  return result
+}
 
 export interface ToolCall {
   core: Core
@@ -334,12 +362,14 @@ async function cleanupWorktree({ core, active, input }: ToolCall) {
   return {
     state: 'requested',
     instruction:
-      'End the turn now. Run no more commands and do not delete from Bash. Regent checks and cleans up after the CLI exits and states the actual outcome first, so your final reply must not mention the cleanup; report only the other requested actions. Preserve history, branches and remote commits. No preview is required.',
+      'Prepare regent_reply with the verified outcomes of other requested actions, then end the turn. Run no more commands and do not delete from Bash. Regent checks and cleans up after the CLI exits and adds the actual cleanup outcome. Do not claim cleanup succeeded or is about to run in your reply. Preserve history, branches and remote commits. No preview is required.',
   }
 }
 
 /** The tools the agent reaches through Regent's own MCP server, by their public names. */
 export const CORE_TOOLS: Record<ToolName, Handler> = {
+  regent_reply: prepareReply,
+  regent_git_publish: publishGit,
   regent_read_history: readHistory,
   regent_get_attachment: getAttachment,
   regent_git_read: gitRead,

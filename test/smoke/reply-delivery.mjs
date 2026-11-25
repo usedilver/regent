@@ -24,6 +24,8 @@ const report = `# Informe ${marker}\n\nEste resultado debe llegar completo aunqu
 const closing = `CIERRE_${marker}`
 let checkpointCalls = 0
 let beforeCheckpoint = ''
+let preparedReply
+let consolidationRequests = 0
 const diagnostics = []
 let handle
 const server = http.createServer(async (request, response) => {
@@ -35,7 +37,29 @@ const server = http.createServer(async (request, response) => {
     response.writeHead(200, { 'content-type': 'application/json' }).end('{"reason":null}')
     return
   }
+  if (request.url === '/completion-check') {
+    if (!preparedReply) consolidationRequests++
+    const verdict = preparedReply
+      ? { decision: 'allow' }
+      : {
+          decision: 'block',
+          reason:
+            'Call mcp__regent__regent_reply now with only the complete Spanish report already written above, exactly as written. Do not include the short closing, progress or tool narration. Then end.',
+        }
+    response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(verdict))
+    return
+  }
   const mcp = new McpServer({ name: 'reply-fixture', version: '1.0.0' })
+  mcp.registerTool(
+    'regent_reply',
+    { description: 'Save the complete user-facing response.', inputSchema: { text: z.string() } },
+    async ({ text }) => {
+      preparedReply = text
+      return {
+        content: [{ type: 'text', text: 'Saved. End the turn without repeating the report.' }],
+      }
+    },
+  )
   mcp.registerTool(
     'regent_status',
     {
@@ -58,9 +82,15 @@ const server = http.createServer(async (request, response) => {
 })
 
 try {
+  const communicationFile = path.join(cwd, 'communication.md')
+  fs.writeFileSync(
+    communicationFile,
+    'Controlled transport regression: initially write the report, call regent_status and end with the short closing without regent_reply. When the Stop hook requests consolidation, call regent_reply with only the exact report. This test-specific sequence overrides ordinary delivery timing for this synthetic test. Do not run other tools or delegate.',
+  )
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   handle = startRunner({
     cwd,
+    communicationFile,
     model: 'sonnet',
     runId: 'reply-smoke',
     token,
@@ -74,7 +104,7 @@ try {
 ${report}
 2. Call mcp__regent__regent_status exactly once with text="checkpoint".
 3. After the tool returns, output only ${closing} and end.
-Do not read or modify files, use Bash, delegate, call other tools or contact other services. Do not repeat the report in step 3.`,
+Do not read or modify files, use Bash, delegate or contact other services. Do not repeat the report in step 3. If the Stop hook asks for consolidation, use regent_reply exactly as it instructs.`,
     onEvent(event) {
       if (event.kind === 'init') {
         diagnostics.push({ servers: event.mcpServers.filter((server) => server.name === 'regent') })
@@ -88,7 +118,8 @@ Do not read or modify files, use Bash, delegate, call other tools or contact oth
   assert.equal(reply.state, 'completed', reply.error)
   assert.equal(checkpointCalls, 1, JSON.stringify({ text: reply.text, diagnostics }))
   assert.ok(beforeCheckpoint.includes(report), 'The real CLI must emit the report before the tool')
-  assert.equal(reply.text, `${report}\n\n${closing}`)
+  assert.ok(consolidationRequests > 0, 'The real Stop hook must require the missing deliverable')
+  assert.equal(preparedReply, report)
   const posts = []
   const slack = new SlackOutput(async (method, args) => {
     assert.equal(method, 'chat.postMessage')
@@ -98,11 +129,11 @@ Do not read or modify files, use Bash, delegate, call other tools or contact oth
   await slack.finish(
     { key: 'slack:C:1', channel: 'C', thread: '1' },
     { id: 'reply-smoke' },
-    reply.text,
+    preparedReply,
   )
-  assert.equal(posts.map((post) => post.text).join(''), `${report}\n\n${closing}`)
+  assert.equal(posts.map((post) => post.text).join(''), report)
   console.log(
-    'PASS official Claude CLI: report → tool → short closing preserved exactly once through the simulated Slack adapter.',
+    'PASS official Claude CLI: Stop requires consolidation and the saved Spanish report reaches simulated Slack without narration or the short closing.',
   )
 } finally {
   handle?.cancel()

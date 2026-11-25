@@ -566,6 +566,19 @@ export class Store {
       .run(id, kind, JSON.stringify(redactDeep(retained)), Date.now())
   }
 
+  prepareReply(id: string, text: string): void {
+    this.event(id, 'reply_prepared', { text })
+  }
+
+  preparedReply(id: string): string | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT data FROM events WHERE run_id=? AND kind='reply_prepared' ORDER BY id DESC LIMIT 1",
+      )
+      .get(id)
+    return row ? (JSON.parse(row.data as string).text as string) : undefined
+  }
+
   recordUsage(id: string, cost: number, tokens: unknown): void {
     if (!Number.isFinite(cost) || cost < 0) throw new Error('Costo invalido en result de Claude.')
     this.transaction(() => {

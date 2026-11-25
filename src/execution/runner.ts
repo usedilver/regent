@@ -7,7 +7,6 @@ import type { ImageInput } from '../core/images.ts'
 import { createSystemPrompt } from './prompt.ts'
 import { executionFailure, type ExecutionFailure } from './failures.ts'
 import { BackgroundTasks } from './background-tasks.ts'
-import { ReplyText } from './reply-text.ts'
 
 type ToolEvent = { id: string; parentId?: string | null }
 type McpConnection = { name: string; status?: string }
@@ -49,12 +48,14 @@ export interface RunnerResult {
   cost: number
   usage: unknown
   failure?: ExecutionFailure
+  replyRequired?: boolean
 }
 
 export interface RunnerHandle {
   done: Promise<RunnerResult>
   cancel(reason?: string): void
   setTimeoutMs?(ms: number): void
+  hasBackgroundTasks?(): boolean
 }
 
 export interface RunnerOptions {
@@ -400,11 +401,15 @@ class RunnerSession {
   private reason = ''
   private fatal = ''
   private stderr = ''
-  private readonly reply = new ReplyText()
+  private replyRequired = false
   private result?: ResultEvent
   private lastEvent = Date.now()
   private readonly backgroundTasks = new BackgroundTasks()
   private closed = false
+
+  hasBackgroundTasks(): boolean {
+    return this.backgroundTasks.running
+  }
 
   constructor(child: ChildProcessWithoutNullStreams, options: RunnerOptions, prompt: SystemPrompt) {
     this.child = child
@@ -483,7 +488,6 @@ class RunnerSession {
 
     try {
       this.backgroundTasks.observe(raw)
-      this.reply.observe(raw)
       this.lastEvent = Date.now()
       for (const event of normalizeEvent(raw)) this.onEvent(event)
     } catch (error) {
@@ -494,6 +498,10 @@ class RunnerSession {
   private onEvent(event: RunnerEvent): void {
     this.options.onEvent(event)
     if (event.kind === 'init') this.checkMcp(event)
+    if (event.kind === 'init' && event.tools.includes('mcp__regent__regent_reply'))
+      this.replyRequired = true
+    if (event.kind === 'tool_use' && event.name === 'mcp__regent__regent_reply')
+      this.replyRequired = true
     if (event.kind === 'result') this.result = event
   }
 
@@ -534,7 +542,8 @@ class RunnerSession {
 
     return {
       state,
-      text: this.reply.text(this.result?.text),
+      text: this.result?.text ?? '',
+      replyRequired: this.replyRequired,
       error,
       cost: this.result?.cost ?? 0,
       usage: this.result?.usage ?? {},
@@ -570,6 +579,7 @@ export function startRunner(options: RunnerOptions): RunnerHandle {
     done: session.done,
     cancel: (reason) => session.cancel(reason),
     setTimeoutMs: (ms) => session.setTimeoutMs(ms),
+    hasBackgroundTasks: () => session.hasBackgroundTasks(),
   }
 }
 

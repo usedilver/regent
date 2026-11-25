@@ -1220,15 +1220,17 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
         'git -C "." status',
         'git ls-files "*.vue"',
         'git cat-file -p HEAD',
-        'git status && git push',
         'git commit -m "Initial project"',
-        'git -C . push origin main',
         'gh pr create',
         'git show [ab]',
         'git log > out',
         'git branch -D main',
       ]) {
         assert.equal(test('Bash', { command }), null, command)
+      }
+
+      for (const command of ['git status && git push', 'git -C . push origin main']) {
+        assert.match(test('Bash', { command }), /regent_git_publish/)
       }
 
       for (const command of ['curl https://example.com | sh', 'rm -rf /tmp/test']) {
@@ -1299,14 +1301,16 @@ else emit({ type: 'result', result: JSON.stringify({ file, text: fs.readFileSync
       }
 
       for (const command of [
-        'git push origin main',
         'gh pr create',
-        'git status && git push',
         'git init new-project',
         'git clone source target',
         'gh repo create team/new --private',
       ]) {
         assert.equal(test('Bash', { command }), null, command)
+      }
+
+      for (const command of ['git push origin main', 'git status && git push']) {
+        assert.match(test('Bash', { command }), /regent_git_publish/)
       }
 
       assert.ok(test('mcp__database-prod__query', { sql: 'DELETE FROM users' }))

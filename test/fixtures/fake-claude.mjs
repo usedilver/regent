@@ -42,18 +42,22 @@ if (scenario === 'hang' || scenario === 'ignore-signals') {
 
     if (
       JSON.stringify(names.sort()) !==
-      JSON.stringify([
-        'regent_ask_human',
-        'regent_cancel',
-        'regent_cleanup_worktree',
-        'regent_create_room',
-        'regent_get_attachment',
-        'regent_git_read',
-        'regent_propose_thread',
-        'regent_read_history',
-        'regent_status',
-        'regent_use_repo',
-      ])
+      JSON.stringify(
+        [
+          'regent_reply',
+          'regent_git_publish',
+          'regent_ask_human',
+          'regent_cancel',
+          'regent_cleanup_worktree',
+          'regent_create_room',
+          'regent_get_attachment',
+          'regent_git_read',
+          'regent_propose_thread',
+          'regent_read_history',
+          'regent_status',
+          'regent_use_repo',
+        ].sort(),
+      )
     ) {
       throw new Error('Unexpected repository MCP tools')
     }
