@@ -264,7 +264,7 @@ export class Turn {
       timeout_ms: this.timeoutMs,
     }
 
-    return `Core state: ${JSON.stringify(state)}\n\nMessage from ${this.run.author}:\n${this.run.prompt}`
+    return `Core state: ${JSON.stringify(state)}\n\nDelivery protocol: before ending, call regent_reply with the complete result in the user's language. Use regent_status for progress. Assistant narration is not sent. When requesting worktree cleanup, report only other verified outcomes; Regent adds the actual cleanup result after exit. Use regent_git_publish for remote pushes/deletions and verify the current PR state; closed PRs need a new branch and PR.\n\nMessage from ${this.run.author}:\n${this.run.prompt}`
   }
 
   private fullPrompt(handoff: string, request: string): string {
@@ -464,6 +464,29 @@ export class Turn {
   // Outcome
 
   private async settle(result: RunnerResult): Promise<void> {
+    const preparedReply = this.core.store.preparedReply(this.run.id)
+    if (
+      result.state === 'completed' &&
+      (result.replyRequired || this.active.replyRequired) &&
+      preparedReply === undefined &&
+      !this.active.waiting &&
+      !this.active.cancelled &&
+      !this.active.contextChanged &&
+      !this.active.resumeAfterWait &&
+      !this.core.stopping
+    ) {
+      const detail =
+        'El ejecutor terminó sin preparar la respuesta entregable; la sesión se conserva para recuperarla.'
+      result = {
+        ...result,
+        state: 'failed',
+        text: '',
+        error: detail,
+        failure: { source: 'regent', code: 'execution_failed', detail },
+      }
+      this.core.store.event(this.run.id, 'reply_missing', { reason: detail })
+    }
+    if (preparedReply !== undefined) result = { ...result, text: preparedReply }
     clearTimeout(this.runTimeout)
     this.stopTimers()
     this.active.abort.abort()

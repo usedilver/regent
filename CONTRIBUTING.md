@@ -29,8 +29,9 @@ usage, keeps source files unchanged and removes its temporary files; it never in
 authentication files.
 Simulated tests are the default in CI.
 `REGENT_SMOKE=1 node test/smoke/reply-delivery.mjs` asks the official CLI to write a
-report, call a synthetic MCP tool, then emit a short closing. It verifies the complete
-reply reaches the simulated Slack adapter exactly once. It uses normal operator
+report, call a synthetic MCP tool, then emit a short closing. It verifies the real Stop
+hook requests consolidation and only the saved report reaches the simulated Slack
+adapter, without narration or the closing acknowledgement. It uses normal operator
 authentication and provider usage, a temporary directory and a loopback MCP fixture;
 it never sends real Slack messages or reads authentication files.
 `REGENT_SMOKE=1 node test/smoke/background-waits.mjs` runs a synthetic 35-second

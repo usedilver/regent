@@ -4,6 +4,12 @@ import { RoomRequest } from './rooms.ts'
 import { StatusRequest } from './progress.ts'
 
 export const ToolSchemas = {
+  regent_reply: z.object({ text: z.string().trim().max(500000) }),
+  regent_git_publish: z.object({
+    directory: z.string().min(1).max(1000).default('.'),
+    action: z.enum(['push', 'delete_branch']),
+    branch: z.string().min(1).max(250),
+  }),
   regent_read_history: z.object({
     offset: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
     max_chars: z.number().int().min(1).max(16000).default(12000),

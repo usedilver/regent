@@ -11,6 +11,8 @@ const READERS = ['Read', 'Glob', 'Grep']
 const EDITORS = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit']
 const SHELLS = ['Bash', 'PowerShell', 'Monitor']
 const INTERNAL_TOOLS = [
+  'reply',
+  'git_publish',
   'use_repo',
   'create_room',
   'status',
@@ -39,6 +41,21 @@ const WILDCARD = /[*?]/
 const ABSOLUTE_OR_HOME = /^(?:\/|~|\$HOME|\$\{HOME\})/
 const HEREDOC_BODY = /(<<-?\s*(['"]?)(\w+)\2[^\n]*)\n[\s\S]*?\n\s*\3\b/g
 const COMMAND_START = String.raw`(?:^|[\s;&|(\`])`
+const GIT_PUSH = new RegExp(
+  COMMAND_START + String.raw`git\s+(?:(?:-[cC]\s+\S+|--?[\w-]+(?:=\S+)?)\s+)*push(?![\w-])`,
+)
+
+export function publicationDenial(command) {
+  if (
+    GIT_PUSH.test(command) ||
+    /\bgh\s+pr\s+(?:merge|close)\b[^\n]*--delete-branch\b/.test(command) ||
+    (/\bgh\s+api\b[^\n]*\bgit\/refs\/heads\//.test(command) &&
+      /(?:-X\s*DELETE|--method(?:=|\s+)DELETE)/.test(command))
+  ) {
+    return 'Use mcp__regent__regent_git_publish for pushing or deleting remote branches. It verifies current PR state and preserved commits before changing the remote. Merge/close a PR without --delete-branch, then request guarded deletion separately.'
+  }
+  return null
+}
 const GIT_OPTIONS = String.raw`(?:(?:-[cC]\s+\S+|--?[\w-]+(?:=\S+)?)\s+)*`
 /** Git commands that move a checkout's branch, index or files. Fetch and pull keep it current. */
 const GIT_STATE = new RegExp(
@@ -298,12 +315,19 @@ function bashDenial(command, env) {
     return 'No leer archivos de credenciales.'
   }
 
+  if (env.REGENT_SCRATCH !== undefined) {
+    const shared = sharedCheckoutDenial(command, env)
+    if (shared) return shared
+  }
+  const publication = publicationDenial(commandSkeleton(command))
+  if (publication) return publication
+
   // The core supplies these locations; a bare hook without them only applies the guards above.
   if (env.REGENT_SCRATCH === undefined) return null
   if (redirectsElsewhere(command, env)) return worktreeHint(env)
   // Elsewhere Git, gh and repository scripts follow the same runtime permissions as other
   // shell tools. In bypass mode this abstention is not a filesystem sandbox.
-  return sharedCheckoutDenial(command, env)
+  return null
 }
 
 function readonlyMcpDenial(name, input, env) {

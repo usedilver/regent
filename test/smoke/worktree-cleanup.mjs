@@ -87,7 +87,8 @@ try {
   const first = await call('regent_start', {
     request_id: randomUUID(),
     intent: 'task',
-    prompt: 'El PR ya se mergeó. Solo confirma que entendiste, no limpies nada ni hagas cambios.',
+    prompt:
+      'Prepara el worktree de esta conversación con EnterWorktree, sin editar archivos ni crear commits. El PR ya se mergeó. Solo confirma que entendiste; no limpies nada.',
   })
   await wait(first.run_id)
   const isolated = isolationFor(repo, first.conversation_id).dir

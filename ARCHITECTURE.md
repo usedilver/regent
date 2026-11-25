@@ -206,15 +206,19 @@ Runtime workspace preparation uses the shared activity timeline, including succe
 it does not post a separate conversational notice. Slack delivery and MCP replay use the
 same activity state, without publishing workspace paths or setup values.
 Routine status, queue and retry updates use that activity timeline too. Slack does not
-publish heartbeat messages or stream partial model prose. The runner retains all top-level
-assistant text blocks, including answers written before later tool calls or background
-continuations, and delivers them together at the end. The CLI's last result supplements
-that text instead of replacing it; streamed/completed copies and the repeated final text
-are not delivered twice. Thinking, subagent text and tool results are excluded. This
-preserves answers even when the executor ends with a brief acknowledgement after using
-another tool. The complete redacted response uses the existing persisted run result and
-durable paginated delivery, including retries after restart. Routine progress belongs in
-`regent_status`, not assistant prose. Explicit questions, actionable
+publish heartbeat messages, partial prose or intermediate model narration. The executor
+saves a complete user-facing response in the user's language through `regent_reply`;
+each replacement is redacted and persisted as a `reply_prepared` event before the tool
+acknowledges it. Later tools or short closing messages cannot overwrite that response.
+At the end, the core adds verified runtime outcomes and uses the existing durable
+paginated delivery. No schema migration or client-plugin update is required.
+The internal executor's [Stop hook](https://code.claude.com/docs/en/hooks#stop) asks the
+authenticated `/completion-check` to require consolidation when the reply is missing.
+Human waits, context handoffs and live non-ambient background work may end an intermediate
+turn without a reply. Preparing a reply while background work remains active is rejected.
+An executor advertising the reply tool or checked by the Stop hook cannot complete
+successfully without a saved reply. Thinking, subagent text and tool results are never
+used as an implicit reply. Routine progress belongs in `regent_status`. Explicit questions, actionable
 notices (including context recovery and execution limits) and final outcomes remain
 conversational messages. Legacy heartbeat receipts are retained only for cleanup.
 The 45-second heartbeat renews native `processing` status while a run is active,
@@ -236,8 +240,17 @@ authentication and verification. Regent supplies no preview gateway or process m
 A provider's ready deployment does not establish that a protected view or its data works;
 the executor follows project guidance and reports actual evidence and access limitations.
 The external reverse proxy publishes only MCP/OAuth routes; internal tool and health
-routes stay local. The authenticated `/completion-check` remains an allow-only
-compatibility endpoint for older executors.
+routes stay local. `/completion-check` is authenticated by the active run's token.
+
+Remote publication uses `regent_git_publish` from the conversation's worktree. GitHub
+PR state is read before a push: a closed or merged PR requires a new branch and PR.
+After pushing, the remote tip and PR head are checked separately; a racing merge or stale
+GitHub response is never reported as a verified PR update. Remote deletion requires the
+tip to be preserved by another remote branch or a known closed PR ref, excludes the
+branch being deleted and the remote HEAD alias from that proof, and uses an exact lease.
+The default branch and branches with open PRs are protected. Recognized shell push and
+GitHub branch-deletion commands direct the executor to this tool; hooks remain heuristics,
+not an operating-system sandbox. This tool does not merge PRs or infer authorization.
 
 An explicit worktree-removal request uses `regent_cleanup_worktree`, scoped to the
 active conversation. It defers execution until the official CLI exits; core performs
