@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import fs from 'node:fs'
 import { promisify } from 'node:util'
 import { workspaceGit } from './worktree-cleanup.ts'
 
@@ -53,6 +54,12 @@ export async function publishGitBranch(
   signal?: AbortSignal,
   inspect: Inspector = githubPullRequests,
 ) {
+  const repositoryRoot = await workspaceGit(directory, ['rev-parse', '--show-toplevel'], signal)
+  if (fs.realpathSync(repositoryRoot) !== fs.realpathSync(directory)) {
+    throw new Error(
+      'Indica la raíz de un repositorio preparado, no un subdirectorio o submódulo sin checkout.',
+    )
+  }
   await workspaceGit(directory, ['check-ref-format', `refs/heads/${branch}`], signal)
   const request = latest(await inspect(directory, branch, signal))
   if (action === 'push') {

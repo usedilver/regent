@@ -149,3 +149,14 @@ test('shell publication and branch deletion must use the guarded core tool', () 
   }
   assert.equal(denial({ tool_name: 'Bash', tool_input: { command: 'gh pr view 9' } }, {}), null)
 })
+
+test('an unprepared subdirectory cannot accidentally publish its parent repository', async (t) => {
+  const f = fixture(t)
+  const child = path.join(f.repo, 'unprepared')
+  fs.mkdirSync(child)
+  await assert.rejects(
+    publishGitBranch(child, 'push', 'recovery', undefined, async () => []),
+    /raíz/,
+  )
+  assert.equal(f.tip('recovery'), '')
+})
