@@ -54,7 +54,7 @@ async function call(name,args){const response=await fetch(config.url,{method:'PO
 emit({type:'system',subtype:'init',session_id:'fixture',mcp_servers:[],tools:['mcp__regent__regent_reply']});
 emit({type:'stream_event',event:{type:'content_block_delta',delta:{type:'text_delta',text:${JSON.stringify(narration)}}}});
 emit({type:'assistant',message:{id:'progress',content:[{type:'text',text:'Listo, limpié el servidor.'}]}});
-${cleanup ? "await call('regent_cleanup_worktree',{});" : ''}
+${cleanup ? "await call('regent_cleanup_worktree',{}); const policy=await fetch(config.url.replace(/\\/tools$/,'/tool-policy'),{method:'POST',headers:{...config.headers,'content-type':'application/json'},body:JSON.stringify({tool_name:'mcp__regent__regent_reply',tool_input:{text:'verified'}})}); if((await policy.json()).reason)throw new Error('Reply refused after cleanup');" : ''}
 ${missing ? '' : `await call('regent_reply',{text:${JSON.stringify(text)}});`}
 emit({type:'assistant',message:{content:[{type:'tool_use',name:'Edit',id:'memory',input:{}}]}});
 emit({type:'result',result:${JSON.stringify(acknowledgement)},total_cost_usd:0});`
@@ -133,6 +133,14 @@ test('prepared replies replace earlier drafts and survive reopening SQLite', asy
   } finally {
     reader.close()
   }
+})
+
+test('a cleanup-only reply may be empty; runtime supplies the verified result', async (t) => {
+  const f = await fixture(t, { cleanup: true, text: '' })
+  f.core.cleanupWorktree = async () => ({ state: 'removed', message: 'Eliminé el worktree.' })
+  const result = await run(f)
+  assert.equal(result.result, 'Eliminé el worktree.')
+  assert.equal(f.store.preparedReply(result.id), '')
 })
 
 test('Stop requests consolidation until the complete reply is saved, and permits required waits', async (t) => {

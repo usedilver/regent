@@ -24,6 +24,8 @@ export type ToolName = keyof typeof ToolSchemas
 async function prepareReply({ core, active, input }: ToolCall) {
   const { text } = ToolSchemas.regent_reply.parse(input)
   active.replyRequired = true
+  if (!text && active.worktreeRemoval === undefined)
+    throw new Error('La respuesta no puede estar vacía.')
   if (active.controller?.hasBackgroundTasks?.()) {
     throw new Error('Espera el trabajo de fondo antes de preparar la respuesta definitiva.')
   }
@@ -38,8 +40,10 @@ async function prepareReply({ core, active, input }: ToolCall) {
 async function publishGit({ core, active, input }: ToolCall) {
   const args = ToolSchemas.regent_git_publish.parse(input)
   core.syncWorktree(active)
-  const { cwd, dir } = core.isolation(active)
-  if (cwd === dir) throw new Error('Publica solo desde el worktree de esta conversación.')
+  const { dir } = core.isolation(active)
+  if (!active.executionDir || !isInside(dir, active.executionDir)) {
+    throw new Error('Publica solo desde el worktree de esta conversación.')
+  }
   const directory = fs.realpathSync(path.resolve(dir, args.directory))
   if (!isInside(dir, directory))
     throw new Error('El repositorio está fuera del worktree de esta conversación.')

@@ -567,7 +567,7 @@ export class Core {
       })
     if (background.running || active.controller?.hasBackgroundTasks?.())
       return { decision: 'allow' }
-    if (this.store.preparedReply(active.run.id)) return { decision: 'allow' }
+    if (this.store.preparedReply(active.run.id) !== undefined) return { decision: 'allow' }
     return {
       decision: 'block',
       reason:
@@ -845,6 +845,7 @@ export class Core {
     if (
       active.worktreeRemoval !== undefined &&
       ![
+        'mcp__regent__regent_reply',
         'mcp__regent__regent_status',
         'mcp__regent__regent_cleanup_worktree',
         'mcp__regent__regent_cancel',

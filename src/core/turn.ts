@@ -468,7 +468,7 @@ export class Turn {
     if (
       result.state === 'completed' &&
       (result.replyRequired || this.active.replyRequired) &&
-      !preparedReply &&
+      preparedReply === undefined &&
       !this.active.waiting &&
       !this.active.cancelled &&
       !this.active.contextChanged &&
@@ -486,7 +486,7 @@ export class Turn {
       }
       this.core.store.event(this.run.id, 'reply_missing', { reason: detail })
     }
-    if (preparedReply) result = { ...result, text: preparedReply }
+    if (preparedReply !== undefined) result = { ...result, text: preparedReply }
     clearTimeout(this.runTimeout)
     this.stopTimers()
     this.active.abort.abort()
